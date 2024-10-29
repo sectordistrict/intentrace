@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "intentrace is strace with intent, it goes all the way for you instead of half the way."
 edition = "2021"
 license = "MIT"
+repository = "https://github.com/sectordistrict/intentrace"
 
 [dependencies]
 clone3 = "0.2.3"
