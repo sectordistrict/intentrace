@@ -2,7 +2,7 @@
   <img src="./itrace.png" alt="Intentrace">
 </p>
 
-# intentrace
+# About
 
 intentrace is a strace for everyone, intentrace works similarly to strace in that it intercepts and records the system calls which are called by a process, it then reasons through these syscalls by consulting an enormous backlog of handwritten syscall deductions.
 Due to the fact that linux syscalls almost always have dual usage that's obfuscated by libraries, seeing what a syscall is exactly asking for is immensely useful when e.g. a programmer is debugging a crashing binary.
