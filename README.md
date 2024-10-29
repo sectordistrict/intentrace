@@ -2,11 +2,6 @@
   <img src="./itrace.png" alt="Intentrace">
 </p>
 
-<p align="center">
-  <a href="https://github.com/ruffle-rs/ruffle/actions"><img alt="Rust Build Status" src="https://img.shields.io/github/actions/workflow/status/ruffle-rs/ruffle/test_rust.yml?label=Rust%20Build&logo=github&branch=master" /></a>
-  <br />
-</p>
-
 # intentrace
 
 intentrace is a strace for everyone, intentrace works similarly to strace in that it intercepts and records the system calls which are called by a process, it then reasons through these syscalls by consulting an enormous backlog of handwritten syscall deductions.
