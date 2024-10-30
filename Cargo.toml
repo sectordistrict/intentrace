@@ -22,3 +22,6 @@ rustix = { version = "0.38.35", features = ["mm", "net", "rand"] }
 syscalls = "0.6.18"
 tabled = "0.16.0"
 users = "0.11.0"
+
+[profile.release]
+lto = true
