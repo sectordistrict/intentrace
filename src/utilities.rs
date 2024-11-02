@@ -1,6 +1,6 @@
 use crate::{syscalls_map::initialize_syscall_map, types::SysDetails};
 use lazy_static::lazy_static;
-use nix::{errno::Errno, unistd::Pid};
+use nix::{errno::Errno, libc::__errno_location, unistd::Pid};
 use phf::phf_set;
 use procfs::process::{MMapPath, MemoryMap};
 use std::{
@@ -183,8 +183,13 @@ pub fn get_child_memory_break(child: Pid) -> (usize, (u64, u64)) {
 }
 
 pub fn errno_check(rax: u64) -> Option<Errno> {
+    // let a = unsafe { &*__errno_location() };
+    // p!("ERRNO LOCATION");
+    // p!(a);
+    // p!("ERRNO LOCATION");
+
     // TODO! improve on this hack
-    let max_errno = 600;
+    let max_errno = 4095;
     // strace does something similar to this
     // https://github.com/strace/strace/blob/0f9f46096fa8da84e2e6a6646cd1e326bf7e83c7/src/negated_errno.h#L17
     // https://github.com/strace/strace/blob/0f9f46096fa8da84e2e6a6646cd1e326bf7e83c7/src/linux/x86_64/get_error.c#L26

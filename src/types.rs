@@ -185,26 +185,14 @@ impl Display for Category {
     }
 }
 
+// TODO!
+// consider humansize crate 
+
 pub enum Bytes {
     norm(usize),
     kilo(f64),
     mega(f64),
     giga(f64),
-}
-
-impl From<usize> for Bytes {
-    fn from(value: usize) -> Self {
-        let value_float = value as f64;
-        if (value_float / 1_000_000_000.0) >= 1.0 {
-            Bytes::giga(value_float / 1_000_000_000.0)
-        } else if (value_float / 1_000_000.0) >= 1.0 {
-            Bytes::mega(value_float / 1_000_000.0)
-        } else if (value_float / 1_000.0) >= 1.0 {
-            Bytes::kilo(value_float / 1_000.0)
-        } else {
-            Bytes::norm(value)
-        }
-    }
 }
 
 impl Display for Bytes {
@@ -214,14 +202,29 @@ impl Display for Bytes {
                 write!(f, "{:.1} Bytes", bytes)
             }
             Bytes::kilo(bytes) => {
-                write!(f, "{:.1} KiloBytes", bytes)
+                write!(f, "{:.1} Kib", bytes)
             }
             Bytes::mega(bytes) => {
-                write!(f, "{:.1} MegaBytes", bytes)
+                write!(f, "{:.1} Mib", bytes)
             }
             Bytes::giga(bytes) => {
-                write!(f, "{:.1} GigaBytes", bytes)
+                write!(f, "{:.1} Gib", bytes)
             }
+        }
+    }
+}
+
+impl From<usize> for Bytes {
+    fn from(value: usize) -> Self {
+        let value_float = value as f64;
+        if (value_float / 1_073_741_824.0) >= 1.0 {
+            Bytes::giga(value_float / 1_073_741_824.0)
+        } else if (value_float / 1_048_576.0) >= 1.0 {
+            Bytes::mega(value_float / 1_048_576.0)
+        } else if (value_float / 1_024.0) >= 1.0 {
+            Bytes::kilo(value_float / 1_024.0)
+        } else {
+            Bytes::norm(value)
         }
     }
 }
@@ -253,25 +256,25 @@ impl Display for BytesPagesRelevant {
                 }
                 kilo(bytes) => {
                     let pages =
-                        format!("{} Pages", f64::ceil((bytes * 1000.0) / *PAGE_SIZE as f64))
+                        format!("{} Pages", f64::ceil((bytes * 1024.0) / *PAGE_SIZE as f64))
                             .bright_blue();
-                    write!(f, "{:.1} KiloBytes ({})", bytes, pages)
+                    write!(f, "{:.1} KiB ({})", bytes, pages)
                 }
                 mega(bytes) => {
                     let pages = format!(
                         "{} Pages",
-                        f64::ceil((bytes * 1000_000.0) / *PAGE_SIZE as f64)
+                        f64::ceil((bytes * 1_048_576.0) / *PAGE_SIZE as f64)
                     )
                     .bright_blue();
-                    write!(f, "{:.1} MegaBytes ({})", bytes, pages)
+                    write!(f, "{:.1} MiB ({})", bytes, pages)
                 }
                 giga(bytes) => {
                     let pages = format!(
                         "{} Pages",
-                        f64::ceil((bytes * 1000_000_000.0) / *PAGE_SIZE as f64)
+                        f64::ceil((bytes * 1_073_741_824.0) / *PAGE_SIZE as f64)
                     )
                     .bright_blue();
-                    write!(f, "{:.1} GigaBytes ({})", bytes, pages)
+                    write!(f, "{:.1} GiB ({})", bytes, pages)
                 }
             },
             PagesFloor(bytes) => match *bytes {
@@ -283,28 +286,28 @@ impl Display for BytesPagesRelevant {
                 }
                 kilo(bytes) => {
                     let pages =
-                        format!("{} Pages", f64::floor((bytes * 1000.0) / *PAGE_SIZE as f64))
+                        format!("{} Pages", f64::floor((bytes * 1024.0) / *PAGE_SIZE as f64))
                             .bright_blue();
 
-                    write!(f, "{:.1} KiloBytes ({})", bytes, pages)
+                    write!(f, "{:.1} KiB ({})", bytes, pages)
                 }
                 mega(bytes) => {
                     let pages = format!(
                         "{} Pages",
-                        f64::floor((bytes * 1000_000.0) / *PAGE_SIZE as f64)
+                        f64::floor((bytes * 1_048_576.0) / *PAGE_SIZE as f64)
                     )
                     .bright_blue();
 
-                    write!(f, "{:.1} MegaBytes ({})", bytes, pages)
+                    write!(f, "{:.1} MiB ({})", bytes, pages)
                 }
                 giga(bytes) => {
                     let pages = format!(
                         "{} Pages",
-                        f64::floor((bytes * 1000_000_000.0) / *PAGE_SIZE as f64)
+                        f64::floor((bytes * 1_073_741_824.0) / *PAGE_SIZE as f64)
                     )
                     .bright_blue();
 
-                    write!(f, "{:.1} GigaBytes ({})", bytes, pages)
+                    write!(f, "{:.1} GiB ({})", bytes, pages)
                 }
             },
         }

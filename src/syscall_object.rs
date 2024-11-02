@@ -5,7 +5,7 @@ use crate::{
         mlock2, Annotation, ArgContainer, Bytes, BytesPagesRelevant, Category, Flag,
         LandlockCreateFlags, LandlockRuleTypeFlags, SysArg, SysReturn,
     },
-    utilities::{EXITERS, INTENT, SYSCALL_MAP, UNSUPPORTED},
+    utilities::{EXITERS, FOLLOW_FORKS, INTENT, SYSCALL_MAP, UNSUPPORTED},
 };
 
 use colored::{ColoredString, Colorize};
@@ -26,6 +26,7 @@ use nix::{
         signalfd::SfdFlags,
         socket::{self, SockFlag},
         stat::{FchmodatFlags, Mode},
+        uio::{process_vm_readv, RemoteIoVec},
         wait::WaitPidFlag,
     },
     unistd::{AccessFlags, Pid, Whence},
@@ -39,6 +40,7 @@ use rustix::{
 
 use std::{
     fmt::Display,
+    io::IoSliceMut,
     mem::{self, transmute, zeroed},
     os::{fd::RawFd, raw::c_void},
     ptr::null,
@@ -90,7 +92,6 @@ impl Default for SyscallObject {
 
 impl SyscallObject {
     pub fn format(&mut self) {
-        // p!(self.sysno.name());
         if INTENT.get() {
             if let Ok(_) = self.one_line_formatter() {
                 let mut string = String::new();
@@ -106,13 +107,17 @@ impl SyscallObject {
                 let mut output = vec![];
                 output.push("\n".dimmed());
                 let eph_return = self.parse_return_value(1);
-                if eph_return.is_ok() {
-                    output.push(self.child.to_string().green());
+                if FOLLOW_FORKS.get() {
+                    output.push(self.child.to_string().bright_blue());
                 } else {
-                    output.push(self.child.to_string().red());
+                    if eph_return.is_ok() {
+                        output.push(self.child.to_string().blue());
+                    } else {
+                        output.push(self.child.to_string().red());
+                    }
                 }
                 output.extend(vec![
-                    " - ".dimmed(),
+                    " ".dimmed(),
                     SyscallObject::colorize_syscall_name(&self.sysno, &self.category),
                     " - ".dimmed(),
                 ]);
@@ -373,6 +378,7 @@ impl SyscallObject {
         if EXITERS.contains(self.sysno.name()) {
             return Ok(vec![]);
         }
+
         let annotation = self.result.1 .0;
         let sys_return = self.result.1 .1;
         let register_value = self.result.0.unwrap();
@@ -629,14 +635,11 @@ impl SyscallObject {
         };
     }
     pub(crate) fn parse_return_value_one_line(&self) -> Result<String, ()> {
-        if EXITERS.contains(self.sysno.name()) {
+        if self.is_exiting() {
             return Ok("".to_owned());
         }
         let sys_return = self.result.1 .1;
-        let register_value = match self.result.0 {
-            Some(r) => r,
-            None => return Err(()),
-        };
+        let register_value = self.result.0.unwrap();
         use SysReturn::*;
 
         match sys_return {
@@ -682,6 +685,11 @@ impl SyscallObject {
 
             Length_Of_Bytes_Specific_Or_Errno => {
                 let bytes = register_value as isize;
+                if self.sysno == Sysno::readlink {
+                    if self.errno.is_some() {
+                        return Err(());
+                    }
+                }
                 if bytes + 1 == -1 {
                     Err(())
                 } else {
@@ -770,17 +778,20 @@ impl SyscallObject {
                                 }
                             }
                         }
-                        Pointer_To_Numeric(ref mut pid) => match self.read_word(index) {
-                            Some(pid_at_word) => {
-                                if self.sysno == Sysno::wait4 {
-                                    self.rich_args[1].1 =
-                                        ArgContainer::Normal(Pointer_To_Numeric(Some(pid_at_word)));
+                        Pointer_To_Numeric(ref mut pid) => {
+                            match SyscallObject::read_word(self.args[index] as usize, self.child) {
+                                Some(pid_at_word) => {
+                                    if self.sysno == Sysno::wait4 {
+                                        self.rich_args[1].1 = ArgContainer::Normal(
+                                            Pointer_To_Numeric(Some(pid_at_word)),
+                                        );
+                                    }
+                                }
+                                None => {
+                                    // p!("reading numeric failed");
                                 }
                             }
-                            None => {
-                                // p!("reading numeric failed");
-                            }
-                        },
+                        }
                         Pointer_To_Numeric_Or_Numeric(ref mut pid) => {
                             // this is only available for arch_prctl
                             let operation = self.args[0];
@@ -800,7 +811,10 @@ impl SyscallObject {
                                 || (operation & ARCH_GET_FS) == ARCH_GET_FS
                                 || (operation & ARCH_GET_GS) == ARCH_GET_GS
                             {
-                                match self.read_word(index) {
+                                match SyscallObject::read_word(
+                                    self.args[index] as usize,
+                                    self.child,
+                                ) {
                                     Some(pid_at_word) => {
                                         if self.sysno == Sysno::wait4 {
                                             self.rich_args[1].1 = ArgContainer::Normal(
@@ -814,20 +828,34 @@ impl SyscallObject {
                                 }
                             }
                         }
-                        
+
                         Pointer_To_Text(ref mut text) => {
                             // TODO! fix this
                             if self.sysno == Sysno::readlink {
+                                // let a = nix::errno::Errno::EINVAL
+                                if self.errno.is_some() {
+                                    continue;
+                                }
                                 let size = self.result.0.unwrap();
                                 if size > 0 {
-                                    let styled_fd = SyscallObject::read_string_specific_length(
-                                        self.args[index] as usize,
-                                        self.child,
-                                        size as usize
-                                    );
-                                    self.rich_args[1].1 = ArgContainer::Normal(
-                                        Pointer_To_Text(styled_fd.leak()),
-                                    );
+                                    if size > 100 {
+                                        let size = -1 * (size as i32);
+                                        let error = nix::errno::Errno::from_raw(size);
+                                        p!(self.errno);
+                                    } else {
+                                        match SyscallObject::read_string_specific_length(
+                                            self.args[index] as usize,
+                                            self.child,
+                                            size as usize,
+                                        ) {
+                                            Some(styled_fd) => {
+                                                self.rich_args[1].1 = ArgContainer::Normal(
+                                                    Pointer_To_Text(styled_fd.leak()),
+                                                );
+                                            }
+                                            None => (),
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -900,7 +928,7 @@ impl SyscallObject {
                                 format!("{}", "AT_FDCWD -> Current Working Directory".bright_blue())
                             } else {
                                 SyscallObject::style_file_descriptor(self.args[index], self.child)
-                                .unwrap_or(format!("ignored"))
+                                    .unwrap_or(format!("ignored"))
                             };
                             *file_descriptor = styled_fd.leak();
                         }
@@ -912,12 +940,16 @@ impl SyscallObject {
                             }
                             if self.sysno == Sysno::write || self.sysno == Sysno::pwrite64 {
                                 if self.args[2] < 20 {
-                                    let styled_fd = SyscallObject::read_string_specific_length(
+                                    match SyscallObject::read_string_specific_length(
                                         self.args[1] as usize,
                                         self.child,
-                                        self.args[2] as usize ,
-                                    );
-                                    *text = styled_fd.leak();
+                                        self.args[2] as usize,
+                                    ) {
+                                        Some(styled_fd) => {
+                                            *text = styled_fd.leak();
+                                        }
+                                        None => (),
+                                    }
                                     continue;
                                 }
                             }
@@ -1298,7 +1330,6 @@ impl SyscallObject {
         let data = SyscallObject::read_bytes_until_null(address as usize, child).unwrap();
         String::from_utf8_lossy(&data).into_owned()
     }
-
     fn string_from_array_of_strings(address: u64, child: Pid) -> Vec<String> {
         // TODO! execve fails this
         let mut array = SyscallObject::read_words_until_null(address as usize, child).unwrap();
@@ -1310,38 +1341,58 @@ impl SyscallObject {
         strings
     }
 
-    pub(crate) fn read_word(&self, index: usize) -> Option<usize> {
-        let mut addr = self.args[index] as *mut c_void;
-        match ptrace::read(self.child, addr) {
-            Ok(word) => Some(word as usize),
-            Err(res) => None,
+    pub(crate) fn read_word(addr: usize, child: Pid) -> Option<usize> {
+        let remote_iov = RemoteIoVec { base: addr, len: 1 };
+        let mut bytes_buffer = vec![0u8; 4];
+        match process_vm_readv(
+            child,
+            &mut [IoSliceMut::new(&mut bytes_buffer)],
+            &[remote_iov],
+        ) {
+            Ok(_) => Some(unsafe { mem::transmute(&bytes_buffer) }),
+            Err(err) => None,
         }
     }
-    pub(crate) fn read_string_specific_length(addr: usize, child: Pid, size: usize) -> String {
-        let mut addr = addr as *mut c_void;
-        let mut data: Vec<u8> = vec![];
-        let mut i = 0;
-        'reading: loop {
-            match ptrace::read(child, addr) {
-                Ok(word) => {
-                    let bytes: [u8; 8] = unsafe { std::mem::transmute(word) };
-                    for byte in bytes {
-                        if i == size {
-                            break 'reading;
-                        }
-                        i += 1;
-                        data.push(byte);
-                    }
-                    addr = unsafe { addr.byte_add(8) };
-                }
-                Err(res) => {
-                    return "could not read string".to_owned();
-                }
-            };
+
+    pub(crate) fn read_bytes_specific_length(
+        base: usize,
+        child: Pid,
+        len: usize,
+    ) -> Option<Vec<u8>> {
+        let remote_iov = RemoteIoVec { base, len };
+        let mut bytes_buffer = vec![0u8; len];
+        // Note, however, that these system calls
+        // do not check the memory regions in the remote process
+        // until just before doing the read/write.
+        // Consequently, a partial read/write (see RETURN VALUE)
+        // may result if one of the remote_iov elements points to an invalid memory region in the remote process.
+        // No further reads/writes will be attempted beyond that point.
+        // Keep this in mind when attempting to read data of unknown length
+        // (such as C strings that are null-terminated) from a remote process,
+        // by avoiding spanning memory pages (typically 4 KiB)
+        // in a single remote iovec element.
+        // (Instead, split the remote read into two remote_iov elements
+        // and have them merge back into a single write local_iov entry.
+        // The first read entry goes up to the page boundary,
+        match process_vm_readv(
+            child,
+            &mut [IoSliceMut::new(&mut bytes_buffer)],
+            &[remote_iov],
+        ) {
+            Ok(_) => Some(bytes_buffer),
+            Err(err) => None,
         }
-        String::from_utf8_lossy(&data).into_owned()
-        // Some(data)
     }
+
+    pub(crate) fn read_string_specific_length(
+        addr: usize,
+        child: Pid,
+        size: usize,
+    ) -> Option<String> {
+        let bytes_buffer = SyscallObject::read_bytes_specific_length(addr, child, size)?;
+        Some(String::from_utf8_lossy(&bytes_buffer).into_owned())
+    }
+
     pub(crate) fn read_bytes<const N: usize>(addr: usize, child: Pid) -> Option<[u8; N]> {
         let mut addr = addr as *mut c_void;
         let mut data: [u8; N] = [0; N];
@@ -1815,7 +1866,7 @@ impl SyscallObject {
             Category::Security => sysno.name().bold().bright_cyan(),
 
             // black
-            Category::System => sysno.name().bold().bright_black(),
+            Category::System => sysno.name().bold().cyan(),
 
             // exotic
             Category::Signals => sysno.name().bold().magenta(),

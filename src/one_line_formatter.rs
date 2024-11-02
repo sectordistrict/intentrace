@@ -10,7 +10,7 @@ use crate::{
     types::{Bytes, BytesPagesRelevant, LandlockRuleTypeFlags},
     utilities::{
         errno_to_string, get_child_memory_break, get_mem_difference_from_previous,
-        where_in_childs_memory, x86_signal_to_string,
+        where_in_childs_memory, x86_signal_to_string, FOLLOW_FORKS,
     },
 };
 use colored::{Color, ColoredString, Colorize};
@@ -23,10 +23,19 @@ use nix::{
         FUTEX_CMP_REQUEUE_PI, FUTEX_FD, FUTEX_LOCK_PI, FUTEX_LOCK_PI2, FUTEX_PRIVATE_FLAG,
         FUTEX_REQUEUE, FUTEX_TRYLOCK_PI, FUTEX_UNLOCK_PI, FUTEX_WAIT, FUTEX_WAIT_BITSET,
         FUTEX_WAIT_REQUEUE_PI, FUTEX_WAKE, FUTEX_WAKE_BITSET, FUTEX_WAKE_OP,
-        LINUX_REBOOT_CMD_CAD_OFF, MAP_SHARED_VALIDATE, MAP_SYNC, MCL_CURRENT, MCL_FUTURE,
-        MCL_ONFAULT, O_APPEND, O_ASYNC, O_CLOEXEC, O_CREAT, O_DIRECT, O_DIRECTORY, O_DSYNC, O_EXCL,
-        O_LARGEFILE, O_NDELAY, O_NOATIME, O_NOCTTY, O_NOFOLLOW, O_NONBLOCK, O_PATH, O_SYNC,
-        O_TMPFILE, O_TRUNC, PRIO_PGRP, PRIO_PROCESS, PRIO_USER, P_ALL, P_PGID, P_PID, P_PIDFD,
+        LINUX_REBOOT_CMD_CAD_OFF, MADV_COLD, MADV_COLLAPSE, MADV_DODUMP, MADV_DOFORK,
+        MADV_DONTDUMP, MADV_DONTFORK, MADV_DONTNEED, MADV_FREE, MADV_HUGEPAGE, MADV_HWPOISON,
+        MADV_KEEPONFORK, MADV_MERGEABLE, MADV_NOHUGEPAGE, MADV_NORMAL, MADV_PAGEOUT,
+        MADV_POPULATE_READ, MADV_POPULATE_WRITE, MADV_RANDOM, MADV_REMOVE, MADV_SEQUENTIAL,
+        MADV_UNMERGEABLE, MADV_WILLNEED, MADV_WIPEONFORK, MAP_ANON, MAP_ANONYMOUS, MAP_FIXED,
+        MAP_FIXED_NOREPLACE, MAP_GROWSDOWN, MAP_HUGETLB, MAP_HUGE_16GB, MAP_HUGE_16MB,
+        MAP_HUGE_1GB, MAP_HUGE_1MB, MAP_HUGE_256MB, MAP_HUGE_2GB, MAP_HUGE_2MB, MAP_HUGE_32MB,
+        MAP_HUGE_512KB, MAP_HUGE_512MB, MAP_HUGE_64KB, MAP_HUGE_8MB, MAP_LOCKED, MAP_NONBLOCK,
+        MAP_NORESERVE, MAP_POPULATE, MAP_PRIVATE, MAP_SHARED, MAP_SHARED_VALIDATE, MAP_STACK,
+        MAP_SYNC, MCL_CURRENT, MCL_FUTURE, MCL_ONFAULT, O_APPEND, O_ASYNC, O_CLOEXEC, O_CREAT,
+        O_DIRECT, O_DIRECTORY, O_DSYNC, O_EXCL, O_LARGEFILE, O_NDELAY, O_NOATIME, O_NOCTTY,
+        O_NOFOLLOW, O_NONBLOCK, O_PATH, O_SYNC, O_TMPFILE, O_TRUNC, PRIO_PGRP, PRIO_PROCESS,
+        PRIO_USER, P_ALL, P_PGID, P_PID, P_PIDFD,
     },
     sys::{
         eventfd,
@@ -51,14 +60,14 @@ use rustix::{
 use syscalls::Sysno;
 
 impl SyscallObject {
-    pub(crate) fn get_eph_return(&mut self) -> Result<String, ()> {
+    pub(crate) fn get_syscall_return(&mut self) -> Result<String, ()> {
         let eph_return = self.parse_return_value_one_line();
         if self.paused {
             self.one_line.truncate(5);
             self.one_line.iter_mut().for_each(|colored| {
                 *colored = colored.clone().dimmed();
             });
-            self.one_line.push(" CONTINUED ".on_bright_green());
+            self.one_line.push(" CONTINUED ".on_black());
         } else {
             self.one_line.clear();
         }
@@ -68,13 +77,35 @@ impl SyscallObject {
         use crate::syscall_object::SyscallState::*;
 
         if self.state == Entering {
-            self.one_line.push("\n".white());
-            self.one_line.push(self.child.to_string().green());
-            self.one_line.extend(vec![
-                " - ".dimmed(),
-                SyscallObject::colorize_syscall_name(&self.sysno, &self.category),
-                " - ".dimmed(),
-            ]);
+            if FOLLOW_FORKS.get() {
+                self.one_line.extend(vec![
+                    "\n".white(),
+                    self.child.to_string().bright_blue(),
+                    " ".dimmed(),
+                    SyscallObject::colorize_syscall_name(&self.sysno, &self.category),
+                    " - ".dimmed(),
+                ]);
+            } else {
+                if self.get_syscall_return().is_ok() {
+                    self.one_line.extend(vec![
+                        "\n".white(),
+                        self.child.to_string().blue(),
+                        // self.child.to_string().on_black(),
+                        " ".dimmed(),
+                        SyscallObject::colorize_syscall_name(&self.sysno, &self.category),
+                        " - ".dimmed(),
+                    ]);
+                } else {
+                    self.one_line.extend(vec![
+                        "\n".white(),
+                        self.child.to_string().red(),
+                        // self.child.to_string().on_red(),
+                        " ".dimmed(),
+                        SyscallObject::colorize_syscall_name(&self.sysno, &self.category),
+                        " - ".dimmed(),
+                    ]);
+                }
+            }
         }
         //
         //======================
@@ -126,7 +157,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             if getting_current_break {
@@ -169,7 +200,7 @@ impl SyscallObject {
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("file closed".green());
@@ -191,7 +222,7 @@ impl SyscallObject {
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("successfully opened file".green());
@@ -256,7 +287,7 @@ impl SyscallObject {
                         }
                         if (flags_num & O_CLOEXEC) == O_CLOEXEC {
                             directives.push(
-                                "close the file descriptors on the next exec syscall".yellow(),
+                                "close the file descriptor on the next exec syscall".yellow(),
                             );
                         }
                         if (flags_num & O_CREAT) > 0 {
@@ -311,7 +342,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("successfully opened file".green());
@@ -330,7 +361,7 @@ impl SyscallObject {
                         handle_path_file(filename, &mut self.one_line);
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("stats retrieved successfully".green());
@@ -349,7 +380,7 @@ impl SyscallObject {
                         handle_path_file(filename, &mut self.one_line);
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("stats retrieved successfully".green());
@@ -370,7 +401,7 @@ impl SyscallObject {
                             .push(" and do not recurse symbolic links".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("stats retrieved successfully".green());
@@ -390,7 +421,7 @@ impl SyscallObject {
                         handle_path_file(filename, &mut self.one_line);
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("stats retrieved successfully".green());
@@ -410,7 +441,7 @@ impl SyscallObject {
                         handle_path_file(filename, &mut self.one_line);
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("stats retrieved successfully".green());
@@ -469,7 +500,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("stats retrieved successfully".green());
@@ -532,7 +563,7 @@ impl SyscallObject {
                         // println!("{:?}", statx_mask);
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("stats retrieved successfully".green());
@@ -581,7 +612,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("ownership changed".green());
@@ -631,7 +662,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("ownership changed".green());
@@ -680,7 +711,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("ownership changed".green());
@@ -729,10 +760,195 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("ownership changed".green());
+                        } else {
+                            // TODO! granular
+                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                        }
+                    }
+                }
+            }
+            Sysno::madvise => {
+                // addr, len, adv
+                let len = self.pavfol(1);
+                let addr = self.pavfol(0);
+                let advice = self.args[2] as i32;
+                match self.state {
+                    Entering => {
+                        if (advice & MADV_NORMAL) == MADV_NORMAL {
+                            self.one_line.push("provide default treatment for ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                        } else if (advice & MADV_RANDOM) == MADV_RANDOM {
+                            self.one_line.push("expect ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                            self.one_line
+                                .push(" to be referenced in random order".white());
+                        } else if (advice & MADV_SEQUENTIAL) == MADV_SEQUENTIAL {
+                            self.one_line.push("expect ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                            self.one_line
+                                .push(" to be referenced in sequential order".white());
+                        } else if (advice & MADV_WILLNEED) == MADV_WILLNEED {
+                            self.one_line.push("expect ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                            self.one_line.push(" to be accessed in the future".white());
+                        } else if (advice & MADV_DONTNEED) == MADV_DONTNEED {
+                            self.one_line.push("do not expect the".yellow());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                            self.one_line.push(" to be accessed in the future".white());
+                        } else if (advice & MADV_REMOVE) == MADV_REMOVE {
+                            // equivalent to punching a hole in the corresponding range
+                            self.one_line.push("free".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                        } else if (advice & MADV_DONTFORK) == MADV_DONTFORK {
+                            self.one_line.push("do not allow ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                            self.one_line
+                                .push(" to be available to children from ".white());
+                            self.one_line.push("fork()".blue());
+                        } else if (advice & MADV_DOFORK) == MADV_DOFORK {
+                            self.one_line.push("allow ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                            self.one_line
+                                .push(" to be available to children from ".white());
+                            self.one_line.push("fork()".blue());
+                            self.one_line.push(" ".white());
+                            self.one_line.push("(Undo MADV_DONTFORK)".yellow());
+                        } else if (advice & MADV_HWPOISON) == MADV_HWPOISON {
+                            // treat subsequent references to those pages like a hardware memory corruption
+                            self.one_line.push("poison ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                        } else if (advice & MADV_MERGEABLE) == MADV_MERGEABLE {
+                            // KSM merges only private anonymous pages
+                            self.one_line
+                                .push("enable KSM (Kernel Samepage Merging) for ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                        } else if (advice & MADV_UNMERGEABLE) == MADV_UNMERGEABLE {
+                            self.one_line.push(
+                                "unmerge all previous KSM merges from MADV_MERGEABLE in ".white(),
+                            );
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                        } else if (advice & MADV_HUGEPAGE) == MADV_HUGEPAGE {
+                            self.one_line.push("enable".yellow());
+                            self.one_line
+                                .push(" transparent huge pages (THP) on ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                        } else if (advice & MADV_NOHUGEPAGE) == MADV_NOHUGEPAGE {
+                            self.one_line.push("disable".yellow());
+                            self.one_line
+                                .push(" transparent huge pages (THP) on ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                        } else if (advice & MADV_COLLAPSE) == MADV_COLLAPSE {
+                            // TODO! citation needed
+                            self.one_line
+                                .push("perform a synchronous collapse of ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                            self.one_line
+                                .push(" that's mapped into transparent huge pages (THP)".white());
+                        } else if (advice & MADV_DONTDUMP) == MADV_DONTDUMP {
+                            self.one_line.push("exclude ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                            self.one_line.push(" from core dumps".white());
+                        } else if (advice & MADV_DODUMP) == MADV_DODUMP {
+                            self.one_line.push("include ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                            self.one_line.push(" in core dumps ".white());
+                            self.one_line.push("(Undo MADV_DONTDUMP)".yellow());
+                        } else if (advice & MADV_FREE) == MADV_FREE {
+                            self.one_line.push("the range of ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                            self.one_line
+                                .push(" is no longer required and is ok to free".white());
+                        } else if (advice & MADV_WIPEONFORK) == MADV_WIPEONFORK {
+                            self.one_line.push("zero-fill the range of ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                            self.one_line.push(" to any child from ".white());
+                            self.one_line.push("fork()".blue());
+                        } else if (advice & MADV_KEEPONFORK) == MADV_KEEPONFORK {
+                            self.one_line.push("keep the range of ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                            self.one_line.push(" to any child from ".white());
+                            self.one_line.push("fork()".blue());
+                            self.one_line.push(" ".white());
+                            self.one_line.push("(Undo MADV_WIPEONFORK)".yellow());
+                        } else if (advice & MADV_COLD) == MADV_COLD {
+                            // This makes the pages a more probable reclaim target during memory pressure
+                            self.one_line.push("deactivate ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                            self.one_line
+                                .push("  (make more probable to reclaim)".white());
+                        } else if (advice & MADV_PAGEOUT) == MADV_PAGEOUT {
+                            // This is done to free up memory occupied by these pages.
+                            // If a page is anonymous, it will be swapped out.
+                            // If a page  is  file-backed and dirty, it will be written back to the backing storage
+                            self.one_line.push("page out ".white()); // "page out" is more intuitive, "reclaim" is misleading
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                        } else if (advice & MADV_POPULATE_READ) == MADV_POPULATE_READ {
+                            self.one_line.push("prefault ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                            self.one_line.push(" while avoiding memory access ".white());
+                            self.one_line.push("(simulate reading)".yellow());
+                        } else if (advice & MADV_POPULATE_WRITE) == MADV_POPULATE_WRITE {
+                            self.one_line.push("prefault ".white());
+                            self.one_line.push(len.yellow());
+                            self.one_line.push(" of memory starting from ".white());
+                            self.one_line.push(addr.yellow());
+                            self.one_line.push(" while avoiding memory access ".white());
+                            self.one_line.push("(simulate writing)".yellow());
+                        }
+                    }
+                    Exiting => {
+                        let eph_return = self.get_syscall_return();
+                        if eph_return.is_ok() {
+                            self.one_line.push(" |=> ".white());
+                            self.one_line.push("memory advice registered".green());
                         } else {
                             // TODO! granular
                             one_line_error(eph_return, &mut self.one_line, &self.errno);
@@ -745,25 +961,24 @@ impl SyscallObject {
                 //
                 //
                 //
-                let mapping_flags_num = self.args[3];
-                let mapping_flags: MapFlags = unsafe { std::mem::transmute(self.args[3] as u32) };
+                let mapping_flags_num = self.args[3] as i32;
 
-                let shared = mapping_flags.contains(MapFlags::MAP_SHARED);
-                let private = mapping_flags.contains(MapFlags::MAP_PRIVATE);
+                let shared = (mapping_flags_num & MAP_SHARED) == MAP_SHARED;
+                let private = (mapping_flags_num & MAP_PRIVATE) == MAP_PRIVATE;
 
                 let shared_validate = (mapping_flags_num as i32 & MAP_SHARED_VALIDATE) > 0;
 
-                let anonymous =
-                    mapping_flags.contains(MapFlags::MAP_ANON | MapFlags::MAP_ANONYMOUS);
+                let anonymous = ((mapping_flags_num & MAP_ANON) == MAP_ANON)
+                    || ((mapping_flags_num & MAP_ANONYMOUS) == MAP_ANONYMOUS);
 
-                let huge_pages_used = mapping_flags.contains(MapFlags::MAP_HUGETLB);
-                let populate = mapping_flags.contains(MapFlags::MAP_POPULATE);
-                let lock = mapping_flags.contains(MapFlags::MAP_LOCKED);
+                let huge_pages_used = (mapping_flags_num & MAP_HUGETLB) == MAP_HUGETLB;
+                let populate = (mapping_flags_num & MAP_POPULATE) == MAP_POPULATE;
+                let lock = (mapping_flags_num & MAP_LOCKED) == MAP_LOCKED;
 
-                let fixed = mapping_flags.contains(MapFlags::MAP_FIXED);
-                let non_blocking = mapping_flags.contains(MapFlags::MAP_NONBLOCK);
-                let no_reserve = mapping_flags.contains(MapFlags::MAP_NORESERVE);
-                let stack = mapping_flags.contains(MapFlags::MAP_STACK);
+                let fixed = (mapping_flags_num & MAP_FIXED) == MAP_FIXED;
+                let non_blocking = (mapping_flags_num & MAP_NONBLOCK) == MAP_NONBLOCK;
+                let no_reserve = (mapping_flags_num & MAP_NORESERVE) == MAP_NORESERVE;
+                let stack = (mapping_flags_num & MAP_STACK) == MAP_STACK;
 
                 let sync = (mapping_flags_num as i32 & MAP_SYNC) > 0;
 
@@ -823,29 +1038,29 @@ impl SyscallObject {
                         //
                         if huge_pages_used {
                             self.one_line.push(" using ".white());
-                            if mapping_flags.contains(MapFlags::MAP_HUGE_64KB) {
+                            if (mapping_flags_num & MAP_HUGE_64KB) == MAP_HUGE_64KB {
                                 self.one_line.push("64 KB ".yellow());
-                            } else if mapping_flags.contains(MapFlags::MAP_HUGE_512KB) {
+                            } else if (mapping_flags_num & MAP_HUGE_512KB) == MAP_HUGE_512KB {
                                 self.one_line.push("512 KB ".yellow());
-                            } else if mapping_flags.contains(MapFlags::MAP_HUGE_1MB) {
+                            } else if (mapping_flags_num & MAP_HUGE_1MB) == MAP_HUGE_1MB {
                                 self.one_line.push("1 MB ".yellow());
-                            } else if mapping_flags.contains(MapFlags::MAP_HUGE_2MB) {
+                            } else if (mapping_flags_num & MAP_HUGE_2MB) == MAP_HUGE_2MB {
                                 self.one_line.push("2 MB ".yellow());
-                            } else if mapping_flags.contains(MapFlags::MAP_HUGE_8MB) {
+                            } else if (mapping_flags_num & MAP_HUGE_8MB) == MAP_HUGE_8MB {
                                 self.one_line.push("8 MB ".yellow());
-                            } else if mapping_flags.contains(MapFlags::MAP_HUGE_16MB) {
+                            } else if (mapping_flags_num & MAP_HUGE_16MB) == MAP_HUGE_16MB {
                                 self.one_line.push("16 MB ".yellow());
-                            } else if mapping_flags.contains(MapFlags::MAP_HUGE_32MB) {
+                            } else if (mapping_flags_num & MAP_HUGE_32MB) == MAP_HUGE_32MB {
                                 self.one_line.push("32 MB ".yellow());
-                            } else if mapping_flags.contains(MapFlags::MAP_HUGE_256MB) {
+                            } else if (mapping_flags_num & MAP_HUGE_256MB) == MAP_HUGE_256MB {
                                 self.one_line.push("256 MB ".yellow());
-                            } else if mapping_flags.contains(MapFlags::MAP_HUGE_512MB) {
+                            } else if (mapping_flags_num & MAP_HUGE_512MB) == MAP_HUGE_512MB {
                                 self.one_line.push("512 MB ".yellow());
-                            } else if mapping_flags.contains(MapFlags::MAP_HUGE_1GB) {
+                            } else if (mapping_flags_num & MAP_HUGE_1GB) == MAP_HUGE_1GB {
                                 self.one_line.push("1 GB ".yellow());
-                            } else if mapping_flags.contains(MapFlags::MAP_HUGE_2GB) {
+                            } else if (mapping_flags_num & MAP_HUGE_2GB) == MAP_HUGE_2GB {
                                 self.one_line.push("2 GB ".yellow());
-                            } else if mapping_flags.contains(MapFlags::MAP_HUGE_16GB) {
+                            } else if (mapping_flags_num & MAP_HUGE_16GB) == MAP_HUGE_16GB {
                                 self.one_line.push("16 GB ".yellow());
                             }
                             self.one_line.push("hugepages".yellow());
@@ -894,13 +1109,13 @@ impl SyscallObject {
                             self.one_line.push(" at ".white());
                             self.one_line
                                 .push("an appropiate kernel chosen address".yellow());
-                        } else if mapping_flags.contains(MapFlags::MAP_FIXED) {
+                        } else if (mapping_flags_num & MAP_FIXED) == MAP_FIXED {
                             self.one_line.extend([
                                 " starting ".white(),
                                 "exactly at ".yellow(),
                                 address.yellow(),
                             ]);
-                        } else if mapping_flags.contains(MapFlags::MAP_FIXED_NOREPLACE) {
+                        } else if (mapping_flags_num & MAP_FIXED_NOREPLACE) == MAP_FIXED_NOREPLACE {
                             self.one_line.extend([
                                 " starting ".white(),
                                 "exactly at ".yellow(),
@@ -919,7 +1134,7 @@ impl SyscallObject {
                         //
                         //
                         //
-                        if mapping_flags.contains(MapFlags::MAP_GROWSDOWN) {
+                        if (mapping_flags_num & MAP_GROWSDOWN) == MAP_GROWSDOWN {
                             self.one_line.push(" growing down,".yellow());
                         }
 
@@ -951,7 +1166,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("new mapping address: ".green());
@@ -1008,7 +1223,7 @@ impl SyscallObject {
                         self.one_line.push(address.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("successfully unmapped region".green());
@@ -1050,7 +1265,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("successfully flushed data".green());
@@ -1128,7 +1343,7 @@ impl SyscallObject {
                         self.one_line.push(address.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("memory protection modified".green());
@@ -1240,7 +1455,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("new offset location: ".green());
@@ -1264,7 +1479,7 @@ impl SyscallObject {
                         self.one_line.push(address.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line
@@ -1298,7 +1513,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line
@@ -1323,7 +1538,7 @@ impl SyscallObject {
                         self.one_line.push(address.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("memory range is now swappable".green());
@@ -1343,7 +1558,7 @@ impl SyscallObject {
                         );
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("memory range is now swappable".green());
@@ -1409,7 +1624,7 @@ impl SyscallObject {
                           // }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("successful".green());
@@ -1440,7 +1655,7 @@ impl SyscallObject {
                         );
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("successful".green());
@@ -1491,7 +1706,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line
@@ -1515,7 +1730,7 @@ impl SyscallObject {
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let bytes_string = eph_return.unwrap();
                             let bytes_num = self.result.0.unwrap();
@@ -1554,7 +1769,7 @@ impl SyscallObject {
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let bytes_string = eph_return.unwrap();
                             let bytes_num = self.result.0.unwrap();
@@ -1590,7 +1805,7 @@ impl SyscallObject {
                         self.one_line.push(offset.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let bytes_string = eph_return.unwrap();
                             let bytes_num: u64 = self.result.0.unwrap();
@@ -1633,7 +1848,7 @@ impl SyscallObject {
                         self.one_line.push(offset.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let bytes_string = eph_return.unwrap();
                             let bytes_num = self.result.0.unwrap();
@@ -1671,7 +1886,7 @@ impl SyscallObject {
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let bytes_string = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -1702,7 +1917,7 @@ impl SyscallObject {
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let bytes_string = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -1735,7 +1950,7 @@ impl SyscallObject {
                         self.one_line.push(offset.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let bytes_string = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -1769,7 +1984,7 @@ impl SyscallObject {
                         self.one_line.push(offset.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let bytes_string = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -1790,7 +2005,7 @@ impl SyscallObject {
                             .push("flush all pending filesystem data and metadata writes".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("all writes flushed".green());
@@ -1801,6 +2016,8 @@ impl SyscallObject {
                     }
                 }
             }
+            // TODO! granular
+            // check if the file was moved only or renamed only or moved and renamed at the same time
             Sysno::rename => {
                 let old_path = self.pavfol(0);
                 let new_path = self.pavfol(1);
@@ -1812,7 +2029,7 @@ impl SyscallObject {
                         self.one_line.push(new_path.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
                             self.one_line.push(" |=> ".white());
@@ -1837,7 +2054,7 @@ impl SyscallObject {
                         self.one_line.push(new_path.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
                             self.one_line.push(" |=> ".white());
@@ -1868,7 +2085,7 @@ impl SyscallObject {
                         }
                     },
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("directory created".green());
@@ -1908,7 +2125,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("directory created".green());
@@ -1926,7 +2143,7 @@ impl SyscallObject {
                             .push("get the current working directory".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("cwd: ".green());
@@ -1966,7 +2183,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("symlink created".green());
@@ -2021,7 +2238,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("symlink created".green());
@@ -2053,7 +2270,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("unlinking successful".green());
@@ -2090,7 +2307,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("unlinking successful".green());
@@ -2133,7 +2350,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("check is positive".green());
@@ -2205,7 +2422,7 @@ impl SyscallObject {
                         directives_handler(flag_directive, &mut self.one_line);
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("check is positive".green());
@@ -2278,7 +2495,7 @@ impl SyscallObject {
                         directives_handler(flag_directive, &mut self.one_line);
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("check is positive".green());
@@ -2298,7 +2515,7 @@ impl SyscallObject {
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("target retrieved: ".green());
@@ -2337,7 +2554,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("target retrieved: ".green());
@@ -2349,7 +2566,7 @@ impl SyscallObject {
                         }
                     }
                 }
-        }
+            }
             Sysno::chmod => {
                 let filename: String = self.pavfol(0);
                 let mode: rustix::fs::Mode = unsafe { std::mem::transmute(self.args[1] as u32) };
@@ -2360,7 +2577,7 @@ impl SyscallObject {
                         mode_matcher(mode, &mut self.one_line);
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("mode changed".green());
@@ -2381,7 +2598,7 @@ impl SyscallObject {
                         mode_matcher(mode, &mut self.one_line);
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("mode changed".green());
@@ -2429,7 +2646,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("mode changed".green());
@@ -2448,7 +2665,7 @@ impl SyscallObject {
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("successfully flushed data".green());
@@ -2467,7 +2684,7 @@ impl SyscallObject {
                             .push("create a pipe for inter-process communication".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("created the pipe: ".green());
@@ -2489,7 +2706,7 @@ impl SyscallObject {
                         //
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("created the pipe: ".green());
@@ -2510,7 +2727,7 @@ impl SyscallObject {
                         self.one_line.push(file_descriptor.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line
@@ -2535,7 +2752,7 @@ impl SyscallObject {
                         self.one_line.push(duplicate.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("Successfully duplicated".green());
@@ -2563,7 +2780,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("Successfully duplicated".green());
@@ -2584,7 +2801,7 @@ impl SyscallObject {
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("all writes flushed".green());
@@ -2603,7 +2820,7 @@ impl SyscallObject {
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("all writes flushed".green());
@@ -2625,7 +2842,7 @@ impl SyscallObject {
                         self.one_line.push(length.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("successful".green());
@@ -2647,7 +2864,7 @@ impl SyscallObject {
                         self.one_line.push(length.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("successful".green());
@@ -2706,7 +2923,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let res = self.result.0.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -2778,7 +2995,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let res = self.result.0.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -2809,7 +3026,7 @@ impl SyscallObject {
                         self.one_line.push(" milliseconds".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let num_fds = self.result.0.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -2858,7 +3075,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let num_fds = self.result.0.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -2886,7 +3103,7 @@ impl SyscallObject {
                         self.one_line.push(" file descriptors".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("Successfull".green());
@@ -2911,7 +3128,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("Successfull".green());
@@ -2931,7 +3148,7 @@ impl SyscallObject {
                         self.one_line.push("block until a maximum of ".white());
                         self.one_line.push(max_events.to_string().yellow());
                         self.one_line
-                            .push(" events ocur on epoll instance ".white());
+                            .push(" events occur on epoll instance ".white());
                         self.one_line.push(epfd.to_string().blue());
                         if time > 0 {
                             self.one_line.push(" and wait for ".white());
@@ -2944,7 +3161,7 @@ impl SyscallObject {
                         self.one_line.push(" ".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("Successfull".green());
@@ -2965,7 +3182,7 @@ impl SyscallObject {
                         self.one_line.push("block until a maximum of ".white());
                         self.one_line.push(max_events.to_string().yellow());
                         self.one_line
-                            .push(" events ocur on epoll instance ".white());
+                            .push(" events occur on epoll instance ".white());
                         self.one_line.push(epfd.to_string().blue());
                         if signal_mask != 0 {
                             self.one_line.push(", or ".white());
@@ -2984,7 +3201,7 @@ impl SyscallObject {
                         self.one_line.push(" ".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("Successfull".green());
@@ -3005,7 +3222,7 @@ impl SyscallObject {
                         self.one_line.push("block until a maximum of ".white());
                         self.one_line.push(max_events.to_string().yellow());
                         self.one_line
-                            .push(" events ocur on epoll instance ".white());
+                            .push(" events occur on epoll instance ".white());
                         self.one_line.push(epfd.to_string().blue());
                         if signal_mask != 0 {
                             self.one_line.push(", or ".white());
@@ -3028,7 +3245,7 @@ impl SyscallObject {
                         self.one_line.push(" ".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("Successfull".green());
@@ -3065,7 +3282,7 @@ impl SyscallObject {
                         self.one_line.push(epfd.to_string().blue());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("Successfull".green());
@@ -3087,7 +3304,7 @@ impl SyscallObject {
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("operation successful".green());
@@ -3109,7 +3326,7 @@ impl SyscallObject {
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("operation successful".green());
@@ -3169,7 +3386,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
 
@@ -3223,7 +3440,7 @@ impl SyscallObject {
                         );
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("successfully yielded CPU".green());
@@ -3320,7 +3537,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             match x86_signal_to_string(signal_num) {
@@ -3384,7 +3601,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             if set.is_null() {
@@ -3421,7 +3638,7 @@ impl SyscallObject {
                         self.one_line.push("replace the process' list of blocked signals with the signals provided, then wait until the delivery of either a signal that invokes a signal handler or a signal that terminates the thread".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line
@@ -3460,7 +3677,7 @@ impl SyscallObject {
                         }
                     },
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             match (new_stack_null, old_stack_null) {
@@ -3494,7 +3711,7 @@ impl SyscallObject {
                             .push("return from signal handler and cleanup".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("successful".green());
@@ -3514,7 +3731,7 @@ impl SyscallObject {
                         );
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("pending signals returned".green());
@@ -3533,7 +3750,7 @@ impl SyscallObject {
                 .push("stop the calling process until one of the signals provided is pending, or the given timeout is exceeded".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("Successful".green());
@@ -3565,7 +3782,7 @@ impl SyscallObject {
                         }
                     },
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("data and signal sent".green());
@@ -3600,7 +3817,7 @@ impl SyscallObject {
                         }
                     },
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("data and signal sent".green());
@@ -3637,7 +3854,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("signal sent".green());
@@ -3666,7 +3883,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("Successful".green());
@@ -3706,7 +3923,7 @@ impl SyscallObject {
                         directives_handler(flag_directives, &mut self.one_line);
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("file descriptor created".green());
@@ -3724,7 +3941,7 @@ impl SyscallObject {
                             .push("get the thread id of the calling thread".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let thread = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -3744,7 +3961,7 @@ impl SyscallObject {
                             .push("get the process id of the calling process".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let process_id = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -3764,7 +3981,7 @@ impl SyscallObject {
                             .push("get the process id of the parent process".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let process_id = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -3791,10 +4008,12 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let address = self.pavfol(1);
-                            let length_of_list = self.read_word(2).unwrap();
+                            let length_of_list =
+                                SyscallObject::read_word(self.args[2] as usize, self.child)
+                                    .unwrap();
                             self.one_line.push(" |=> ".white());
                             self.one_line
                                 .push("head of the retrieved list is stored in ".green());
@@ -3821,7 +4040,7 @@ impl SyscallObject {
                         self.one_line.push(length_of_list.to_string().blue());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("successful".green());
@@ -3856,7 +4075,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("successful".green());
@@ -3882,7 +4101,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let pgid = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -3902,7 +4121,7 @@ impl SyscallObject {
                             .push("get the process group ID of the calling process".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let pgid = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -3949,7 +4168,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let bytes_retrieved = self.result.0.unwrap();
 
@@ -3983,7 +4202,7 @@ impl SyscallObject {
                             .push(" to the soft and hard limits provided".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("successful".green());
@@ -4003,7 +4222,7 @@ impl SyscallObject {
                         resource_matcher(resource, &mut self.one_line);
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
                             self.one_line.push(" |=> ".white());
@@ -4054,7 +4273,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             let rlims = SyscallObject::read_bytes_as_struct::<16, rlimit>(
@@ -4267,7 +4486,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
                             self.one_line.push(" |=> ".white());
@@ -4287,7 +4506,7 @@ impl SyscallObject {
                         );
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
                             self.one_line.push(" |=> ".white());
@@ -4307,7 +4526,7 @@ impl SyscallObject {
                         );
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
                             self.one_line.push(" |=> ".white());
@@ -4349,7 +4568,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
                             self.one_line.push(" |=> ".white());
@@ -4382,7 +4601,7 @@ impl SyscallObject {
                         self.one_line.push(" is allowed to run on".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("CPUs allowed: ".green());
@@ -4465,7 +4684,7 @@ impl SyscallObject {
                         }
                     },
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
                             self.one_line.push(" |=> ".white());
@@ -4497,7 +4716,7 @@ impl SyscallObject {
                         }
                     },
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
                             self.one_line.push(" |=> ".white());
@@ -4527,7 +4746,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             if registering {
@@ -4549,7 +4768,7 @@ impl SyscallObject {
                             .push("retrieve general system information".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
                             self.one_line.push(" |=> ".white());
@@ -4568,7 +4787,7 @@ impl SyscallObject {
                             .push("get the real user ID of the calling process".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let user_id = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -4588,7 +4807,7 @@ impl SyscallObject {
                             .push("get the effective user ID of the calling process".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let user_id = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -4608,7 +4827,7 @@ impl SyscallObject {
                             .push("get the real group ID of the calling process".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let group_id = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -4628,7 +4847,7 @@ impl SyscallObject {
                             .push("get the effective group ID of the calling process".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let group_id = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -4671,7 +4890,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
                             self.one_line.push(" |=> ".white());
@@ -4817,7 +5036,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
                             self.one_line.push(" |=> ".white());
@@ -4830,7 +5049,8 @@ impl SyscallObject {
                 }
             }
             Sysno::set_tid_address => {
-                let thread_id = self.read_word(0).unwrap();
+                let thread_id =
+                    SyscallObject::read_word(self.args[0] as usize, self.child).unwrap();
                 match self.state {
                     Entering => {
                         self.one_line
@@ -4838,7 +5058,7 @@ impl SyscallObject {
                         self.one_line.push(thread_id.to_string().blue());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line
@@ -4859,7 +5079,7 @@ impl SyscallObject {
                         );
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let child_process = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -4880,7 +5100,7 @@ impl SyscallObject {
                     .push("create a new child process with copy-on-write memory, and suspend execution until child terminates".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let child_process = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -4901,7 +5121,7 @@ impl SyscallObject {
                             .push("create a file to use for event notifications/waiting".white());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let file_descriptor = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -4946,7 +5166,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let file_descriptor = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -5028,7 +5248,7 @@ impl SyscallObject {
                         directives_handler(options_directives, &mut self.one_line);
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let file_descriptor = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -5128,7 +5348,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let file_descriptor = eph_return.unwrap();
                             self.one_line.push(" |=> ".white());
@@ -5420,7 +5640,7 @@ impl SyscallObject {
                         directives_handler(directives, &mut self.one_line);
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("thread id of the child: ".green());
@@ -5594,7 +5814,7 @@ impl SyscallObject {
                         directives_handler(directives, &mut self.one_line);
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("thread id of the child: ".green());
@@ -5630,7 +5850,7 @@ impl SyscallObject {
                         self.one_line.push(program_name.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("successful".green());
@@ -5657,7 +5877,7 @@ impl SyscallObject {
                         );
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("successful".green());
@@ -5690,7 +5910,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             if retrieving_abi_version {
@@ -5725,7 +5945,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("rule added".green());
@@ -5748,7 +5968,7 @@ impl SyscallObject {
                         //
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("ruleset is now enforced".green());
@@ -5883,7 +6103,7 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
                             self.one_line.push(" |=> ".white());
@@ -5933,7 +6153,7 @@ impl SyscallObject {
                         //
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("got the scheduling priority: ".green());
@@ -5990,7 +6210,7 @@ impl SyscallObject {
                         //
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line
@@ -6011,7 +6231,7 @@ impl SyscallObject {
                         self.one_line.push(directory.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("successfully retrieved".green());
@@ -6031,7 +6251,7 @@ impl SyscallObject {
                         self.one_line.push(directory.yellow());
                     }
                     Exiting => {
-                        let eph_return = self.get_eph_return();
+                        let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("successfully retrieved".green());
@@ -6345,11 +6565,11 @@ pub fn vanilla_commas_handler(vector: Vec<ColoredString>, one_line: &mut Vec<Col
 pub fn new_process() -> ColoredString {
     "
 
-            ╭──────────────╮
-────────────╯              │
-              NEW PROCESS  │   		
-────────────╮              │
-            ╰──────────────╯	
+  ╭──────────────╮
+  │              │
+  │ NEW PROCESS  │   		
+  │              │
+  ╰──────────────╯	
 "
     .red()
 }
@@ -6357,11 +6577,11 @@ pub fn new_process() -> ColoredString {
 pub fn new_thread() -> ColoredString {
     "
 
-            ╭──────────────╮
-────────────╯              │
-               NEW THREAD  │   		
-────────────╮              │
-            ╰──────────────╯	
+  ╭──────────────╮
+  │              │
+  │  NEW THREAD  │   		
+  │              │
+  ╰──────────────╯	
 "
     .green()
 }

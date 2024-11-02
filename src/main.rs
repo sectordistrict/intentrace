@@ -40,7 +40,7 @@ use nix::{
         signal::{kill, Signal},
         wait::waitpid,
     },
-    unistd::{fork, ForkResult, Pid},
+    unistd::{fork, ForkResult::*, Pid},
 };
 use procfs::process::{MMapPath, MemoryMap};
 use std::{
@@ -56,50 +56,44 @@ use std::{
     ptr::null,
     time::Duration,
 };
+use pete::{Ptracer, Restart, Stop, Tracee};
 use syscalls::Sysno;
 use utilities::{
     display_unsupported, errno_check, parse_args, set_memory_break, ATTACH, EXITERS, FAILED_ONLY,
     FOLLOW_FORKS, OUTPUT, OUTPUT_FOLLOW_FORKS, QUIET, SUMMARY,
 };
 
-mod syscalls_map;
 mod syscall_object;
+mod syscalls_map;
 mod types;
 use syscall_object::{SyscallObject, SyscallState};
 mod one_line_formatter;
 mod utilities;
 
-// TODO!
-// consider humansize crate for human readable byte amounts
-use pete::{Ptracer, Restart, Stop, Tracee};
+
 
 fn main() {
-    let command = parse_args();
-    runner(command);
+    let cl = parse_args();
+    runner(cl);
 }
 
-fn runner(command: Vec<String>) {
+fn runner(command_line: Vec<String>) {
     if FOLLOW_FORKS.get() {
         if ATTACH.get().0 {
             follow_forks(None);
         } else {
-            follow_forks(Some(command));
+            follow_forks(Some(command_line));
         }
     } else {
         if ATTACH.get().0 {
             parent(None);
         } else {
-            unsafe {
-                match fork() {
-                    Ok(ForkResult::Parent { child }) => {
-                        parent(Some(child));
-                    }
-                    Ok(ForkResult::Child) => {
-                        child_trace_me(command);
-                    }
-                    Err(errno) => {
-                        println!("error: {errno}")
-                    }
+            match unsafe { fork() }.expect("Error: Fork Failed") {
+                Parent { child } => {
+                    parent(Some(child));
+                }
+                Child => {
+                    child_trace_me(command_line);
                 }
             }
         }
@@ -175,7 +169,6 @@ fn parent(child_or_attach: Option<Pid>) {
                         match nix::sys::ptrace::getregs(child) {
                             Ok(registers) => {
                                 syscall = SyscallObject::build(&registers, child);
-                                // p!(syscall.sysno.name());
                                 syscall_will_run(&mut syscall, &registers, child);
                                 if syscall.is_exiting() {
                                     break 'main_loop;
