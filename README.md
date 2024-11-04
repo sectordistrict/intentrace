@@ -43,35 +43,45 @@ Intentrace follows a similar working methodology to the one employed by the [Uni
 
 
 
-## Building from source
+## Installation
 
-### Prerequisites
+### Build from source
+
+Prerequisites:
 
 * Latest stable version of [Rust](https://www.rust-lang.org/tools/install) and Cargo.
 
-#### Supported architecture
 
-intentrace currently only supports `x86-64`, given that the program is currently in beta, PRs for cross compatibility will unfortunately not be accepted until the program is stable enough.
+Build and run intentrace:
 
-### Build
-
-#### Use the following command to build and run intentrace:
-
-`git clone https://github.com/sectordistrict/intentrace.git`
-
-`cd intentrace`
-
-`cargo build --release`
+```
+git clone https://github.com/sectordistrict/intentrace.git
+cd intentrace`
+cargo build --release
+```
 
 
-#### Use the following command to install from crates.io:
+### Install from crates.io:
 
-`cargo install intentrace`
+```
+cargo install intentrace
+```
 
 
 ## Project status
 
 intentrace is currently in beta, currently multi-threaded programs are a hit and miss.
+
+intentrace was originally intended to be a 2 window TUI, where a top panel shows a normal stream of syscalls, and a bottom panel containing metadata and explanation, however this was abandoned in favor of the current scheme.
+
+#### Supported architecture
+
+intentrace currently only supports `x86-64`, given that the program is currently in beta, PRs for cross compatibility will unfortunately not be accepted until the program is stable enough.
+
+
+## Contributing
+
+Support intentrace by contributing issues and PRs, don't feel discouraged from filing issues or creating PRs. Reading the source is a great way to learn how linux works.
 
 Feel free to file issues and open Pull Requests.
 Issues and PRs can contain and involve:
@@ -80,9 +90,3 @@ Issues and PRs can contain and involve:
 - suggestions for fixes.
 - etc.. there are no rules, feel free to contribute as you see fit.
 
-intentrace was originally intended to be a 2 window TUI, where a top panel shows a normal stream of syscalls, and a bottom panel containing metadata and explanation, however this was abandoned in favor of the current scheme.
-
-
-## Contributing
-
-Support intentrace by contributing issues and PRs, don't feel discouraged from filing issues or creating PRs. Reading the source is a great way to learn how linux works.
