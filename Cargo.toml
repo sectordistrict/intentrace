@@ -1,6 +1,6 @@
 [package]
 name = "intentrace"
-version = "0.2.3"
+version = "0.2.4"
 description = "intentrace is strace with intent, it goes all the way for you instead of half the way."
 edition = "2021"
 license = "MIT"
@@ -21,7 +21,7 @@ procfs = "0.16.0"
 rustix = { version = "0.38.35", features = ["mm", "net", "rand"] }
 syscalls = "0.6.18"
 tabled = "0.16.0"
-users = "0.11.0"
+uzers = "0.12.1"
 
 [profile.release]
 lto = true

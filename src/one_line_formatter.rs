@@ -575,7 +575,7 @@ impl SyscallObject {
                 }
             }
             Sysno::chown => {
-                use users::{Groups, Users, UsersCache};
+                use uzers::{Groups, Users, UsersCache};
                 let mut cache = UsersCache::new();
                 let owner_given = self.args[1] as i32;
                 let group_given = self.args[2] as i32;
@@ -624,7 +624,7 @@ impl SyscallObject {
                 }
             }
             Sysno::fchown => {
-                use users::{Groups, Users, UsersCache};
+                use uzers::{Groups, Users, UsersCache};
                 let mut cache = UsersCache::new();
                 let owner_given = self.args[1] as i32;
                 let group_given = self.args[2] as i32;
@@ -674,7 +674,7 @@ impl SyscallObject {
                 }
             }
             Sysno::lchown => {
-                use users::{Groups, Users, UsersCache};
+                use uzers::{Groups, Users, UsersCache};
                 let mut cache = UsersCache::new();
                 let owner_given = self.args[1] as i32;
                 let group_given = self.args[2] as i32;
@@ -723,7 +723,7 @@ impl SyscallObject {
                 }
             }
             Sysno::fchownat => {
-                use users::{Groups, Users, UsersCache};
+                use uzers::{Groups, Users, UsersCache};
                 let mut cache = UsersCache::new();
                 let owner_given = self.args[2] as i32;
                 let group_given = self.args[3] as i32;
