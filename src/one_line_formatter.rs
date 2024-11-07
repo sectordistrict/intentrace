@@ -1736,6 +1736,7 @@ impl SyscallObject {
                             let bytes_num = self.result.0.unwrap();
                             self.one_line.push(" |=> ".white());
                             if bytes_num == 0 {
+                                self.one_line.push("read ".green());
                                 self.one_line.push(bytes_string.yellow());
                                 self.one_line.push(" (end of file)".green());
                             } else if bytes_num < bytes_to_read {
