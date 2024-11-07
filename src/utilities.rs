@@ -66,6 +66,30 @@ pub fn parse_args() -> Vec<String> {
 
     while let Some(arg) = args.peek() {
         match arg.as_str() {
+            "-h" | "--help" => {
+                // TODO!
+                // PENDING SWITCH TO CLAP
+                println!("intentrace is a strace for everyone.
+
+Usage: intentrace [OPTIONS] [-- <TRAILING_ARGUMENTS>...]
+
+Options:
+  -c, --summary                      provide a summary table at the end of tracing
+  -p, --attach <pid>                 attach to an already running proceess
+  -f, --follow-forks                 trace child processes when traced programs create them
+  -z, --failed-only                  only print failed syscalls	
+  -q, --mute-stdout                  mute the traced program's std output
+  -h, --help                         print help
+  -v, --version                      print version
+                ");
+                std::process::exit(0)
+            }
+            "-v" | "--version" => {
+                // TODO!
+                // PENDING SWITCH TO CLAP
+                println!("intentrace {}", env!("CARGO_PKG_VERSION"));
+                std::process::exit(0)
+            }
             "-c" | "--summary" => {
                 let _ = args.next().unwrap();
                 // if FOLLOW_FORKS.get() {
