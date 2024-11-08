@@ -56,7 +56,7 @@ Build and run intentrace:
 
 ```
 git clone https://github.com/sectordistrict/intentrace.git
-cd intentrace`
+cd intentrace
 cargo build --release
 ```
 
