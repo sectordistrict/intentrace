@@ -500,7 +500,7 @@ impl SyscallObject {
                         .to_string()
                         .red());
                 } else {
-                    format!("{pointer:p} , {register_value}-> {current_working_dir}").yellow()
+                    format!("{current_working_dir}").yellow()
                 }
             }
             Always_Successful_User_Group => {
@@ -717,9 +717,8 @@ impl SyscallObject {
                 if pointer.is_null() {
                     Err(())
                 } else {
-                    let len = current_working_dir.len();
                     Ok(format!(
-                        "{pointer:p} , {register_value}-> {current_working_dir}",
+                        "{current_working_dir}",
                     ))
                 }
             }

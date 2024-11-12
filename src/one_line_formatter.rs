@@ -2148,8 +2148,7 @@ impl SyscallObject {
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("cwd: ".green());
-                            let target = self.pavfol(0);
-                            self.one_line.push(target.yellow());
+                            self.one_line.push(eph_return.unwrap().yellow());
                         } else {
                             // TODO! granular
                             one_line_error(eph_return, &mut self.one_line, &self.errno);
