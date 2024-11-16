@@ -4,9 +4,7 @@ use nix::{errno::Errno, libc::__errno_location, unistd::Pid};
 use phf::phf_set;
 use procfs::process::{MMapPath, MemoryMap};
 use std::{
-    cell::{Cell, RefCell},
-    collections::HashMap,
-    time::Duration,
+    borrow::BorrowMut, cell::{Cell, RefCell}, collections::HashMap, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, time::Duration
 };
 use syscalls::Sysno;
 
@@ -38,19 +36,20 @@ pub static EXITERS: phf::Set<&'static str> = phf_set! {
 thread_local! {
     pub static PRE_CALL_PROGRAM_BREAK_POINT: Cell<usize> = Cell::new(0);
     pub static INTENT: Cell<bool> = Cell::new(true);
-    pub static SUMMARY: Cell<bool> = Cell::new(false);
     pub static STRING_LIMIT: Cell<usize> = Cell::new(36);
-    pub static FOLLOW_FORKS: Cell<bool> = Cell::new(false);
     pub static QUIET: Cell<bool> = Cell::new(false);
     pub static FAILED_ONLY: Cell<bool> = Cell::new(false);
-    pub static ATTACH: Cell<(bool,Option<usize>)> = Cell::new((false,None));
-    pub static OUTPUT: RefCell<HashMap<Sysno, (usize, Duration)>> = RefCell::new(HashMap::new());
-    pub static OUTPUT_FOLLOW_FORKS: RefCell<HashMap<Sysno, usize>> = RefCell::new(HashMap::new());
+    pub static ATTACH: Cell<Option<usize>> = Cell::new(None);
     // TODO! Time blocks feature
     // pub static TIME_BLOCKS: Cell<bool> = Cell::new(false);
 }
 
 lazy_static! {
+    pub static ref HALT_FORK_FOLLOW: AtomicBool = AtomicBool::new(false);
+    pub static ref FOLLOW_FORKS: AtomicBool = AtomicBool::new(false);
+    pub static ref SUMMARY: AtomicBool = AtomicBool::new(false);
+    pub static ref OUTPUT: Mutex<HashMap<Sysno, (usize, Duration)>> = Mutex::new(HashMap::new());
+    pub static ref OUTPUT_FOLLOW_FORKS: Mutex<HashMap<Sysno, usize>> = Mutex::new(HashMap::new());
     pub static ref SYSCALL_MAP: HashMap<Sysno, SysDetails> = initialize_syscall_map();
     pub static ref PAGE_SIZE: usize = page_size::get();
 }
@@ -98,11 +97,11 @@ Options:
                 //     );
                 //     std::process::exit(100);
                 // }
-                SUMMARY.set(true);
+                SUMMARY.store(true, Ordering::SeqCst);
             }
             "-p" | "--attach" => {
                 let _ = args.next().unwrap();
-                if FOLLOW_FORKS.get() {
+                if FOLLOW_FORKS.load(Ordering::SeqCst) {
                     eprintln!(
                         "Usage: attaching to a running process and fork following are mutually exclusive\n"
                     );
@@ -111,7 +110,7 @@ Options:
                 let pid = match args.next() {
                     Some(pid_str) => match pid_str.parse::<usize>() {
                         Ok(pid) => {
-                            ATTACH.set((true, Some(pid)));
+                            ATTACH.set(Some(pid));
                         }
                         Err(_) => {
                             eprintln!("Usage: pid is not valid\n");
@@ -126,7 +125,7 @@ Options:
             }
             "-f" | "--follow-forks" => {
                 let _ = args.next().unwrap();
-                if ATTACH.get().0 {
+                if ATTACH.get().is_some() {
                     eprintln!(
                         "Usage: attaching to a running process and fork following are mutually exclusive\n"
                     );
@@ -138,11 +137,11 @@ Options:
                 //     );
                 //     std::process::exit(100);
                 // }
-                FOLLOW_FORKS.set(true);
+                FOLLOW_FORKS.store(true,Ordering::SeqCst);
             }
             "-z" | "--failed-only" => {
                 let _ = args.next().unwrap();
-                if FOLLOW_FORKS.get() {
+                if FOLLOW_FORKS.load(Ordering::SeqCst) {
                     eprintln!(
                         "Usage: failed only retrieval and fork following are mutually exclusive\n"
                     );
@@ -207,11 +206,6 @@ pub fn get_child_memory_break(child: Pid) -> (usize, (u64, u64)) {
 }
 
 pub fn errno_check(rax: u64) -> Option<Errno> {
-    // let a = unsafe { &*__errno_location() };
-    // p!("ERRNO LOCATION");
-    // p!(a);
-    // p!("ERRNO LOCATION");
-
     // TODO! improve on this hack
     let max_errno = 4095;
     // strace does something similar to this

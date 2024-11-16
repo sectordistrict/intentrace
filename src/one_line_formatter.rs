@@ -2,7 +2,7 @@ use std::{
     env::current_dir,
     mem,
     os::fd::RawFd,
-    path::{Path, PathBuf},
+    path::{Path, PathBuf}, sync::atomic::Ordering,
 };
 
 use crate::{
@@ -77,7 +77,7 @@ impl SyscallObject {
         use crate::syscall_object::SyscallState::*;
 
         if self.state == Entering {
-            if FOLLOW_FORKS.get() {
+            if FOLLOW_FORKS.load(Ordering::SeqCst)  {
                 self.one_line.extend(vec![
                     "\n".white(),
                     self.child.to_string().bright_blue(),
@@ -5819,12 +5819,6 @@ impl SyscallObject {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("thread id of the child: ".green());
                             self.one_line.push(eph_return.unwrap().yellow());
-                            // let a = -38;
-                            // let b: u32 = unsafe { mem::transmute(a) };
-                            // pp!("b: ", b);
-                            // let a: i64 = -38;
-                            // let b: u64 = unsafe { mem::transmute(a) };
-                            // pp!("b: ", b);
                             // TODO! fix occasional error (syscall returns -38)
                             if clone_vm {
                                 self.one_line.push(new_thread());

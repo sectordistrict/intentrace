@@ -43,7 +43,7 @@ use std::{
     io::IoSliceMut,
     mem::{self, transmute, zeroed},
     os::{fd::RawFd, raw::c_void},
-    ptr::null,
+    ptr::null, sync::atomic::Ordering,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -107,7 +107,7 @@ impl SyscallObject {
                 let mut output = vec![];
                 output.push("\n".dimmed());
                 let eph_return = self.parse_return_value(1);
-                if FOLLOW_FORKS.get() {
+                if FOLLOW_FORKS.load(Ordering::SeqCst)  {
                     output.push(self.child.to_string().bright_blue());
                 } else {
                     if eph_return.is_ok() {
@@ -652,8 +652,6 @@ impl SyscallObject {
                 }
             }
             Always_Successful_Numeric => {
-                // p!(register_value as isize);
-                // p!(register_value as usize);
                 Ok(format!("{}", register_value as isize))
             }
             Signal_Or_Errno(signal) => {
@@ -840,7 +838,6 @@ impl SyscallObject {
                                     if size > 100 {
                                         let size = -1 * (size as i32);
                                         let error = nix::errno::Errno::from_raw(size);
-                                        p!(self.errno);
                                     } else {
                                         match SyscallObject::read_string_specific_length(
                                             self.args[index] as usize,

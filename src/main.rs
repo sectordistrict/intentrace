@@ -44,23 +44,12 @@ use nix::{
 };
 use procfs::process::{MMapPath, MemoryMap};
 use std::{
-    cell::{Cell, RefCell},
-    collections::{HashMap, HashSet},
-    env::args,
-    error::Error,
-    fmt::Debug,
-    mem::{self, transmute, MaybeUninit},
-    os::{raw::c_void, unix::process::CommandExt},
-    path::PathBuf,
-    process::{exit, Command, Stdio},
-    ptr::null,
-    time::Duration,
+    cell::{Cell, RefCell}, collections::{HashMap, HashSet}, env::args, error::Error, fmt::Debug, mem::{self, transmute, MaybeUninit}, os::{raw::c_void, unix::process::CommandExt}, path::PathBuf, process::{exit, Command, Stdio}, ptr::null, sync::atomic::Ordering, time::Duration
 };
 use pete::{Ptracer, Restart, Stop, Tracee};
 use syscalls::Sysno;
 use utilities::{
-    display_unsupported, errno_check, parse_args, set_memory_break, ATTACH, EXITERS, FAILED_ONLY,
-    FOLLOW_FORKS, OUTPUT, OUTPUT_FOLLOW_FORKS, QUIET, SUMMARY,
+    display_unsupported, errno_check, parse_args, set_memory_break, ATTACH, EXITERS, FAILED_ONLY, FOLLOW_FORKS, HALT_FORK_FOLLOW, OUTPUT, OUTPUT_FOLLOW_FORKS, QUIET, SUMMARY 
 };
 
 mod syscall_object;
@@ -73,19 +62,26 @@ mod utilities;
 
 
 fn main() {
+    ctrlc::set_handler(||{
+        HALT_FORK_FOLLOW.store(true,Ordering::SeqCst);
+        if SUMMARY.load(Ordering::SeqCst) {
+            print_table();
+        }
+        std::process::exit(0);
+    }).unwrap();
     let cl = parse_args();
     runner(cl);
 }
 
 fn runner(command_line: Vec<String>) {
-    if FOLLOW_FORKS.get() {
-        if ATTACH.get().0 {
+    if FOLLOW_FORKS.load(Ordering::SeqCst) {
+        if ATTACH.get().is_some() {
             follow_forks(None);
         } else {
             follow_forks(Some(command_line));
         }
     } else {
-        if ATTACH.get().0 {
+        if ATTACH.get().is_some() {
             parent(None);
         } else {
             match unsafe { fork() }.expect("Error: Fork Failed") {
@@ -97,6 +93,9 @@ fn runner(command_line: Vec<String>) {
                 }
             }
         }
+    }
+    if SUMMARY.load(Ordering::SeqCst) {
+        print_table();
     }
 }
 
@@ -112,6 +111,10 @@ fn child_trace_me(comm: Vec<String>) {
     let _ = ptrace::traceme().unwrap();
     // EXECUTE
     let res = command.exec();
+
+    // This won't be reached unless exec fails
+    eprintln!("Error: could not execute program");
+    std::process::exit(res.raw_os_error().unwrap())
 }
 
 fn follow_forks(command_to_run: Option<Vec<String>>) {
@@ -132,13 +135,13 @@ fn follow_forks(command_to_run: Option<Vec<String>>) {
         }
         // ATTACHING TO PID
         None => {
-            if ATTACH.get().0 {
+            if ATTACH.get().is_some() {
                 let mut ptracer = Ptracer::new();
                 *ptracer.poll_delay_mut() = Duration::from_nanos(1);
                 let child = ptracer
-                    .attach(pete::Pid::from_raw(ATTACH.get().1.unwrap() as i32))
+                    .attach(pete::Pid::from_raw(ATTACH.get().unwrap() as i32))
                     .unwrap();
-                ptrace_ptracer(ptracer, Pid::from_raw(ATTACH.get().1.unwrap() as i32));
+                ptrace_ptracer(ptracer, Pid::from_raw(ATTACH.get().unwrap() as i32));
             } else {
                 eprintln!("Usage: invalid arguments\n");
             }
@@ -150,7 +153,7 @@ fn parent(child_or_attach: Option<Pid>) {
     let child = if child_or_attach.is_some() {
         child_or_attach.unwrap()
     } else {
-        let child = Pid::from_raw(ATTACH.get().1.unwrap() as i32);
+        let child = Pid::from_raw(ATTACH.get().unwrap() as i32);
         let _ = ptrace::attach(child).unwrap();
         child
     };
@@ -169,7 +172,7 @@ fn parent(child_or_attach: Option<Pid>) {
                         match nix::sys::ptrace::getregs(child) {
                             Ok(registers) => {
                                 syscall = SyscallObject::build(&registers, child);
-                                syscall_will_run(&mut syscall, &registers, child);
+                                syscall_will_run(&mut syscall);
                                 if syscall.is_exiting() {
                                     break 'main_loop;
                                 }
@@ -185,7 +188,7 @@ fn parent(child_or_attach: Option<Pid>) {
                         end = Some(std::time::Instant::now());
                         match nix::sys::ptrace::getregs(child) {
                             Ok(registers) => {
-                                OUTPUT.with_borrow_mut(|ref mut output| {
+                                let mut output= OUTPUT.lock().unwrap();
                                     output
                                         .entry(syscall.sysno)
                                         .and_modify(|value| {
@@ -198,7 +201,6 @@ fn parent(child_or_attach: Option<Pid>) {
                                             1,
                                             end.unwrap().duration_since(start.unwrap()),
                                         ));
-                                });
                                 start = None;
                                 end = None;
                                 syscall_returned(&mut syscall, &registers)
@@ -221,9 +223,6 @@ fn parent(child_or_attach: Option<Pid>) {
             }
         }
     }
-    if SUMMARY.get() {
-        print_table();
-    }
 }
 
 fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
@@ -232,12 +231,14 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
     let mut pid_syscall_map: HashMap<Pid, SyscallObject> = HashMap::new();
 
     while let Some(mut tracee) = ptracer.wait().unwrap() {
+        if HALT_FORK_FOLLOW.load(Ordering::SeqCst) {
+            break;
+        }
         let syscall_pid = Pid::from_raw(tracee.pid.as_raw());
         match tracee.stop {
             Stop::SyscallEnter => 'label_for_early_break: {
                 match nix::sys::ptrace::getregs(syscall_pid) {
                     Ok(registers) => {
-                        // p!(tracee.registers().unwrap());
                         if syscall_pid != last_pid {
                             if let Some(last_syscall) = pid_syscall_map.get_mut(&last_pid) {
                                 last_syscall.paused = true;
@@ -246,17 +247,16 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
                             }
                         }
                         let mut syscall = SyscallObject::build(&registers, syscall_pid);
-                        if SUMMARY.get() {
-                            OUTPUT_FOLLOW_FORKS.with_borrow_mut(|ref mut output| {
-                                output
-                                    .entry(syscall.sysno)
-                                    .and_modify(|value| {
-                                        *value += 1;
-                                    })
-                                    .or_insert(1);
-                            });
+                        if SUMMARY.load(Ordering::SeqCst) {
+                            let mut output = OUTPUT_FOLLOW_FORKS.lock().unwrap();
+                            output
+                                .entry(syscall.sysno)
+                                .and_modify(|value| {
+                                    *value += 1;
+                                })
+                                .or_insert(1);
                         }
-                        syscall_will_run(&mut syscall, &registers, syscall_pid);
+                        syscall_will_run(&mut syscall);
                         if syscall.is_exiting() {
                             break 'label_for_early_break;
                         }
@@ -293,12 +293,9 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
         }
         ptracer.restart(tracee, Restart::Syscall).unwrap();
     }
-    if SUMMARY.get() {
-        print_table();
-    }
 }
 
-fn syscall_will_run(syscall: &mut SyscallObject, registers: &user_regs_struct, child: Pid) {
+fn syscall_will_run(syscall: &mut SyscallObject) {
     // GET PRECALL DATA (some data will be lost if not saved in this time frame)
     syscall.get_precall_data();
 
@@ -306,8 +303,7 @@ fn syscall_will_run(syscall: &mut SyscallObject, registers: &user_regs_struct, c
     if syscall.is_mem_alloc_dealloc() {
         set_memory_break(syscall.child);
     }
-
-    if FOLLOW_FORKS.get() || syscall.is_exiting() {
+    if FOLLOW_FORKS.load(Ordering::SeqCst) || syscall.is_exiting() {
         syscall.format();
         if syscall.is_exiting() {
             let exited = " EXITED ".on_bright_red();
@@ -328,7 +324,7 @@ fn syscall_returned(syscall: &mut SyscallObject, registers: &user_regs_struct) {
     // GET POSTCALL DATA (some data will be lost if not saved in this time frame)
     syscall.get_postcall_data();
 
-    if !FOLLOW_FORKS.get() {
+    if !FOLLOW_FORKS.load(Ordering::SeqCst) {
         if FAILED_ONLY.get() && !syscall.parse_return_value_one_line().is_err() {
             return;
         }
@@ -357,57 +353,55 @@ fn handle_getting_registers_error(errno: Errno, syscall_enter_or_exit: &str, sys
 }
 
 fn print_table() {
-    if FOLLOW_FORKS.get() {
-        OUTPUT_FOLLOW_FORKS.with_borrow_mut(|output| {
-            let mut vec = Vec::from_iter(output);
-            vec.sort_by(|(_sysno, count), (_sysno2, count2)| count2.cmp(count));
+    if FOLLOW_FORKS.load(Ordering::SeqCst)  {
+        let output = OUTPUT_FOLLOW_FORKS.lock().unwrap();
+        let mut vec = Vec::from_iter(output.iter());
+        vec.sort_by(|(_sysno, count), (_sysno2, count2)| count2.cmp(count));
 
-            use tabled::{builder::Builder, settings::Style};
-            let mut builder = Builder::new();
+        use tabled::{builder::Builder, settings::Style};
+        let mut builder = Builder::new();
 
-            builder.push_record(["calls", "syscall"]);
-            builder.push_record([""]);
-            for (sys, count) in vec {
-                builder.push_record([&count.to_string(), sys.name()]);
-            }
-            let table = builder.build().with(Style::ascii_rounded()).to_string();
+        builder.push_record(["calls", "syscall"]);
+        builder.push_record([""]);
+        for (sys, count) in vec {
+            builder.push_record([&count.to_string(), sys.name()]);
+        }
+        let table = builder.build().with(Style::ascii_rounded()).to_string();
 
-            println!("\n{}", table);
-        });
+        println!("\n{}", table);
     } else {
-        OUTPUT.with_borrow_mut(|output| {
-            let mut vec = Vec::from_iter(output);
-            vec.sort_by(
-                |(_sysno, (count, duration)), (_sysno2, (count2, duration2))| {
-                    duration2.cmp(duration)
-                },
-            );
+        let mut output= OUTPUT.lock().unwrap();
+        let mut vec = Vec::from_iter(output.iter());
+        vec.sort_by(
+            |(_sysno, (count, duration)), (_sysno2, (count2, duration2))| {
+                duration2.cmp(duration)
+            },
+        );
 
-            use tabled::{builder::Builder, settings::Style};
-            let mut builder = Builder::new();
+        use tabled::{builder::Builder, settings::Style};
+        let mut builder = Builder::new();
 
-            builder.push_record(["% time", "seconds", "usecs/call", "calls", "syscall"]);
-            builder.push_record([""]);
-            let total_time = vec
-                .iter()
-                .map(|(_, (_, time))| time.as_micros())
-                .sum::<u128>();
-            for (sys, (count, time)) in vec {
-                let time_MICROS = time.as_micros() as f64;
-                let time = time_MICROS / 1_000_000.0;
-                let usecs_call = (time_MICROS / *count as f64) as i64;
-                let time_percent = time_MICROS / total_time as f64;
-                builder.push_record([
-                    &format!("{:.2}", time_percent * 100.0),
-                    &format!("{:.6}", time),
-                    &format!("{}", usecs_call),
-                    &count.to_string(),
-                    sys.name(),
-                ]);
-            }
-            let table = builder.build().with(Style::ascii_rounded()).to_string();
+        builder.push_record(["% time", "seconds", "usecs/call", "calls", "syscall"]);
+        builder.push_record([""]);
+        let total_time = vec
+            .iter()
+            .map(|(_, (_, time))| time.as_micros())
+            .sum::<u128>();
+        for (sys, (count, time)) in vec {
+            let time_MICROS = time.as_micros() as f64;
+            let time = time_MICROS / 1_000_000.0;
+            let usecs_call = (time_MICROS / *count as f64) as i64;
+            let time_percent = time_MICROS / total_time as f64;
+            builder.push_record([
+                &format!("{:.2}", time_percent * 100.0),
+                &format!("{:.6}", time),
+                &format!("{}", usecs_call),
+                &count.to_string(),
+                sys.name(),
+            ]);
+        }
+        let table = builder.build().with(Style::ascii_rounded()).to_string();
 
-            println!("\n{}", table);
-        });
+        println!("\n{}", table);
     }
 }
