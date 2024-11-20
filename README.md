@@ -68,6 +68,14 @@ cargo install intentrace
 ```
 
 
+### Package Manager Availability 
+
+[![Packaging status](https://repology.org/badge/vertical-allrepos/intentrace.svg)](https://repology.org/project/intentrace/versions)
+
+
+
+
+
 ## Project status
 
 intentrace is currently in beta, currently multi-threaded programs are a hit and miss.
