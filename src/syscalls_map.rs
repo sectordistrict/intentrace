@@ -10,6 +10,7 @@ use crate::types::{ArgContainer, SysArg, Category, Flag, SysDetails, SysReturn};
 // clarify whether a buffer is provided by the user or to be filled by the kernel in the name of the argument (GIVE vs FILL)
 // switch to MaybeUninit
 
+// TODO! switch to phf later
 pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
     use ArgContainer::*;
     use SysArg::*;
@@ -3345,8 +3346,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
     // (
     //     Sysno::pkey_free
     // )
+    
+    ];
 
-            ];
-    // println!("{} supported", array.len());
     array.into_iter().collect()
 }

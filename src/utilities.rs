@@ -1,7 +1,6 @@
 use crate::{syscalls_map::initialize_syscall_map, types::SysDetails};
 use lazy_static::lazy_static;
 use nix::{errno::Errno, libc::__errno_location, unistd::Pid};
-use phf::phf_set;
 use procfs::process::{MMapPath, MemoryMap};
 use std::{
     borrow::BorrowMut, cell::{Cell, RefCell}, collections::HashMap, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, time::Duration
@@ -28,10 +27,6 @@ macro_rules! ppp {
 
 pub static mut UNSUPPORTED: Vec<&'static str> = Vec::new();
 
-pub static EXITERS: phf::Set<&'static str> = phf_set! {
-    "exit",
-    "exit_group",
-};
 
 thread_local! {
     pub static PRE_CALL_PROGRAM_BREAK_POINT: Cell<usize> = Cell::new(0);

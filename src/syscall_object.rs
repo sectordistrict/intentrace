@@ -5,7 +5,7 @@ use crate::{
         mlock2, Annotation, ArgContainer, Bytes, BytesPagesRelevant, Category, Flag,
         LandlockCreateFlags, LandlockRuleTypeFlags, SysArg, SysReturn,
     },
-    utilities::{EXITERS, FOLLOW_FORKS, INTENT, SYSCALL_MAP, UNSUPPORTED},
+    utilities::{FOLLOW_FORKS, INTENT, SYSCALL_MAP, UNSUPPORTED},
 };
 
 use colored::{ColoredString, Colorize};
@@ -375,7 +375,7 @@ impl SyscallObject {
         &self,
         which: usize,
     ) -> Result<Vec<ColoredString>, ColoredString> {
-        if EXITERS.contains(self.sysno.name()) {
+        if self.is_exiting(){
             return Ok(vec![]);
         }
 

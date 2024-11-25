@@ -49,7 +49,7 @@ use std::{
 use pete::{Ptracer, Restart, Stop, Tracee};
 use syscalls::Sysno;
 use utilities::{
-    display_unsupported, errno_check, parse_args, set_memory_break, ATTACH, EXITERS, FAILED_ONLY, FOLLOW_FORKS, HALT_FORK_FOLLOW, OUTPUT, OUTPUT_FOLLOW_FORKS, QUIET, SUMMARY 
+    display_unsupported, errno_check, parse_args, set_memory_break, ATTACH, FAILED_ONLY, FOLLOW_FORKS, HALT_FORK_FOLLOW, OUTPUT, OUTPUT_FOLLOW_FORKS, QUIET, SUMMARY 
 };
 
 mod syscall_object;
