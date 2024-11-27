@@ -5,7 +5,7 @@ use crate::{
         mlock2, Annotation, ArgContainer, Bytes, BytesPagesRelevant, Category, Flag,
         LandlockCreateFlags, LandlockRuleTypeFlags, SysArg, SysReturn,
     },
-    utilities::{FOLLOW_FORKS, INTENT, SYSCALL_MAP, UNSUPPORTED},
+    utilities::{FOLLOW_FORKS, INTENT, SYSCALL_MAP, UNSUPPORTED, lose_relativity_on_path},
 };
 
 use colored::{ColoredString, Colorize};
@@ -29,21 +29,16 @@ use nix::{
         uio::{process_vm_readv, RemoteIoVec},
         wait::WaitPidFlag,
     },
-    unistd::{AccessFlags, Pid, Whence},
+    unistd::{AccessFlags, Pid, Whence}, NixPath,
 };
 
-use procfs::Current;
 
 use rustix::{
     fs::StatxFlags, io::ReadWriteFlags, path::Arg, rand::GetRandomFlags, thread::FutexFlags,
 };
 
 use std::{
-    fmt::Display,
-    io::IoSliceMut,
-    mem::{self, transmute, zeroed},
-    os::{fd::RawFd, raw::c_void},
-    ptr::null, sync::atomic::Ordering,
+    fmt::Display, io::IoSliceMut, mem::{self, transmute, zeroed}, os::{fd::RawFd, raw::c_void}, path::PathBuf, ptr::null, sync::atomic::Ordering
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -683,7 +678,7 @@ impl SyscallObject {
 
             Length_Of_Bytes_Specific_Or_Errno => {
                 let bytes = register_value as isize;
-                if self.sysno == Sysno::readlink {
+                if self.sysno == Sysno::readlink || self.sysno == Sysno::readlinkat {
                     if self.errno.is_some() {
                         return Err(());
                     }
@@ -828,7 +823,7 @@ impl SyscallObject {
 
                         Pointer_To_Text(ref mut text) => {
                             // TODO! fix this
-                            if self.sysno == Sysno::readlink {
+                            if self.sysno == Sysno::readlink || self.sysno == Sysno::readlinkat {
                                 // let a = nix::errno::Errno::EINVAL
                                 if self.errno.is_some() {
                                     continue;
@@ -839,17 +834,33 @@ impl SyscallObject {
                                         let size = -1 * (size as i32);
                                         let error = nix::errno::Errno::from_raw(size);
                                     } else {
-                                        match SyscallObject::read_string_specific_length(
-                                            self.args[index] as usize,
-                                            self.child,
-                                            size as usize,
-                                        ) {
-                                            Some(styled_fd) => {
-                                                self.rich_args[1].1 = ArgContainer::Normal(
-                                                    Pointer_To_Text(styled_fd.leak()),
-                                                );
+                                        if self.sysno == Sysno::readlink && index == 1 {
+                                            match SyscallObject::read_string_specific_length(
+                                                self.args[index] as usize,
+                                                self.child,
+                                                size as usize,
+                                            ) {
+                                                Some(styled_fd) => {
+                                                    self.rich_args[1].1 = ArgContainer::Normal(
+                                                        Pointer_To_Text(styled_fd.leak()),
+                                                    );
+                                                }
+                                                None => (),
                                             }
-                                            None => (),
+                                        } else if self.sysno == Sysno::readlinkat && index == 2 {
+                                            match SyscallObject::read_string_specific_length(
+                                                self.args[index] as usize,
+                                                self.child,
+                                                size as usize,
+                                            ) {
+                                                Some(styled_fd) => {
+                                                    self.rich_args[1].1 = ArgContainer::Normal(
+                                                        Pointer_To_Text(styled_fd.leak()),
+                                                    );
+                                                }
+                                                None => (),
+                                            }
+                                            
                                         }
                                     }
                                 }
@@ -1188,7 +1199,6 @@ impl SyscallObject {
         } else if fd == 2 {
             string.push("2 -> StdErr".bright_blue());
         } else {
-            let file_descriptor_location = format!("/proc/{child}/fd/{fd}");
             let file_info = procfs::process::FDInfo::from_raw_fd(child.into(), fd);
             match file_info {
                 Ok(file) => match file.target {
@@ -1319,6 +1329,65 @@ impl SyscallObject {
         }
         bytes.to_string()
     }
+
+    pub(crate) fn possible_dirfd_file(&mut self, dirfd: i32, filename: String){
+        let file_path_buf = PathBuf::from(filename);
+        if file_path_buf.is_relative() {
+            if dirfd == AT_FDCWD {
+                let cwd = procfs::process::Process::new(self.child.into()).unwrap().cwd().unwrap();
+                self.one_line.push(cwd.as_path().to_string_lossy().yellow());
+                self.one_line.push("/".yellow());
+                let path_without_leading_relativeness = lose_relativity_on_path(file_path_buf.as_path().to_string_lossy().to_owned());
+                self.one_line.push(path_without_leading_relativeness.blue());
+            } else {
+                let file_info = procfs::process::FDInfo::from_raw_fd(self.child.into(), dirfd).unwrap();
+                match file_info.target {
+                    procfs::process::FDTarget::Path(path) => {
+                        self.one_line.push(path.as_path().to_string_lossy().yellow());
+                        if !path.is_absolute() || path.len() != 1 {
+                            self.one_line.push("/".yellow());
+                        } 
+                        let path_without_leading_relativeness = lose_relativity_on_path(file_path_buf.as_path().to_string_lossy().to_owned());
+                        self.one_line.push(path_without_leading_relativeness.blue());
+                    }
+                    _ => unreachable!()
+                }
+            }
+        } else {
+            handle_path_file(file_path_buf.as_path().to_string_lossy().into_owned(), &mut self.one_line);
+        }
+    } 
+
+
+    pub(crate) fn possible_dirfd_file_output(&mut self, dirfd: i32, filename: String) -> String {
+        let mut string = String::new();
+        let file_path_buf = PathBuf::from(filename);
+        if file_path_buf.is_relative() {
+            if dirfd == AT_FDCWD {
+                let cwd = procfs::process::Process::new(10).unwrap().cwd().unwrap();
+                string.push_str(&cwd.as_path().to_string_lossy());
+                string.push_str("/");
+                let path_without_leading_relativeness = lose_relativity_on_path(file_path_buf.as_path().to_string_lossy().to_owned());
+                string.push_str(&path_without_leading_relativeness);
+            } else {
+                let file_info = procfs::process::FDInfo::from_raw_fd(self.child.into(), dirfd).unwrap();
+                match file_info.target {
+                    procfs::process::FDTarget::Path(path) => {
+                        self.one_line.push(path.as_path().to_string_lossy().yellow());
+                        if !path.is_absolute() || path.len() != 1 {
+                            self.one_line.push("/".yellow());
+                        } 
+                        let path_without_leading_relativeness = lose_relativity_on_path(file_path_buf.as_path().to_string_lossy().to_owned());
+                        self.one_line.push(path_without_leading_relativeness.blue());
+                    }
+                    _ => unreachable!()
+                }
+            }
+        } else {
+            string.push_str(&file_path_buf.as_path().to_string_lossy().to_owned());
+        }
+        string
+    } 
 
     // Use process_vm_readv(2)
     fn string_from_pointer(address: u64, child: Pid) -> String {
@@ -1510,18 +1579,14 @@ impl SyscallObject {
     }
 
     pub(crate) fn read_affinity_from_child(addr: usize, child: Pid) -> Option<Vec<usize>> {
-        let mut addr = addr as *mut c_void;
-        const CPU_SET_USIZE: usize = CPU_SETSIZE as usize / (8 * std::mem::size_of::<usize>());
-        let mut cpu_mask: [usize; CPU_SET_USIZE] = unsafe { zeroed() };
-        for i in 0..CPU_SET_USIZE {
-            match ptrace::read(child, addr.wrapping_add(i as usize)) {
-                Ok(sixty_four_cpus) => cpu_mask[i] = sixty_four_cpus as usize,
-                Err(res) => {
-                    return None;
-                }
-            }
-        }
-        let cpu_set: cpu_set_t = unsafe { transmute(cpu_mask) };
+        const CPU_SET_USIZE: usize = (CPU_SETSIZE / 8) as usize; 
+        
+        let cpu_mask = SyscallObject::read_bytes_specific_length(addr, child, CPU_SET_USIZE)?;
+
+        let a: [u8; CPU_SET_USIZE] = cpu_mask.try_into().ok()?;
+
+        let cpu_set: cpu_set_t = unsafe { transmute(a) };
+
         let mut vec = Vec::new();
         for cpu_number in 0..num_cpus::get() as usize {
             if unsafe { CPU_ISSET(cpu_number, &cpu_set) } {
@@ -1884,6 +1949,8 @@ impl SyscallObject {
         range
     }
 }
+
+
 impl Iterator for SyscallObject {
     type Item = (u64, ([&'static str; 2], ArgContainer));
     fn next(&mut self) -> Option<Self::Item> {

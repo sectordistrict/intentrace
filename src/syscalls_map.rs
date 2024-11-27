@@ -433,6 +433,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
 
                     (["newdirfd", "file descriptor of a path to use as anchor if newpath is relative"], Normal(File_Descriptor(""))),
                     (["newpath", "new path of the file"], Normal(Pointer_To_Text(""))),
+                    
                     (["flags", "renaming and replacement behaviour falgs"], Normal(General_Flag(FileRenameFlags))),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
@@ -459,17 +460,6 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                     (["dirfd", "file descriptor of a path to use as anchor if pathname is relative"], Normal(File_Descriptor(""))),
                     (["pathname", "path of the new directory to create"], Normal(Pointer_To_Text(""))),
                     (["mode", "directory permissions (rwx rwx rwx, set-uid, set-guid, sticky bits)"], Normal(General_Flag(FileMode))),
-                ],
-                (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
-            )
-        ),
-        (
-            Sysno::rmdir,
-            (
-                FileOp,
-                "delete a specific directory",
-                &[
-                    (["pathname", "path of the directory to remove"], Normal(Pointer_To_Text(""))),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -532,6 +522,17 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                     (["dirfd", "file descriptor of a path to use as anchor if pathname is relative"], Normal(File_Descriptor(""))),
                     (["pathname", "path of the file or directory to be removed"], Normal(Pointer_To_Text(""))),
                     (["flags", "flag specifying similar behaviour to rmdir or not"], Normal(General_Flag(FileAtFlags))),
+                ],
+                (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
+            )
+        ),
+        (
+            Sysno::rmdir,
+            (
+                FileOp,
+                "delete a specific directory",
+                &[
+                    (["pathname", "path of the directory to remove"], Normal(Pointer_To_Text(""))),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )

@@ -1,6 +1,6 @@
 [package]
 name = "intentrace"
-version = "0.2.6"
+version = "0.3.1"
 description = "intentrace is strace with intent, it goes all the way for you instead of half the way."
 edition = "2021"
 license = "MIT"

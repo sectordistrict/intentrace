@@ -35,7 +35,7 @@ use nix::{
         MAP_SYNC, MCL_CURRENT, MCL_FUTURE, MCL_ONFAULT, O_APPEND, O_ASYNC, O_CLOEXEC, O_CREAT,
         O_DIRECT, O_DIRECTORY, O_DSYNC, O_EXCL, O_LARGEFILE, O_NDELAY, O_NOATIME, O_NOCTTY,
         O_NOFOLLOW, O_NONBLOCK, O_PATH, O_SYNC, O_TMPFILE, O_TRUNC, PRIO_PGRP, PRIO_PROCESS,
-        PRIO_USER, P_ALL, P_PGID, P_PID, P_PIDFD,
+        PRIO_USER, P_ALL, P_PGID, P_PID, P_PIDFD, AT_REMOVEDIR, RENAME_EXCHANGE, RENAME_NOREPLACE, RENAME_WHITEOUT
     },
     sys::{
         eventfd,
@@ -219,7 +219,7 @@ impl SyscallObject {
                         // TODO! also fix file mode granularity
                         //
                         self.one_line.push("open the file ".white());
-                        self.one_line.push(filename.yellow());
+                        handle_path_file(filename, &mut self.one_line);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -234,10 +234,8 @@ impl SyscallObject {
                 }
             }
             Sysno::openat => {
-                //
-                let anchor = self.pavfol(0);
+                let dirfd = self.args[0] as i32;
                 let filename = self.pavfol(1);
-                let filename_path = Path::new(&filename);
                 let flags_num = self.args[2] as i32;
                 let flags = self.pavfol(2);
                 match self.state {
@@ -253,31 +251,12 @@ impl SyscallObject {
                         // when the last file descriptor is closed, unless the file is given a name.
                         if (flags_num & O_TMPFILE) > 0 {
                             self.one_line
-                                .push("create an unnamed temporary file in the path ".white());
+                                .push("create an unnamed temporary file in the path: ".white());
                         } else {
-                            self.one_line.push("open the file ".white());
+                            self.one_line.push("open the file: ".white());
                         }
+                        self.possible_dirfd_file(dirfd, filename);
 
-                        if filename_path.is_absolute() {
-                            handle_path_file(filename, &mut self.one_line);
-                            // self.one_line.push(filename.yellow())
-                        } else {
-                            if self.args[0] as i32 == AT_FDCWD {
-                                let pwd = current_dir().unwrap();
-                                let joined_path = pwd.join(filename_path);
-                                self.one_line.push("open the file ".white());
-                                let filename = joined_path.to_str().unwrap().to_owned();
-                                handle_path_file(filename, &mut self.one_line);
-                                // self.one_line.push(joined_path.as_str().unwrap().yellow());
-                            } else {
-                                let anchor_path = Path::new(&anchor);
-                                let joined_path = anchor_path.join(filename_path);
-                                self.one_line.push("open the file ".white());
-                                let filename = joined_path.to_str().unwrap().to_owned();
-                                handle_path_file(filename, &mut self.one_line);
-                                // self.one_line.push(joined_path.as_str().unwrap().yellow());
-                            }
-                        }
                         let mut directives = vec![];
                         if (flags_num & O_APPEND) == O_APPEND {
                             directives.push("open the file in append mode".yellow());
@@ -377,7 +356,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.one_line.push("get the stats of the file: ".white());
-                        handle_path_file(filename, &mut self.one_line);
+                        self.one_line.push(filename.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -438,7 +417,7 @@ impl SyscallObject {
                     Entering => {
                         self.one_line
                             .push("get stats for the filesystem that contains the file: ".white());
-                        handle_path_file(filename, &mut self.one_line);
+                        self.one_line.push(filename.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -453,15 +432,14 @@ impl SyscallObject {
                 }
             }
             Sysno::newfstatat => {
-                let dirfd = self.args[0] as i32;
-                let dirfd_parsed = self.pavfol(0);
+                let dirfd: i32 = self.args[0] as i32;
                 let filename: String = self.pavfol(1);
                 let flags: rustix::fs::AtFlags =
                     unsafe { std::mem::transmute(self.args[3] as u32) };
                 match self.state {
                     Entering => {
                         self.one_line.push("get the stats of the file: ".white());
-                        handle_path_file(filename, &mut self.one_line);
+                        self.possible_dirfd_file(dirfd, filename);
 
                         let mut flag_directive = vec![];
                         if flags.contains(rustix::fs::AtFlags::SYMLINK_NOFOLLOW) {
@@ -637,8 +615,8 @@ impl SyscallObject {
                             let name = user.name();
                             let owner = name.as_str().unwrap();
 
-                            self.one_line.push("change the owner of ".white());
-                            handle_path_file(filename, &mut self.one_line);
+                            self.one_line.push("change the owner of the file: ".white());
+                            self.one_line.push(filename.yellow());
                             self.one_line.push(" to ".white());
                             self.one_line.push(owner.green());
                             if group_given != -1 {
@@ -654,7 +632,7 @@ impl SyscallObject {
                                 let user = get_user_by_uid.unwrap();
                                 let group = user.name().to_str().unwrap();
                                 self.one_line.push("change the owner of the file: ".white());
-                                handle_path_file(filename, &mut self.one_line);
+                                self.one_line.push(filename.yellow());
 
                                 self.one_line.push("to ".white());
                                 self.one_line.push(group.green());
@@ -725,9 +703,10 @@ impl SyscallObject {
             Sysno::fchownat => {
                 use uzers::{Groups, Users, UsersCache};
                 let mut cache = UsersCache::new();
+                let dirfd = self.args[0] as i32;
+                let filename = self.pavfol(1);
                 let owner_given = self.args[2] as i32;
                 let group_given = self.args[3] as i32;
-                let filename = self.pavfol(1);
                 match self.state {
                     Entering => {
                         if owner_given != -1 {
@@ -737,7 +716,8 @@ impl SyscallObject {
                             let owner = name.as_str().unwrap();
 
                             self.one_line.push("change the owner of ".white());
-                            handle_path_file(filename, &mut self.one_line);
+                            self.possible_dirfd_file(dirfd, filename);
+
                             self.one_line.push(" to ".white());
                             self.one_line.push(owner.green());
                             if group_given != -1 {
@@ -2043,16 +2023,57 @@ impl SyscallObject {
                 }
             }
             Sysno::renameat => {
-                let old_dirfd = self.pavfol(0);
-                let old_path = self.pavfol(1);
-                let new_dirfd = self.pavfol(2);
-                let new_path = self.pavfol(3);
+                let old_dirfd = self.args[0] as i32;
+                let old_filename = self.pavfol(1);
+                let new_dirfd = self.args[2] as i32;
+                let new_filename = self.pavfol(3);
                 match self.state {
                     Entering => {
                         self.one_line.push("move the file: ".white());
-                        self.one_line.push(old_path.yellow());
+                        self.possible_dirfd_file(old_dirfd, old_filename);
+                        
                         self.one_line.push(" to: ".white());
-                        self.one_line.push(new_path.yellow());
+                        self.possible_dirfd_file(new_dirfd, new_filename);
+                        
+                    }
+                    Exiting => {
+                        let eph_return = self.get_syscall_return();
+                        if eph_return.is_ok() {
+                            // TODO! granular
+                            self.one_line.push(" |=> ".white());
+                            self.one_line.push("file moved".green());
+                        } else {
+                            // TODO! granular
+                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                        }
+                    }
+                }
+            }
+            Sysno::renameat2 => {
+                let old_dirfd = self.args[0] as i32;
+                let old_filename = self.pavfol(1);
+                let new_dirfd = self.args[2] as i32;
+                let new_filename = self.pavfol(3);
+                let flags = self.args[2] as u32;
+                match self.state {
+                    Entering => {
+                        self.one_line.push("move the file: ".white());
+                        self.possible_dirfd_file(old_dirfd, old_filename);
+                        
+                        self.one_line.push(" to: ".white());
+                        self.possible_dirfd_file(new_dirfd, new_filename);
+
+                        let mut directives = vec![];
+                        if (flags & RENAME_EXCHANGE) > 0 {
+                            directives.push("exchange the paths atomically".yellow())
+                        }
+                        if (flags & RENAME_NOREPLACE) > 0 {
+                            directives.push("error if the new path exists".yellow());
+                        }
+                        if (flags & RENAME_WHITEOUT) > 0 {
+                            directives.push("white-out the original file".yellow());
+                        }
+                        directives_handler(directives, &mut self.one_line);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -2099,31 +2120,21 @@ impl SyscallObject {
             }
             Sysno::mkdirat => {
                 let dirfd = self.args[0] as i32;
-                let dirfd_parsed = self.pavfol(0);
-                let path: String = self.pavfol(1);
-                let path_rust = PathBuf::from(path);
+                let filename: String = self.pavfol(1);
+
                 match self.state {
                     Entering => {
-                        if dirfd == AT_FDCWD {
-                            match path_rust.canonicalize() {
-                                Ok(abs_path) => {
-                                    let canon_path = abs_path.canonicalize().unwrap();
-                                    self.one_line.push("create a new directory ".white());
-                                    self.one_line.push(
-                                        canon_path.file_name().unwrap().to_string_lossy().yellow(),
-                                    );
-                                    self.one_line.push(" inside: ".white());
-                                    self.one_line.push(
-                                        canon_path.parent().unwrap().to_string_lossy().yellow(),
-                                    );
-                                }
-                                Err(_) => {
-                                    self.one_line.push("[intentrace Error: path error]".blink());
-                                }
-                            }
-                        } else {
-                            panic!("dirfd not handled yet")
-                        }
+                        let path = self.possible_dirfd_file_output(dirfd, filename);
+                        let path_rust = PathBuf::from(path);
+
+                        self.one_line.push("create a new directory ".white());
+                        self.one_line.push(
+                            path_rust.file_name().unwrap().to_string_lossy().to_owned().blue(),
+                        );
+                        self.one_line.push(" inside: ".white());
+                        self.one_line.push(
+                            path_rust.parent().unwrap().to_string_lossy().to_owned().yellow(),
+                        );
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -2162,25 +2173,10 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.one_line.push("create the symlink: ".white());
-                        self.one_line.push(symlink.yellow());
-                        let symlink_buf = PathBuf::from(symlink);
-                        match symlink_buf.canonicalize() {
-                            Ok(sl) => {
-                                self.one_line.pop();
-                                self.one_line.push(sl.to_string_lossy().yellow());
-                            }
-                            Err(_) => {}
-                        }
+                        handle_path_file(symlink, &mut self.one_line);
+
                         self.one_line.push(" and link it with: ".white());
-                        self.one_line.push(target.yellow());
-                        let target_buf = PathBuf::from(target);
-                        match target_buf.canonicalize() {
-                            Ok(tg) => {
-                                self.one_line.pop();
-                                self.one_line.push(tg.to_string_lossy().yellow());
-                            }
-                            Err(_) => {}
-                        }
+                        handle_path_file(target, &mut self.one_line);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -2196,46 +2192,15 @@ impl SyscallObject {
             }
             Sysno::symlinkat => {
                 let target = self.pavfol(0);
-                let symlink = self.pavfol(1);
-                let dirfd = self.args[0] as i32;
-                let dirfd_parsed = self.pavfol(0);
+                let dirfd = self.args[1] as i32;
+                let symlink = self.pavfol(2);
 
                 match self.state {
                     Entering => {
                         self.one_line.push("create the symlink: ".white());
-                        self.one_line.push(symlink.yellow());
-                        let symlink_buf = PathBuf::from(symlink);
-                        if dirfd == AT_FDCWD {
-                            match symlink_buf.canonicalize() {
-                                Ok(abs_path) => {
-                                    self.one_line.pop();
-                                    let file_name = abs_path.file_name().unwrap().to_string_lossy();
-                                    self.one_line.push(file_name.yellow());
-                                }
-                                Err(_) => {
-                                    // TODO!
-                                }
-                            }
-                        } else {
-                            panic!("dirfd not handled yet")
-                        }
-                        match symlink_buf.canonicalize() {
-                            Ok(sl) => {
-                                self.one_line.pop();
-                                self.one_line.push(sl.to_string_lossy().yellow());
-                            }
-                            Err(_) => {}
-                        }
+                        self.possible_dirfd_file(dirfd, symlink);
                         self.one_line.push(" and link it with: ".white());
                         self.one_line.push(target.yellow());
-                        let target_buf = PathBuf::from(target);
-                        match target_buf.canonicalize() {
-                            Ok(tg) => {
-                                self.one_line.pop();
-                                self.one_line.push(tg.to_string_lossy().yellow());
-                            }
-                            Err(_) => {}
-                        }
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -2251,23 +2216,11 @@ impl SyscallObject {
             }
             Sysno::unlink => {
                 let path = self.pavfol(0);
-                let path_rust = PathBuf::from(path);
                 match self.state {
                     Entering => {
                         self.one_line
                             .push("unlink and possibly delete the file: ".white());
-                        match path_rust.canonicalize() {
-                            Ok(abs_path) => {
-                                let canon_path = abs_path.canonicalize().unwrap();
-                                self.one_line.push(
-                                    canon_path.file_name().unwrap().to_string_lossy().yellow(),
-                                );
-                            }
-                            Err(_) => {
-                                self.one_line.push(path_rust.to_string_lossy().yellow());
-                                // self.one_line.push("[intentrace Error: path error]".blink());
-                            }
-                        }
+                        handle_path_file(path, &mut self.one_line);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -2283,27 +2236,18 @@ impl SyscallObject {
             }
             Sysno::unlinkat => {
                 let dirfd = self.args[0] as i32;
-                let dirfd_parsed = self.pavfol(0);
                 let path = self.pavfol(1);
+                let flag = self.args[2] as i32;
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("unlink and possibly delete the file: ".white());
-                        self.one_line.push(path.yellow());
-                        let path_rust = PathBuf::from(path);
-                        if dirfd == AT_FDCWD {
-                            match path_rust.canonicalize() {
-                                Ok(abs_path) => {
-                                    self.one_line.pop();
-                                    let file_name = abs_path.file_name().unwrap().to_string_lossy();
-                                    self.one_line.push(file_name.yellow());
-                                }
-                                Err(_) => {
-                                    // self.one_line.push("[intentrace Error: path error]".blink());
-                                }
-                            }
-                        } else {
-                            // handle dirfd
+                        self.one_line.push("unlink and possibly delete the file: ".white());
+                        self.possible_dirfd_file(dirfd, path);
+
+                        if (flag & AT_REMOVEDIR) > 0 {
+                            self.one_line.push(" (".white());
+                            self.one_line.push("perform the same operation as ".yellow());
+                            self.one_line.push("`rmdir`".blue());
+                            self.one_line.push(")".white());
                         }
                     }
                     Exiting => {
@@ -2344,8 +2288,8 @@ impl SyscallObject {
                                 self.one_line
                                     .push("check if the process is allowed to ".white());
                                 vanilla_commas_handler(checks, &mut self.one_line);
-                                self.one_line.push(" the file ".white());
-                                self.one_line.push(filename.yellow());
+                                self.one_line.push(" the file: ".white());
+                                handle_path_file(filename, &mut self.one_line);
                             }
                         }
                     }
@@ -2363,7 +2307,6 @@ impl SyscallObject {
             }
             Sysno::faccessat => {
                 let dirfd = self.args[0] as i32;
-                let dirfd_parsed = self.pavfol(0);
                 let filename = self.pavfol(1);
                 let access_mode: nix::unistd::AccessFlags =
                     unsafe { std::mem::transmute(self.args[2] as u32) };
@@ -2373,8 +2316,9 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if access_mode.contains(nix::unistd::AccessFlags::F_OK) {
-                            self.one_line.push("check if the file : ".white());
-                            self.one_line.push(filename.yellow());
+                            self.one_line.push("check if the file: ".white());
+                            self.possible_dirfd_file(dirfd, filename);
+
                             self.one_line.push(" ".white());
                             self.one_line.push("exists".yellow());
                         } else {
@@ -2392,8 +2336,8 @@ impl SyscallObject {
                                 self.one_line
                                     .push("check if the process is allowed to ".white());
                                 vanilla_commas_handler(checks, &mut self.one_line);
-                                self.one_line.push(" the file ".white());
-                                self.one_line.push(filename.yellow());
+                                self.one_line.push(" the file: ".white());
+                                self.possible_dirfd_file(dirfd, filename);
                             }
                         }
                         let mut flag_directive = vec![];
@@ -2446,7 +2390,7 @@ impl SyscallObject {
                     Entering => {
                         if access_mode.contains(nix::unistd::AccessFlags::F_OK) {
                             self.one_line.push("check if the file: ".white());
-                            self.one_line.push(filename.yellow());
+                            self.possible_dirfd_file(dirfd, filename);
                             self.one_line.push(" ".white());
                             self.one_line.push("exists".yellow());
                         } else {
@@ -2466,7 +2410,7 @@ impl SyscallObject {
                                     .push("check if the process is allowed to ".white());
                                 vanilla_commas_handler(checks, &mut self.one_line);
                                 self.one_line.push(" the file ".white());
-                                self.one_line.push(filename.yellow());
+                                self.possible_dirfd_file(dirfd, filename);
                             }
                         }
                         let mut flag_directive = vec![];
@@ -2512,7 +2456,7 @@ impl SyscallObject {
                     Entering => {
                         self.one_line
                             .push("get the target path of the symbolic link: ".white());
-                        self.one_line.push(filename.yellow());
+                        handle_path_file(filename, &mut self.one_line);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -2530,35 +2474,18 @@ impl SyscallObject {
             }
             Sysno::readlinkat => {
                 let dirfd = self.args[0] as i32;
-                let dirfd_parsed = self.pavfol(0);
-                let filename: String = self.pavfol(1);
+                let filename = self.pavfol(1);
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("get the target path of the symbolic link: ".white());
-                        self.one_line.push(filename.yellow());
-                        let file_path_buf = PathBuf::from(filename);
-                        if dirfd == AT_FDCWD {
-                            match file_path_buf.canonicalize() {
-                                Ok(abs_path) => {
-                                    self.one_line.pop();
-                                    let file_name = abs_path.file_name().unwrap().to_string_lossy();
-                                    self.one_line.push(file_name.yellow());
-                                }
-                                Err(_) => {
-                                    // self.one_line.push("[intentrace Error: path error]".blink());
-                                }
-                            }
-                        } else {
-                            panic!("dirfd not handled yet")
-                        }
-                    }
+                        self.one_line.push("get the target path of the symbolic link: ".white());
+                        self.possible_dirfd_file(dirfd, filename)
+                    }   
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.one_line.push(" |=> ".white());
                             self.one_line.push("target retrieved: ".green());
-                            let target = self.pavfol(2);
+                            let target = self.pavfol(1);
                             self.one_line.push(target.yellow());
                         } else {
                             // TODO! granular
@@ -2573,7 +2500,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.one_line.push("change the mode of the file: ".white());
-                        self.one_line.push(filename.yellow());
+                        handle_path_file(filename, &mut self.one_line);
                         mode_matcher(mode, &mut self.one_line);
                     }
                     Exiting => {
@@ -2618,22 +2545,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.one_line.push("change the mode of the file: ".white());
-                        self.one_line.push(filename.yellow());
-                        let file_path_buf = PathBuf::from(filename);
-                        if dirfd == AT_FDCWD {
-                            match file_path_buf.canonicalize() {
-                                Ok(abs_path) => {
-                                    self.one_line.pop();
-                                    let file_name = abs_path.file_name().unwrap().to_string_lossy();
-                                    self.one_line.push(file_name.yellow());
-                                }
-                                Err(_) => {
-                                    // self.one_line.push("[intentrace Error: path error]".blink());
-                                }
-                            }
-                        } else {
-                            panic!("dirfd not handled yet")
-                        }
+                        self.possible_dirfd_file(dirfd, filename);
                         mode_matcher(mode, &mut self.one_line);
                         self.one_line.push("and ".white());
                         match flag {

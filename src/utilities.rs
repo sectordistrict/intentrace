@@ -164,6 +164,18 @@ Options:
     args.collect::<Vec<String>>()
 }
 
+pub fn lose_relativity_on_path(string: std::borrow::Cow<'_, str>) -> String {
+    let mut chars = string.chars().peekable();
+    while let Some(&chara) = chars.peek()  {
+        if chara == '.' || chara == '/'{
+            let _ = chars.next().unwrap();
+            continue;
+        }
+        break;
+    }
+    chars.collect()
+}
+
 pub fn get_mem_difference_from_previous(post_call_brk: usize) -> isize {
     post_call_brk as isize - PRE_CALL_PROGRAM_BREAK_POINT.get() as isize
 }
