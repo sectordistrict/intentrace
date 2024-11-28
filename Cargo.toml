@@ -23,5 +23,5 @@ syscalls = "0.6.18"
 tabled = "0.16.0"
 uzers = "0.12.1"
 
-[profile.release]
-lto = true
+# [profile.release]
+# lto = true
