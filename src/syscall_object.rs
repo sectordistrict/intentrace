@@ -14,8 +14,7 @@ use nix::{
     errno::Errno,
     fcntl::{self, AtFlags, FallocateFlags, OFlag, RenameFlags},
     libc::{
-        cpu_set_t, user_regs_struct, AT_FDCWD, CPU_ISSET, CPU_SETSIZE, MAP_FAILED, PRIO_PGRP,
-        PRIO_PROCESS, PRIO_USER,
+        cpu_set_t, iovec, msghdr, sockaddr, user_regs_struct, AT_FDCWD, CPU_ISSET, CPU_SETSIZE, MAP_FAILED, PRIO_PGRP, PRIO_PROCESS, PRIO_USER
     },
     sys::{
         eventfd,
@@ -969,7 +968,6 @@ impl SyscallObject {
                             if self.sysno == Sysno::execve {
                                 continue;
                             }
-                            // p!(self.sysno.name());
                             let array_of_texts = SyscallObject::string_from_array_of_strings(
                                 self.args[index],
                                 self.child,
@@ -1035,9 +1033,7 @@ impl SyscallObject {
         Sysno::from(orig_rax)
     }
     pub(crate) fn build(registers: &user_regs_struct, child: Pid) -> Self {
-        // println!("{:?}", registers.orig_rax as i32);
         let sysno = Sysno::from(registers.orig_rax as i32);
-        // println!("{}", sysno);
         let syscall = match SYSCALL_MAP.get(&sysno) {
             Some((
                 category,
@@ -1392,8 +1388,10 @@ impl SyscallObject {
     // Use process_vm_readv(2)
     fn string_from_pointer(address: u64, child: Pid) -> String {
         // TODO! execve multi-threaded fails here for some reason
-        let data = SyscallObject::read_bytes_until_null(address as usize, child).unwrap();
-        String::from_utf8_lossy(&data).into_owned()
+        match SyscallObject::read_bytes_until_null(address as usize, child) {
+            Some(data) => String::from_utf8_lossy(&data).into_owned(),
+            None => "".to_owned()
+        }
     }
     fn string_from_array_of_strings(address: u64, child: Pid) -> Vec<String> {
         // TODO! execve fails this

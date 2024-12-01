@@ -18,7 +18,7 @@ use nix::{
     errno::Errno,
     fcntl::{self, AtFlags, FallocateFlags},
     libc::{
-        cpu_set_t, pid_t, rlimit, timespec, timeval, AT_FDCWD, EPOLL_CLOEXEC, EPOLL_CTL_ADD,
+        msghdr, iovec, cpu_set_t, pid_t, rlimit, timespec, timeval, AT_FDCWD, EPOLL_CLOEXEC, EPOLL_CTL_ADD,
         EPOLL_CTL_DEL, EPOLL_CTL_MOD, FUTEX_CLOCK_REALTIME, FUTEX_CMP_REQUEUE,
         FUTEX_CMP_REQUEUE_PI, FUTEX_FD, FUTEX_LOCK_PI, FUTEX_LOCK_PI2, FUTEX_PRIVATE_FLAG,
         FUTEX_REQUEUE, FUTEX_TRYLOCK_PI, FUTEX_UNLOCK_PI, FUTEX_WAIT, FUTEX_WAIT_BITSET,
@@ -35,7 +35,9 @@ use nix::{
         MAP_SYNC, MCL_CURRENT, MCL_FUTURE, MCL_ONFAULT, O_APPEND, O_ASYNC, O_CLOEXEC, O_CREAT,
         O_DIRECT, O_DIRECTORY, O_DSYNC, O_EXCL, O_LARGEFILE, O_NDELAY, O_NOATIME, O_NOCTTY,
         O_NOFOLLOW, O_NONBLOCK, O_PATH, O_SYNC, O_TMPFILE, O_TRUNC, PRIO_PGRP, PRIO_PROCESS,
-        PRIO_USER, P_ALL, P_PGID, P_PID, P_PIDFD, AT_REMOVEDIR, RENAME_EXCHANGE, RENAME_NOREPLACE, RENAME_WHITEOUT
+        PRIO_USER, P_ALL, P_PGID, P_PID, P_PIDFD, AT_REMOVEDIR, RENAME_EXCHANGE, RENAME_NOREPLACE,
+        RENAME_WHITEOUT, AT_EMPTY_PATH, AT_NO_AUTOMOUNT, AT_SYMLINK_NOFOLLOW, AT_STATX_SYNC_AS_STAT,
+        AT_STATX_FORCE_SYNC, AT_STATX_DONT_SYNC
     },
     sys::{
         eventfd,
@@ -491,54 +493,50 @@ impl SyscallObject {
             }
             Sysno::statx => {
                 let dirfd = self.args[0] as i32;
-                let dirfd_parsed = self.pavfol(0);
-                let filename: String = self.pavfol(1);
-                let flags: rustix::fs::AtFlags =
-                    unsafe { std::mem::transmute(self.args[2] as u32) };
-                let statx_mask: rustix::fs::StatxFlags =
-                    unsafe { std::mem::transmute(self.args[3] as u32) };
+                let pathname: String = self.pavfol(1);
+                // let flags: rustix::fs::AtFlags = unsafe { std::mem::transmute(self.args[2] as i32) };
+                let flags_num = self.args[2] as i32;
                 match self.state {
                     Entering => {
-                        self.one_line.push("get the stats of the file: ".white());
-                        handle_path_file(filename, &mut self.one_line);
 
-                        let mut flag_directive = vec![];
-                        if flags.contains(rustix::fs::AtFlags::SYMLINK_NOFOLLOW) {
-                            flag_directive.push(
-                                "operate on the symbolic link if found, do not recurse it".yellow(),
-                            );
+                        self.one_line.push("get the stats of the file: ".white());
+                        
+                        // statx logic for when the pathname is empty
+                        if pathname.is_empty() && (flags_num & AT_EMPTY_PATH) > 0 {
+                            // if pathname is empty and AT_EMPTY_PATH is given, dirfd is used
+                            let dirfd_parsed = self.pavfol(0);
+                            self.one_line.push(dirfd_parsed.yellow());
+                        } else {
+                            handle_path_file(pathname, &mut self.one_line);
                         }
-                        if flags.contains(rustix::fs::AtFlags::EACCESS) {
-                            flag_directive.push("check using effective user & group ids".yellow());
+                        
+                        let mut flag_directive = vec![]; 
+                        if (flags_num & AT_NO_AUTOMOUNT) > 0 {
+                            flag_directive.push("don't automount the basename of the path if its an automount directory".yellow());
                         }
-                        if flags.contains(rustix::fs::AtFlags::SYMLINK_FOLLOW) {
-                            flag_directive.push("recurse symbolic links if found".yellow());
+                        if (flags_num & AT_SYMLINK_NOFOLLOW) > 0 {
+                            flag_directive.push("if the path is a symbolic link, get its stats, do not recurse it".yellow());
                         }
-                        if flags.contains(rustix::fs::AtFlags::NO_AUTOMOUNT) {
-                            flag_directive.push(
-                        "don't automount the basename of the path if its an automount directory"
-                            .yellow(),
-                    );
+                        if (flags_num & AT_STATX_SYNC_AS_STAT) > 0 {
+                            flag_directive.push("behave similar to the `stat` syscall".yellow());
                         }
-                        if flags.contains(rustix::fs::AtFlags::EMPTY_PATH) {
-                            flag_directive.push(
-                                "operate on the anchor directory if pathname is empty".yellow(),
-                            );
+                        if (flags_num & AT_STATX_FORCE_SYNC) > 0 {
+                            flag_directive.push("force synchronization / guarantee up to date information".yellow());
                         }
-                        if flag_directive.len() > 0 {
-                            self.one_line.push(" (".white());
-                            let mut flag_directive_iter = flag_directive.into_iter().peekable();
-                            if flag_directive_iter.peek().is_some() {
-                                self.one_line.push(flag_directive_iter.next().unwrap());
-                            }
-                            for entry in flag_directive_iter {
-                                self.one_line.push(", ".white());
-                                self.one_line.push(entry);
-                            }
-                            self.one_line.push(")".white());
+                        if (flags_num & AT_STATX_DONT_SYNC) > 0 {
+                            flag_directive.push("don't force synchronization / retrieve whatever information is cached".yellow());
                         }
+                        // if flags.contains(rustix::fs::AtFlags::EACCESS) {
+                        //     flag_directive.push("check using effective user & group ids".yellow());
+                        // }
+                        // if flags.contains(rustix::fs::AtFlags::SYMLINK_FOLLOW) {
+                        //     flag_directive.push("recurse symbolic links if found".yellow());
+                        // }
+                        directives_handler(flag_directive, &mut self.one_line);
+                        
                         // TODO!
-                        // println!("{:?}", statx_mask);
+                        // unnecessary information
+                        // statx_mask is currently unhandled because it's unnecessary information 
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -4831,7 +4829,7 @@ impl SyscallObject {
                     Entering => {
                         if (futex_ops_num & FUTEX_WAIT) == FUTEX_WAIT {
                             self.one_line.push(
-                                "if comparison succeeds block and wait for FUTEX_WAKE".yellow(),
+                                "block and wait for FUTEX_WAKE if comparison succeeds".yellow(),
                             );
                         } else if (futex_ops_num & FUTEX_WAKE) == FUTEX_WAKE {
                             self.one_line.push("wake a maximum of ".white());

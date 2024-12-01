@@ -1531,7 +1531,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 "send a message to another socket",
                 &[
                     (["sockfd", "file descriptor of the sending socket"], Normal(File_Descriptor(""))),
-                    (["buf", "pointer to a buffer containing the message to be sent and the length of the message"], Normal(Pointer_To_Struct)),
+                    (["buf", "pointer to a buffer containing the message to be sent and the length of the message"], Normal(Pointer_To_Text(""))),
+                    (["len", "size of the message buffer in bytes"], Normal(Length_Of_Bytes_Specific)),
                     (["flags", "flags to customize syscall behaviour"], Normal(General_Flag(SocketMessageFlag))),
                     // WILL BE USED if connection-less (like UDP)
                     // WILL BE IGNORED if connection-mode (like TCP, or SEQ) and must be null or 0
