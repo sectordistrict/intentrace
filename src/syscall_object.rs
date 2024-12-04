@@ -2,7 +2,7 @@
 use crate::{
     one_line_formatter::handle_path_file,
     types::{
-        mlock2, Annotation, ArgContainer, Bytes, BytesPagesRelevant, Category, Flag,
+        mlock2, Annotation, Bytes, BytesPagesRelevant, Category, Flag,
         LandlockCreateFlags, LandlockRuleTypeFlags, SysArg, SysReturn,
     },
     utilities::{FOLLOW_FORKS, INTENT, SYSCALL_MAP, UNSUPPORTED, lose_relativity_on_path},
@@ -53,7 +53,7 @@ pub struct SyscallObject {
     description: &'static str,
     pub category: Category,
     pub args: Vec<u64>,
-    rich_args: Vec<(Annotation, ArgContainer)>,
+    rich_args: Vec<(Annotation, SysArg)>,
     count: usize,
     pub result: (Option<u64>, (Annotation, SysReturn)),
     pub child: Pid,
@@ -233,132 +233,125 @@ impl SyscallObject {
     // annotation, arg_container, register_value
     pub(crate) fn parse_arg_value(&self, index: usize, which: usize) -> Vec<ColoredString> {
         let annotation = self.rich_args[index].0;
-        let argument_container = self.rich_args[index].1;
+        let sysarg = self.rich_args[index].1;
         let register_value = self.args[index];
 
         let mut output: Vec<ColoredString> = Vec::new();
         use SysArg::*;
         output.push(annotation[which].dimmed());
         output.push(": ".dimmed());
-        let value: ColoredString = match argument_container {
-            ArgContainer::Normal(arg_type) => {
-                match arg_type {
-                    // NUMERICS
-                    Numeric => format!("{}", register_value as isize).yellow(),
-                    PID => format!("{}", register_value as isize).yellow(),
-                    User_Group => format!("{}", register_value as isize).yellow(),
-                    Unsigned_Numeric => format!("{register_value}").yellow(),
-                    File_Descriptor(fd) => format!("{fd}").yellow(),
-                    File_Descriptor_openat(fd) => format!("{fd}").yellow(),
-                    Pointer_To_File_Descriptor_Array([fd1, fd2]) => {
-                        format!("read end: {fd1}, write end: {fd2}").yellow()
-                    }
+        let value: ColoredString = match sysarg {
+            // NUMERICS
+            Numeric => format!("{}", register_value as isize).yellow(),
+            PID => format!("{}", register_value as isize).yellow(),
+            User_Group => format!("{}", register_value as isize).yellow(),
+            Unsigned_Numeric => format!("{register_value}").yellow(),
+            File_Descriptor(fd) => format!("{fd}").yellow(),
+            File_Descriptor_openat(fd) => format!("{fd}").yellow(),
+            Pointer_To_File_Descriptor_Array([fd1, fd2]) => {
+                format!("read end: {fd1}, write end: {fd2}").yellow()
+            }
 
-                    // FLAG
-                    General_Flag(flag) => SyscallObject::handle_flag(register_value, flag).yellow(),
+            // FLAG
+            General_Flag(flag) => SyscallObject::handle_flag(register_value, flag).yellow(),
 
-                    // BYTES
-                    Length_Of_Bytes => SyscallObject::style_bytes(register_value).yellow(),
-                    Length_Of_Bytes_Page_Aligned_Ceil => {
-                        SyscallObject::style_bytes_page_aligned_ceil(register_value).yellow()
-                    }
-                    Length_Of_Bytes_Page_Aligned_Floor => {
-                        SyscallObject::style_bytes_page_aligned_floor(register_value).yellow()
-                    }
-                    // Signed_Length_Of_Bytes_Specific => {
-                    //     SyscallObject::style_bytes_signed(register_value).yellow()
-                    // }
-                    Length_Of_Bytes_Specific => format!("{register_value} Bytes").yellow(),
+            // BYTES
+            Length_Of_Bytes => SyscallObject::style_bytes(register_value).yellow(),
+            Length_Of_Bytes_Page_Aligned_Ceil => {
+                SyscallObject::style_bytes_page_aligned_ceil(register_value).yellow()
+            }
+            Length_Of_Bytes_Page_Aligned_Floor => {
+                SyscallObject::style_bytes_page_aligned_floor(register_value).yellow()
+            }
+            // Signed_Length_Of_Bytes_Specific => {
+            //     SyscallObject::style_bytes_signed(register_value).yellow()
+            // }
+            Length_Of_Bytes_Specific => format!("{register_value} Bytes").yellow(),
 
-                    // can be mined for granular insights
-                    Pointer_To_Struct => "0x.. -> {..}".yellow(),
-                    Array_Of_Struct => "[{..}, {..}]".yellow(),
-                    Array_Of_Strings(array) => {
-                        let mut string = String::new();
-                        for text in array {
-                            string.push_str(&text);
-                            string.push(' ');
-                        }
-                        string.yellow()
-                    }
+            // can be mined for granular insights
+            Pointer_To_Struct => "0x.. -> {..}".yellow(),
+            Array_Of_Struct => "[{..}, {..}]".yellow(),
+            Array_Of_Strings(array) => {
+                let mut string = String::new();
+                for text in array {
+                    string.push_str(&text);
+                    string.push(' ');
+                }
+                string.yellow()
+            }
 
-                    Byte_Stream => format!("whatever").yellow(), // }
+            Byte_Stream => format!("whatever").yellow(), // }
 
-                    Single_Word => {
-                        let pointer = register_value as *const ();
-                        format!("{:p}", pointer).blue()
-                    }
+            Single_Word => {
+                let pointer = register_value as *const ();
+                format!("{:p}", pointer).blue()
+            }
 
-                    Pointer_To_Numeric(pid) => {
-                        let pointer = register_value as *const ();
-                        if pointer.is_null() {
-                            format!("0xNull").magenta()
-                        } else {
-                            let pid = pid.unwrap();
-                            format!("{pid}").blue()
-                        }
-                    }
-                    Pointer_To_Numeric_Or_Numeric(numeric) => {
-                        if numeric.is_none() {
-                            format!("").blue()
-                        } else {
-                            let num = numeric.unwrap();
-                            format!("{num}").blue()
-                        }
-                    }
-
-                    Pointer_To_Unsigned_Numeric => {
-                        let pointer = register_value as *const ();
-                        if pointer.is_null() {
-                            format!("0xNull").magenta()
-                        } else {
-                            format!("{:p}", pointer).blue()
-                        }
-                    }
-
-                    Pointer_To_Text(text) => {
-                        if text.len() > 20 {
-                            let portion = &text[..20];
-                            format!("{:?}", format!("{}...", portion)).purple()
-                        } else if text.len() == 0 {
-                            format!("\"\"").bright_yellow()
-                        } else {
-                            format!("{:?}", format!("{}", text)).purple()
-                        }
-                    }
-
-                    Pointer_To_Path(text) => {
-                        if text.len() > 20 {
-                            let portion = &text[..];
-
-                            format!("{:?}", format!("{}...", portion)).purple()
-                        } else if text.len() == 0 {
-                            format!("\"\"").bright_yellow()
-                        } else {
-                            format!("{:?}", format!("{}", text)).purple()
-                        }
-                    }
-
-                    Address => {
-                        let pointer = register_value as *const ();
-                        if pointer == std::ptr::null() {
-                            format!("0xNull").bright_red()
-                        } else {
-                            format!("{:p}", pointer).yellow()
-                        }
-                    }
-
-                    Pointer_To_Length_Of_Bytes_Specific => {
-                        ColoredString::from("did not handle this yet".yellow())
-                    }
-                    // should remove
-                    Multiple_Flags([flag1, flag2]) => {
-                        SyscallObject::handle_flag(register_value, flag1).yellow()
-                    }
+            Pointer_To_Numeric(pid) => {
+                let pointer = register_value as *const ();
+                if pointer.is_null() {
+                    format!("0xNull").magenta()
+                } else {
+                    let pid = pid.unwrap();
+                    format!("{pid}").blue()
                 }
             }
-            ArgContainer::ValueReturn(arg_type1, arg_type2) => {
-                todo!()
+            Pointer_To_Numeric_Or_Numeric(numeric) => {
+                if numeric.is_none() {
+                    format!("").blue()
+                } else {
+                    let num = numeric.unwrap();
+                    format!("{num}").blue()
+                }
+            }
+
+            Pointer_To_Unsigned_Numeric => {
+                let pointer = register_value as *const ();
+                if pointer.is_null() {
+                    format!("0xNull").magenta()
+                } else {
+                    format!("{:p}", pointer).blue()
+                }
+            }
+
+            Pointer_To_Text(text) => {
+                if text.len() > 20 {
+                    let portion = &text[..20];
+                    format!("{:?}", format!("{}...", portion)).purple()
+                } else if text.len() == 0 {
+                    format!("\"\"").bright_yellow()
+                } else {
+                    format!("{:?}", format!("{}", text)).purple()
+                }
+            }
+
+            Pointer_To_Path(text) => {
+                if text.len() > 20 {
+                    let portion = &text[..];
+
+                    format!("{:?}", format!("{}...", portion)).purple()
+                } else if text.len() == 0 {
+                    format!("\"\"").bright_yellow()
+                } else {
+                    format!("{:?}", format!("{}", text)).purple()
+                }
+            }
+
+            Address => {
+                let pointer = register_value as *const ();
+                if pointer == std::ptr::null() {
+                    format!("0xNull").bright_red()
+                } else {
+                    format!("{:p}", pointer).yellow()
+                }
+            }
+
+            Pointer_To_Length_Of_Bytes_Specific => {
+                ColoredString::from("did not handle this yet".yellow())
+            }
+            // should remove
+            Multiple_Flags([flag1, flag2]) => {
+                SyscallObject::handle_flag(register_value, flag1).yellow()
             }
         };
         output.push(value);
@@ -517,11 +510,9 @@ impl SyscallObject {
     // previously `parse_arg_value_for_one_line`
     pub(crate) fn pavfol(&self, index: usize) -> String {
         let register_value = self.args[index];
-        let argument_container = self.rich_args[index].1;
+        let sysarg = self.rich_args[index].1;
         use SysArg::*;
-        match argument_container {
-            ArgContainer::Normal(arg_type) => {
-                return match arg_type {
+        match sysarg {
                     // NUMERICS
                     Numeric => format!("{}", register_value as isize),
                     PID => format!("{}", register_value as isize),
@@ -621,12 +612,7 @@ impl SyscallObject {
                         SyscallObject::handle_flag(register_value, flag1)
                         // SyscallObject::handle_multi_flags(register_value, flag1, flag2)
                     }
-                };
-            }
-            ArgContainer::ValueReturn(arg_type1, arg_type2) => {
-                todo!()
-            }
-        };
+        }
     }
     pub(crate) fn parse_return_value_one_line(&self) -> Result<String, ()> {
         if self.is_exiting() {
@@ -737,138 +723,124 @@ impl SyscallObject {
         let len = self.rich_args.len();
         for index in 0..len {
             let mut annotation = self.rich_args[index].0;
-            let mut arg_container = self.rich_args[index].1;
-            match arg_container {
-                ArgContainer::Normal(mut arg_type) => {
-                    use SysArg::*;
-                    match arg_type {
-                        Pointer_To_File_Descriptor_Array(
-                            [ref mut file_descriptor1, ref mut file_descriptor2],
-                        ) => {
-                            match SyscallObject::read_two_word(
-                                self.args[index] as usize,
+            let mut sysarg = self.rich_args[index].1;
+            use SysArg::*;
+            match sysarg {
+                Pointer_To_File_Descriptor_Array(
+                    [ref mut file_descriptor1, ref mut file_descriptor2],
+                ) => {
+                    match SyscallObject::read_two_word(
+                        self.args[index] as usize,
+                        self.child,
+                    ) {
+                        Some([ref mut fd1, ref mut fd2]) => {
+                            let styled_fd1 = SyscallObject::style_file_descriptor(
+                                *fd1 as u64,
                                 self.child,
-                            ) {
-                                Some([ref mut fd1, ref mut fd2]) => {
-                                    let styled_fd1 = SyscallObject::style_file_descriptor(
-                                        *fd1 as u64,
-                                        self.child,
-                                    )
-                                    .unwrap_or(format!("ignored"));
-                                    let styled_fd2 = SyscallObject::style_file_descriptor(
-                                        *fd2 as u64,
-                                        self.child,
-                                    )
-                                    .unwrap_or(format!("ignored"));
-                                    *file_descriptor1 = styled_fd1.leak();
-                                    *file_descriptor2 = styled_fd2.leak();
-                                }
-                                None => {
-                                    *file_descriptor1 = "could not get fd";
-                                    *file_descriptor2 = "could not get fd";
-                                }
-                            }
+                            )
+                            .unwrap_or(format!("ignored"));
+                            let styled_fd2 = SyscallObject::style_file_descriptor(
+                                *fd2 as u64,
+                                self.child,
+                            )
+                            .unwrap_or(format!("ignored"));
+                            *file_descriptor1 = styled_fd1.leak();
+                            *file_descriptor2 = styled_fd2.leak();
                         }
-                        Pointer_To_Numeric(ref mut pid) => {
-                            match SyscallObject::read_word(self.args[index] as usize, self.child) {
-                                Some(pid_at_word) => {
-                                    if self.sysno == Sysno::wait4 {
-                                        self.rich_args[1].1 = ArgContainer::Normal(
-                                            Pointer_To_Numeric(Some(pid_at_word)),
-                                        );
-                                    }
-                                }
-                                None => {
-                                    // p!("reading numeric failed");
-                                }
-                            }
+                        None => {
+                            *file_descriptor1 = "could not get fd";
+                            *file_descriptor2 = "could not get fd";
                         }
-                        Pointer_To_Numeric_Or_Numeric(ref mut pid) => {
-                            // this is only available for arch_prctl
-                            let operation = self.args[0];
-                            let addr = self.args[0];
-                            // workaround values for now
-                            let ARCH_SET_GS = 0x1001;
-                            let ARCH_SET_FS = 0x1002;
-                            let ARCH_GET_FS = 0x1003;
-                            let ARCH_GET_GS = 0x1004;
-                            let ARCH_GET_CPUID = 0x1011;
-                            let ARCH_SET_CPUID = 0x1012;
-
-                            // if (operation & ARCH_SET_CPUID) == ARCH_SET_CPUID ||(operation & ARCH_SET_FS) == ARCH_SET_FS ||(operation & ARCH_SET_GS) == ARCH_SET_GS  {
-                            // } else
-
-                            if (operation & ARCH_GET_CPUID) == ARCH_GET_CPUID
-                                || (operation & ARCH_GET_FS) == ARCH_GET_FS
-                                || (operation & ARCH_GET_GS) == ARCH_GET_GS
-                            {
-                                match SyscallObject::read_word(
-                                    self.args[index] as usize,
-                                    self.child,
-                                ) {
-                                    Some(pid_at_word) => {
-                                        if self.sysno == Sysno::wait4 {
-                                            self.rich_args[1].1 = ArgContainer::Normal(
-                                                Pointer_To_Numeric_Or_Numeric(Some(pid_at_word)),
-                                            );
-                                        }
-                                    }
-                                    None => {
-                                        // p!("reading numeric failed");
-                                    }
-                                }
-                            }
-                        }
-
-                        Pointer_To_Text(ref mut text) => {
-                            // TODO! fix this
-                            if self.sysno == Sysno::readlink || self.sysno == Sysno::readlinkat {
-                                // let a = nix::errno::Errno::EINVAL
-                                if self.errno.is_some() {
-                                    continue;
-                                }
-                                let size = self.result.0.unwrap();
-                                if size > 0 {
-                                    if size > 100 {
-                                        let size = -1 * (size as i32);
-                                        let error = nix::errno::Errno::from_raw(size);
-                                    } else {
-                                        if self.sysno == Sysno::readlink && index == 1 {
-                                            match SyscallObject::read_string_specific_length(
-                                                self.args[index] as usize,
-                                                self.child,
-                                                size as usize,
-                                            ) {
-                                                Some(styled_fd) => {
-                                                    self.rich_args[1].1 = ArgContainer::Normal(
-                                                        Pointer_To_Text(styled_fd.leak()),
-                                                    );
-                                                }
-                                                None => (),
-                                            }
-                                        } else if self.sysno == Sysno::readlinkat && index == 2 {
-                                            match SyscallObject::read_string_specific_length(
-                                                self.args[index] as usize,
-                                                self.child,
-                                                size as usize,
-                                            ) {
-                                                Some(styled_fd) => {
-                                                    self.rich_args[1].1 = ArgContainer::Normal(
-                                                        Pointer_To_Text(styled_fd.leak()),
-                                                    );
-                                                }
-                                                None => (),
-                                            }
-                                            
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        _ => {}
                     }
                 }
-                ArgContainer::ValueReturn(_, _) => todo!(),
+                Pointer_To_Numeric(ref mut pid) => {
+                    match SyscallObject::read_word(self.args[index] as usize, self.child) {
+                        Some(pid_at_word) => {
+                            if self.sysno == Sysno::wait4 {
+                                self.rich_args[1].1 = Pointer_To_Numeric(Some(pid_at_word));
+                            }
+                        }
+                        None => {
+                            // p!("reading numeric failed");
+                        }
+                    }
+                }
+                Pointer_To_Numeric_Or_Numeric(ref mut pid) => {
+                    // this is only available for arch_prctl
+                    let operation = self.args[0];
+                    let addr = self.args[0];
+                    // workaround values for now
+                    let ARCH_SET_GS = 0x1001;
+                    let ARCH_SET_FS = 0x1002;
+                    let ARCH_GET_FS = 0x1003;
+                    let ARCH_GET_GS = 0x1004;
+                    let ARCH_GET_CPUID = 0x1011;
+                    let ARCH_SET_CPUID = 0x1012;
+
+                    // if (operation & ARCH_SET_CPUID) == ARCH_SET_CPUID ||(operation & ARCH_SET_FS) == ARCH_SET_FS ||(operation & ARCH_SET_GS) == ARCH_SET_GS  {
+                    // } else
+
+                    if (operation & ARCH_GET_CPUID) == ARCH_GET_CPUID
+                        || (operation & ARCH_GET_FS) == ARCH_GET_FS
+                        || (operation & ARCH_GET_GS) == ARCH_GET_GS
+                    {
+                        match SyscallObject::read_word(
+                            self.args[index] as usize,
+                            self.child,
+                        ) {
+                            Some(pid_at_word) => {
+                                if self.sysno == Sysno::wait4 {
+                                    self.rich_args[1].1 = Pointer_To_Numeric_Or_Numeric(Some(pid_at_word));
+                                }
+                            }
+                            None => {
+                                // p!("reading numeric failed");
+                            }
+                        }
+                    }
+                }
+                Pointer_To_Text(ref mut text) => {
+                    // TODO! fix this
+                    if self.sysno == Sysno::readlink || self.sysno == Sysno::readlinkat {
+                        // let a = nix::errno::Errno::EINVAL
+                        if self.errno.is_some() {
+                            continue;
+                        }
+                        let size = self.result.0.unwrap();
+                        if size > 0 {
+                            if size > 100 {
+                                let size = -1 * (size as i32);
+                                let error = nix::errno::Errno::from_raw(size);
+                            } else {
+                                if self.sysno == Sysno::readlink && index == 1 {
+                                    match SyscallObject::read_string_specific_length(
+                                        self.args[index] as usize,
+                                        self.child,
+                                        size as usize,
+                                    ) {
+                                        Some(styled_fd) => {
+                                            self.rich_args[1].1 = Pointer_To_Text(styled_fd.leak());
+                                        }
+                                        None => (),
+                                    }
+                                } else if self.sysno == Sysno::readlinkat && index == 2 {
+                                    match SyscallObject::read_string_specific_length(
+                                        self.args[index] as usize,
+                                        self.child,
+                                        size as usize,
+                                    ) {
+                                        Some(styled_fd) => {
+                                            self.rich_args[1].1 = Pointer_To_Text(styled_fd.leak());
+                                        }
+                                        None => (),
+                                    }
+                                    
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         }
         // POPULATING RETURN
@@ -914,103 +886,69 @@ impl SyscallObject {
         //
         //
         //
-        for (index, (annotation, arg_container)) in self.rich_args.iter_mut().enumerate() {
-            match arg_container {
-                ArgContainer::Normal(arg_type) => {
-                    use SysArg::*;
-                    match arg_type {
-                        File_Descriptor(file_descriptor) => {
-                            let fd = self.args[index] as i32;
+        for (index, (annotation, sysarg)) in self.rich_args.iter_mut().enumerate() {
+            use SysArg::*;
+            match sysarg {
+                File_Descriptor(file_descriptor) => {
+                    let fd = self.args[index] as i32;
 
-                            let styled_fd =
-                                SyscallObject::style_file_descriptor(self.args[index], self.child)
-                                    .unwrap_or(format!("ignored"));
-                            *file_descriptor = styled_fd.leak();
-                        }
-                        File_Descriptor_openat(file_descriptor) => {
-                            let mut styled_fd = String::new();
-                            let fd = self.args[index] as i32;
-                            styled_fd = if fd == AT_FDCWD {
-                                format!("{}", "AT_FDCWD -> Current Working Directory".bright_blue())
-                            } else {
-                                SyscallObject::style_file_descriptor(self.args[index], self.child)
-                                    .unwrap_or(format!("ignored"))
-                            };
-                            *file_descriptor = styled_fd.leak();
-                        }
-                        Pointer_To_Text(ref mut text) => {
-                            // TODO! fix this
-                            let mut styled_fd = String::new();
-                            if self.sysno == Sysno::execve {
-                                continue;
-                            }
-                            if self.sysno == Sysno::write || self.sysno == Sysno::pwrite64 {
-                                if self.args[2] < 20 {
-                                    match SyscallObject::read_string_specific_length(
-                                        self.args[1] as usize,
-                                        self.child,
-                                        self.args[2] as usize,
-                                    ) {
-                                        Some(styled_fd) => {
-                                            *text = styled_fd.leak();
-                                        }
-                                        None => (),
-                                    }
-                                    continue;
-                                }
-                            }
-                            let styled_fd =
-                                SyscallObject::string_from_pointer(self.args[index], self.child);
-                            *text = styled_fd.leak();
-                        }
-                        Array_Of_Strings(text) => {
-                            // TODO! fix this
-                            if self.sysno == Sysno::execve {
-                                continue;
-                            }
-                            let array_of_texts = SyscallObject::string_from_array_of_strings(
-                                self.args[index],
+                    let styled_fd =
+                        SyscallObject::style_file_descriptor(self.args[index], self.child)
+                            .unwrap_or(format!("ignored"));
+                    *file_descriptor = styled_fd.leak();
+                }
+                File_Descriptor_openat(file_descriptor) => {
+                    let mut styled_fd = String::new();
+                    let fd = self.args[index] as i32;
+                    styled_fd = if fd == AT_FDCWD {
+                        format!("{}", "AT_FDCWD -> Current Working Directory".bright_blue())
+                    } else {
+                        SyscallObject::style_file_descriptor(self.args[index], self.child)
+                            .unwrap_or(format!("ignored"))
+                    };
+                    *file_descriptor = styled_fd.leak();
+                }
+                Pointer_To_Text(ref mut text) => {
+                    // TODO! fix this
+                    let mut styled_fd = String::new();
+                    if self.sysno == Sysno::execve {
+                        continue;
+                    }
+                    if self.sysno == Sysno::write || self.sysno == Sysno::pwrite64 {
+                        if self.args[2] < 20 {
+                            match SyscallObject::read_string_specific_length(
+                                self.args[1] as usize,
                                 self.child,
-                            );
-                            let mut svec: Vec<&'static str> = vec![];
-                            for text in array_of_texts {
-                                svec.push(text.leak());
+                                self.args[2] as usize,
+                            ) {
+                                Some(styled_fd) => {
+                                    *text = styled_fd.leak();
+                                }
+                                None => (),
                             }
-                            *text = Box::leak(svec.into_boxed_slice());
+                            continue;
                         }
-                        _ => {}
                     }
+                    let styled_fd =
+                        SyscallObject::string_from_pointer(self.args[index], self.child);
+                    *text = styled_fd.leak();
                 }
-                ArgContainer::ValueReturn(value_arg_type, _result_arg_type) => {
-                    use SysArg::*;
-                    match value_arg_type {
-                        File_Descriptor(file_descriptor) => {
-                            let styled_fd =
-                                SyscallObject::style_file_descriptor(self.args[index], self.child)
-                                    .unwrap_or(format!("ignored"));
-
-                            *file_descriptor = styled_fd.leak();
-                        }
-                        File_Descriptor_openat(file_descriptor) => {
-                            let mut styled_fd = String::new();
-                            let fd = self.args[index] as i32;
-                            styled_fd = if fd == AT_FDCWD {
-                                format!("{}", "AT_FDCWD -> Current Working Directory".bright_blue())
-                            } else {
-                                SyscallObject::style_file_descriptor(self.args[index], self.child)
-                                    .unwrap_or(format!("ignored"))
-                            };
-                            *file_descriptor = styled_fd.leak();
-                        }
-                        Pointer_To_Text(text) => {
-                            let styled_fd =
-                                SyscallObject::string_from_pointer(self.args[index], self.child);
-
-                            *text = styled_fd.leak();
-                        }
-                        _ => {}
+                Array_Of_Strings(text) => {
+                    // TODO! fix this
+                    if self.sysno == Sysno::execve {
+                        continue;
                     }
+                    let array_of_texts = SyscallObject::string_from_array_of_strings(
+                        self.args[index],
+                        self.child,
+                    );
+                    let mut svec: Vec<&'static str> = vec![];
+                    for text in array_of_texts {
+                        svec.push(text.leak());
+                    }
+                    *text = Box::leak(svec.into_boxed_slice());
                 }
+                _ => {}
             }
         }
         // POPULATING RETURN (for now only priority)
@@ -1162,11 +1100,11 @@ impl SyscallObject {
                 },
             },
             None => {
-                unsafe {
-                    if !UNSUPPORTED.contains(&sysno.name()) {
-                        UNSUPPORTED.push(sysno.name());
-                    }
-                }
+                // unsafe {
+                //     if !UNSUPPORTED.contains(&sysno.name()) {
+                //         UNSUPPORTED.push(sysno.name());
+                //     }
+                // }
                 SyscallObject {
                     sysno,
                     description: "syscall not covered currently",
@@ -1950,7 +1888,7 @@ impl SyscallObject {
 
 
 impl Iterator for SyscallObject {
-    type Item = (u64, ([&'static str; 2], ArgContainer));
+    type Item = (u64, ([&'static str; 2], SysArg));
     fn next(&mut self) -> Option<Self::Item> {
         if self.count != self.args.len() {
             let out = (self.args[self.count], self.rich_args[self.count]);

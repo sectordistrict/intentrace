@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use syscalls::Sysno;
 use std::mem::MaybeUninit;
-use crate::types::{ArgContainer, SysArg, Category, Flag, SysDetails, SysReturn};
+use crate::types::{SysArg, Category, Flag, SysDetails, SysReturn};
 
 // TODO! differentiate between bitflags (orables) and enums
 // TODO! add granularity for value-return type of syscall arguments
@@ -12,7 +12,6 @@ use crate::types::{ArgContainer, SysArg, Category, Flag, SysDetails, SysReturn};
 
 // TODO! switch to phf later
 pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
-    use ArgContainer::*;
     use SysArg::*;
     use Category::*;
     use Flag::*;
@@ -25,9 +24,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "read",
                 &[
-                    (["fd", "file descriptor to be read from"], Normal(File_Descriptor(""))),
-                    (["buf", "buffer to be read into"], Normal(Pointer_To_Text(""))),
-                    (["count", "count of bytes to be read"], Normal(Length_Of_Bytes_Specific)),
+                    (["fd", "file descriptor to be read from"], File_Descriptor("")),
+                    (["buf", "buffer to be read into"], Pointer_To_Text("")),
+                    (["count", "count of bytes to be read"], Length_Of_Bytes_Specific),
                 ],
                 (["return value", "positive number of bytes read, 0 means end of file, -1 means error, and errno modified"],Length_Of_Bytes_Specific_Or_Errno)
             ),
@@ -39,9 +38,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "write",
                 &[
-                    (["fd", "file descriptor"], Normal(File_Descriptor(""))),
-                    (["buf", "buffer holding the data to be written"], Normal(Pointer_To_Text(""))),
-                    (["count", "amount of bytes to write from the buffer"], Normal(Length_Of_Bytes_Specific)),
+                    (["fd", "file descriptor"], File_Descriptor("")),
+                    (["buf", "buffer holding the data to be written"], Pointer_To_Text("")),
+                    (["count", "amount of bytes to write from the buffer"], Length_Of_Bytes_Specific),
                 ],
                 (["return value", "positive number of bytes written, 0 means end of file,  -1 means error, and errno modified"],Length_Of_Bytes_Specific_Or_Errno)
             )
@@ -64,10 +63,10 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "parallel read, use your own offset to avoid file pointer data race",
                 &[
-                    (["fd", "file descriptor of the file to be read from"], Normal(File_Descriptor(""))),
-                    (["buf", "pointer to a buffer where read data will be stored"], Normal(Pointer_To_Text(""))),
-                    (["count", "amount of bytes to be read from the file to the buffer"], Normal(Length_Of_Bytes_Specific)),
-                    (["offset", "bytes of offset of where reading must start"], Normal(Length_Of_Bytes_Specific)),
+                    (["fd", "file descriptor of the file to be read from"], File_Descriptor("")),
+                    (["buf", "pointer to a buffer where read data will be stored"], Pointer_To_Text("")),
+                    (["count", "amount of bytes to be read from the file to the buffer"], Length_Of_Bytes_Specific),
+                    (["offset", "bytes of offset of where reading must start"], Length_Of_Bytes_Specific),
                 ],
                 (["return value", "zero means done eof (done reading), on success returns number of bytes read, -1 On error and errno is modified"],Length_Of_Bytes_Specific_Or_Errno)
             )
@@ -83,10 +82,10 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "parallel write, use your own offset to avoid file pointer data race",
                 &[
-                    (["fd", "file descriptor of the file to be written into"], Normal(File_Descriptor(""))),
-                    (["buf", "pointer to data which will be written to the file"], Normal(Pointer_To_Text(""))),
-                    (["count", "amount of bytes to be written into the file from the buffer"], Normal(Length_Of_Bytes_Specific)),
-                    (["offset", "bytes of offset of where writing must start"], Normal(Length_Of_Bytes_Specific)),
+                    (["fd", "file descriptor of the file to be written into"], File_Descriptor("")),
+                    (["buf", "pointer to data which will be written to the file"], Pointer_To_Text("")),
+                    (["count", "amount of bytes to be written into the file from the buffer"], Length_Of_Bytes_Specific),
+                    (["offset", "bytes of offset of where writing must start"], Length_Of_Bytes_Specific),
                 ],
                 (["return value", "zero means nothing was written (done writing), on success returns number of bytes written, -1 On error and errno is modified"],Length_Of_Bytes_Specific_Or_Errno)
             )
@@ -104,9 +103,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "scatter read, read vectored, read from several non contiguous regions",
                 &[
-                    (["fd", "file descriptor of the file to be read from"], Normal(File_Descriptor(""))),
-                    (["iovec", "array of iovec structs containing pointer-length pairs of scattered regions to be written"], Normal(Array_Of_Struct)),
-                    (["count", "number of iovec structs in the iovec array"], Normal(Unsigned_Numeric)),
+                    (["fd", "file descriptor of the file to be read from"], File_Descriptor("")),
+                    (["iovec", "array of iovec structs containing pointer-length pairs of scattered regions to be written"], Array_Of_Struct),
+                    (["count", "number of iovec structs in the iovec array"], Unsigned_Numeric),
                 ],
                 (["return value", "on success returns number of bytes read, -1 On error and errno is modified"],Length_Of_Bytes_Specific_Or_Errno)
             )
@@ -119,9 +118,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "gather write, write vectored, write from several non contiguous regions",
                 &[
-                    (["fd", "file descriptor of the file to be written into"], Normal(File_Descriptor(""))),
-                    (["iovec", "array of iovec structs containing pointer-length pairs of scattered regions to be written"], Normal(Array_Of_Struct)),
-                    (["count", "number of iovec structs in the iovec array"], Normal(Unsigned_Numeric)),
+                    (["fd", "file descriptor of the file to be written into"], File_Descriptor("")),
+                    (["iovec", "array of iovec structs containing pointer-length pairs of scattered regions to be written"], Array_Of_Struct),
+                    (["count", "number of iovec structs in the iovec array"], Unsigned_Numeric),
                 ],
                 // zero means what in here? man pages dont say anything
                 (["return value", "on success returns number of bytes written, -1 On error and errno is modified"],Length_Of_Bytes_Specific_Or_Errno)
@@ -134,10 +133,10 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "scatter read, read vectored, read from several non contiguous regions using your own offset to avoid file pointer data race",
                 &[
-                    (["fd", "file descriptor of the file to be read from"], Normal(File_Descriptor(""))),
-                    (["iovec", "array of iovec structs containing pointer-length pairs of scattered regions to be written"], Normal(Array_Of_Struct)),
-                    (["count", "number of iovec structs in the iovec array"], Normal(Unsigned_Numeric)),
-                    (["offset", "amount of bytes of offset from the beginning of the file"], Normal(Length_Of_Bytes_Specific)),
+                    (["fd", "file descriptor of the file to be read from"], File_Descriptor("")),
+                    (["iovec", "array of iovec structs containing pointer-length pairs of scattered regions to be written"], Array_Of_Struct),
+                    (["count", "number of iovec structs in the iovec array"], Unsigned_Numeric),
+                    (["offset", "amount of bytes of offset from the beginning of the file"], Length_Of_Bytes_Specific),
                 ],
                 (["return value", "on success returns number of bytes written, -1 On error and errno is modified"],Length_Of_Bytes_Specific_Or_Errno)
             )
@@ -149,10 +148,10 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "gather write, write vectored from several non contiguous regions using your own offset to avoid file pointer data race",
                 &[
-                    (["fd", "file descriptor of the file to be written into"], Normal(File_Descriptor(""))),
-                    (["iovec", "array of iovec structs containing pointer-length pairs of scattered regions to be written"], Normal(Array_Of_Struct)),
-                    (["count", "number of iovec structs in the iovec array"], Normal(Unsigned_Numeric)),
-                    (["offset", "amount of bytes of offset from the beginning of the file"], Normal(Length_Of_Bytes_Specific)),
+                    (["fd", "file descriptor of the file to be written into"], File_Descriptor("")),
+                    (["iovec", "array of iovec structs containing pointer-length pairs of scattered regions to be written"], Array_Of_Struct),
+                    (["count", "number of iovec structs in the iovec array"], Unsigned_Numeric),
+                    (["offset", "amount of bytes of offset from the beginning of the file"], Length_Of_Bytes_Specific),
                 ],
                 (["return value", "on success returns number of bytes written, -1 On error and errno is modified"],Length_Of_Bytes_Specific_Or_Errno)
             )
@@ -164,11 +163,11 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "scatter read, read vectored, read from several non contiguous regions using your own offset to avoid file pointer data race in addition to customized flags",
                 &[
-                    (["fd", "file descriptor of the file to be read from"], Normal(File_Descriptor(""))),
-                    (["iovec", "array of iovec structs containing pointer-length pairs of scattered regions to be written"], Normal(Array_Of_Struct)),
-                    (["count", "number of iovec structs in the iovec array"], Normal(Unsigned_Numeric)),
-                    (["offset", "amount of bytes of offset from the beginning of the file"], Normal(Length_Of_Bytes_Specific)),
-                    (["flags", "custom falgs for specific write behaviour"], Normal(General_Flag(P_RW_V2_Flags))),
+                    (["fd", "file descriptor of the file to be read from"], File_Descriptor("")),
+                    (["iovec", "array of iovec structs containing pointer-length pairs of scattered regions to be written"], Array_Of_Struct),
+                    (["count", "number of iovec structs in the iovec array"], Unsigned_Numeric),
+                    (["offset", "amount of bytes of offset from the beginning of the file"], Length_Of_Bytes_Specific),
+                    (["flags", "custom falgs for specific write behaviour"], General_Flag(P_RW_V2_Flags)),
                 ],
                 (["return value", "on success returns number of bytes written, -1 On error and errno is modified"],Length_Of_Bytes_Specific_Or_Errno)
             )
@@ -180,11 +179,11 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "gather write, write vectored from several non contiguous regions using your own offset to avoid file pointer data race in addition to customized flags",
                 &[
-                    (["fd", "file descriptor of the file to be written into"], Normal(File_Descriptor(""))),
-                    (["iovec", "array of iovec structs containing pointer-length pairs of scattered regions to be written"], Normal(Array_Of_Struct)),
-                    (["count", "number of iovec structs in the iovec array"], Normal(Unsigned_Numeric)),
-                    (["offset", "amount of bytes of offset from the beginning of the file"], Normal(Length_Of_Bytes_Specific)),
-                    (["flags", "custom falgs for specific write behaviour"], Normal(General_Flag(P_RW_V2_Flags))),
+                    (["fd", "file descriptor of the file to be written into"], File_Descriptor("")),
+                    (["iovec", "array of iovec structs containing pointer-length pairs of scattered regions to be written"], Array_Of_Struct),
+                    (["count", "number of iovec structs in the iovec array"], Unsigned_Numeric),
+                    (["offset", "amount of bytes of offset from the beginning of the file"], Length_Of_Bytes_Specific),
+                    (["flags", "custom falgs for specific write behaviour"], General_Flag(P_RW_V2_Flags)),
                 ],
                 (["return value", "on success returns number of bytes written, -1 On error and errno is modified"],Length_Of_Bytes_Specific_Or_Errno)
 
@@ -196,7 +195,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "create a unidirectional pipe for process communication",
                 &[
-                    (["pipefd", "pointer to array containing the read and write file descriptors"], Normal(Pointer_To_File_Descriptor_Array(["", ""]))),
+                    (["pipefd", "pointer to array containing the read and write file descriptors"], Pointer_To_File_Descriptor_Array(["", ""])),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -207,9 +206,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "create a unidirectional pipe for process communication, in additiona to flags for file opening behaviour",
                 &[
-                    (["pipefd", "pointer to array containing the read and write file descriptors"], Normal(Pointer_To_File_Descriptor_Array(["", ""]))),
+                    (["pipefd", "pointer to array containing the read and write file descriptors"], Pointer_To_File_Descriptor_Array(["", ""])),
                     // If flags is 0, then pipe2() is the same as pipe()
-                    (["flags", "file opening flags for the pipe file descriptors"], Normal(General_Flag(Open)))
+                    (["flags", "file opening flags for the pipe file descriptors"], General_Flag(Open))
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -222,7 +221,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "duplicate file descriptor",
                 &[
-                    (["oldfd", "file descriptor to be copied"], Normal(File_Descriptor(""))),
+                    (["oldfd", "file descriptor to be copied"], File_Descriptor("")),
                 ],
                 (["return value", "-1 on error, errno modified"],File_Descriptor_Or_Errno(""))
             )
@@ -236,8 +235,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "duplicate file descriptor with another file descriptor",
                 &[
-                    (["oldfd", "file descriptor to be copied"], Normal(File_Descriptor(""))),
-                    (["newfd,", "new file descriptor"], Normal(File_Descriptor("")))
+                    (["oldfd", "file descriptor to be copied"], File_Descriptor("")),
+                    (["newfd,", "new file descriptor"], File_Descriptor(""))
                 ],
                 (["return value", "-1 on error, errno modified"],File_Descriptor_Or_Errno(""))
             )
@@ -249,9 +248,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "duplicate file descriptor with another file descriptor with some useful flags",
                 &[
-                    (["oldfd", "file descriptor to be copied"], Normal(File_Descriptor(""))),
-                    (["newfd,", "new file descriptor"], Normal(File_Descriptor(""))),
-                    (["flags", "flag for -as of now- O_CLOEXEC only"], Normal(General_Flag(Dup3Flags)))
+                    (["oldfd", "file descriptor to be copied"], File_Descriptor("")),
+                    (["newfd,", "new file descriptor"], File_Descriptor("")),
+                    (["flags", "flag for -as of now- O_CLOEXEC only"], General_Flag(Dup3Flags))
                 ],
                 (["return value", "-1 on error, errno modified"],File_Descriptor_Or_Errno(""))
             )
@@ -262,8 +261,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "check permissions on a file",
                 &[
-                    (["pathname", "path of the file to be checked"], Normal(Pointer_To_Text(""))),
-                    (["mode", "specific accessibilities to be checked"], Normal(General_Flag(Access)))
+                    (["pathname", "path of the file to be checked"], Pointer_To_Text("")),
+                    (["mode", "specific accessibilities to be checked"], General_Flag(Access))
                 ],
                 (["numeric return", "0 on success (all permissions were granted), -1 on error (at least one permission was not granted), errno modified"], Numeric_Or_Errno)
             )
@@ -274,10 +273,10 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "check permissions on a file, with an optional anchor directory, and path resolution flags",
                 &[
-                    (["dirfd", "file descriptor of a path to use as anchor if pathname is relative"], Normal(File_Descriptor(""))),
-                    (["pathname", "path of the file to be checked"], Normal(Pointer_To_Text(""))),
-                    (["mode", "specific accessibilities to be checked"], Normal(General_Flag(Access))),
-                    (["flags", "path resolution flags"], Normal(General_Flag(FileAtFlags))),
+                    (["dirfd", "file descriptor of a path to use as anchor if pathname is relative"], File_Descriptor("")),
+                    (["pathname", "path of the file to be checked"], Pointer_To_Text("")),
+                    (["mode", "specific accessibilities to be checked"], General_Flag(Access)),
+                    (["flags", "path resolution flags"], General_Flag(FileAtFlags)),
                 ],
                 (["numeric return", "0 on success (all permissions were granted), -1 on error (at least one permission was not granted), errno modified"], Numeric_Or_Errno)
                 )
@@ -288,10 +287,10 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "check permissions on a file, with an optional anchor directory, and path resolution flags",
                 &[
-                    (["dirfd", "file descriptor of a path to use as anchor if pathname is relative"], Normal(File_Descriptor(""))),
-                    (["pathname", "path of the file to be checked"], Normal(Pointer_To_Text(""))),
-                    (["mode", "specific accessibilities to be checked"], Normal(General_Flag(Access))),
-                    (["flags", "path resolution flags"], Normal(General_Flag(FileAtFlags))),
+                    (["dirfd", "file descriptor of a path to use as anchor if pathname is relative"], File_Descriptor("")),
+                    (["pathname", "path of the file to be checked"], Pointer_To_Text("")),
+                    (["mode", "specific accessibilities to be checked"], General_Flag(Access)),
+                    (["flags", "path resolution flags"], General_Flag(FileAtFlags)),
                 ],
                 (["numeric return", "0 on success (all permissions were granted), -1 on error (at least one permission was not granted), errno modified"], Numeric_Or_Errno)
                 )
@@ -306,11 +305,11 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "open and possibly create a file",
                 &[
-                    (["filename", "path of the file to be opened"], Normal(Pointer_To_Text(""))),
+                    (["filename", "path of the file to be opened"], Pointer_To_Text("")),
                     // flags: one of the following modes: O_RDONLY, O_WRONLY, or O_RDWR.
                     // and an optional or of others
-                    (["flags", "file opening flags"], Normal(General_Flag(Open))),
-                    (["mode", "file permission modes (rwx rwx rwx, set-uid, set-guid, sticky bits)"], Normal(General_Flag(FileMode))),
+                    (["flags", "file opening flags"], General_Flag(Open)),
+                    (["mode", "file permission modes (rwx rwx rwx, set-uid, set-guid, sticky bits)"], General_Flag(FileMode)),
                 ],
                 (["return value", "-1 for error, and errno modified"],File_Descriptor_Or_Errno(""))
             )
@@ -324,10 +323,10 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "open and possibly create a file, use dirfd as anchor",
                 &[
-                    (["dirfd", "file descriptor of the anchor directory"], Normal(File_Descriptor_openat(""))),
-                    (["pathname", "path of the file to be opened"], Normal(Pointer_To_Text(""))),
-                    (["flags", "file opening flags"], Normal(General_Flag(Open))),
-                    (["mode", "file permission modes (rwx rwx rwx, set-uid, set-guid, sticky bits)"], Normal(General_Flag(FileMode))),
+                    (["dirfd", "file descriptor of the anchor directory"], File_Descriptor_openat("")),
+                    (["pathname", "path of the file to be opened"], Pointer_To_Text("")),
+                    (["flags", "file opening flags"], General_Flag(Open)),
+                    (["mode", "file permission modes (rwx rwx rwx, set-uid, set-guid, sticky bits)"], General_Flag(FileMode)),
                 ],
                 (["return value", "-1 for error, and errno modified"],File_Descriptor_Or_Errno(""))
             )
@@ -340,10 +339,10 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "open and possibly create a file, use dirfd as anchor, and open_how for further customization",
                 &[
-                    (["dirfd", "file descriptor of the anchor directory"], Normal(File_Descriptor(""))),
-                    (["pathname", "path of the file to be opened"], Normal(Pointer_To_Text(""))),
-                    (["open_how", "how struct which contains the logic for opening"], Normal(Pointer_To_Struct)),
-                    (["size", "size of the how struct in bytes"], Normal(Length_Of_Bytes))
+                    (["dirfd", "file descriptor of the anchor directory"], File_Descriptor("")),
+                    (["pathname", "path of the file to be opened"], Pointer_To_Text("")),
+                    (["open_how", "how struct which contains the logic for opening"], Pointer_To_Struct),
+                    (["size", "size of the how struct in bytes"], Length_Of_Bytes)
                 ],
                 (["return value", "-1 for error, and errno modified"],File_Descriptor_Or_Errno(""))
             )
@@ -355,8 +354,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                     "create a file",
                 &[
-                    (["pathname", "path of the file to be opened"], Normal(Pointer_To_Text(""))),
-                    (["mode", "file permission modes (rwx rwx rwx, set-uid, set-guid, sticky bits)"], Normal(General_Flag(FileMode))),
+                    (["pathname", "path of the file to be opened"], Pointer_To_Text("")),
+                    (["mode", "file permission modes (rwx rwx rwx, set-uid, set-guid, sticky bits)"], General_Flag(FileMode)),
                 ],
                 (["return value", "-1 for error, and errno modified"],File_Descriptor_Or_Errno(""))
             )
@@ -367,8 +366,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "get current working directory",
                 &[
-                    (["buf", "buffer to fill with the absolute path of the current working directory"], Normal(Pointer_To_Text(""))),
-                    (["size", "size of the absolute path buffer"], Normal(Length_Of_Bytes_Specific))
+                    (["buf", "buffer to fill with the absolute path of the current working directory"], Pointer_To_Text("")),
+                    (["size", "size of the absolute path buffer"], Length_Of_Bytes_Specific)
                 ],
                 (["return value", "pointer to path of the current working directory, null on error, and errno modified"], Address_Or_Errno_getcwd(""))
             )
@@ -379,7 +378,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "change to a new directory using a specific path",
                 &[
-                    (["pathname", "the new path we're switching to"], Normal(Pointer_To_Text(""))),
+                    (["pathname", "the new path we're switching to"], Pointer_To_Text("")),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -390,7 +389,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "change to a new directory using a file desciptor",
                 &[
-                    (["fd", "file descriptor of the path we're switching to"], Normal(File_Descriptor(""))),
+                    (["fd", "file descriptor of the path we're switching to"], File_Descriptor("")),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -401,8 +400,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "rename a file and possibly move it",
                 &[
-                    (["oldpath", "old path of the file"], Normal(Pointer_To_Text(""))),
-                    (["newpath", "new path of the file"], Normal(Pointer_To_Text(""))),
+                    (["oldpath", "old path of the file"], Pointer_To_Text("")),
+                    (["newpath", "new path of the file"], Pointer_To_Text("")),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -413,11 +412,11 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "rename a file and possibly move it, with an optional anchor directory",
                 &[
-                    (["olddirfd", "file descriptor of a path to use as anchor if oldpath is relative"], Normal(File_Descriptor(""))),
-                    (["oldpath", "old path of the file"], Normal(Pointer_To_Text(""))),
+                    (["olddirfd", "file descriptor of a path to use as anchor if oldpath is relative"], File_Descriptor("")),
+                    (["oldpath", "old path of the file"], Pointer_To_Text("")),
 
-                    (["newdirfd", "file descriptor of a path to use as anchor if newpath is relative"], Normal(File_Descriptor(""))),
-                    (["newpath", "new path of the file"], Normal(Pointer_To_Text(""))),
+                    (["newdirfd", "file descriptor of a path to use as anchor if newpath is relative"], File_Descriptor("")),
+                    (["newpath", "new path of the file"], Pointer_To_Text("")),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -428,13 +427,13 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "rename a file and possibly move it, with an optional anchor directory and flags for custom behaviour",
                 &[
-                    (["olddirfd", "file descriptor of a path to use as anchor if oldpath is relative"], Normal(File_Descriptor(""))),
-                    (["oldpath", "old path of the file"], Normal(Pointer_To_Text(""))),
+                    (["olddirfd", "file descriptor of a path to use as anchor if oldpath is relative"], File_Descriptor("")),
+                    (["oldpath", "old path of the file"], Pointer_To_Text("")),
 
-                    (["newdirfd", "file descriptor of a path to use as anchor if newpath is relative"], Normal(File_Descriptor(""))),
-                    (["newpath", "new path of the file"], Normal(Pointer_To_Text(""))),
+                    (["newdirfd", "file descriptor of a path to use as anchor if newpath is relative"], File_Descriptor("")),
+                    (["newpath", "new path of the file"], Pointer_To_Text("")),
                     
-                    (["flags", "renaming and replacement behaviour falgs"], Normal(General_Flag(FileRenameFlags))),
+                    (["flags", "renaming and replacement behaviour falgs"], General_Flag(FileRenameFlags)),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -445,8 +444,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "create a new directory using a path",
                 &[
-                    (["pathname", "path of the new directory to create"], Normal(Pointer_To_Text(""))),
-                    (["mode", "directory permission (rwx rwx rwx, set-uid, set-guid, sticky bits)"], Normal(General_Flag(FileMode))),
+                    (["pathname", "path of the new directory to create"], Pointer_To_Text("")),
+                    (["mode", "directory permission (rwx rwx rwx, set-uid, set-guid, sticky bits)"], General_Flag(FileMode)),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -457,9 +456,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "create a new directory using a path and an optional anchor directory",
                 &[
-                    (["dirfd", "file descriptor of a path to use as anchor if pathname is relative"], Normal(File_Descriptor(""))),
-                    (["pathname", "path of the new directory to create"], Normal(Pointer_To_Text(""))),
-                    (["mode", "directory permissions (rwx rwx rwx, set-uid, set-guid, sticky bits)"], Normal(General_Flag(FileMode))),
+                    (["dirfd", "file descriptor of a path to use as anchor if pathname is relative"], File_Descriptor("")),
+                    (["pathname", "path of the new directory to create"], Pointer_To_Text("")),
+                    (["mode", "directory permissions (rwx rwx rwx, set-uid, set-guid, sticky bits)"], General_Flag(FileMode)),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -477,9 +476,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "create a hard link for a file",
                 &[
-                    (["oldpath", "existing file we will link to"], Normal(Pointer_To_Text(""))),
+                    (["oldpath", "existing file we will link to"], Pointer_To_Text("")),
                     // if existing, will not be overwritten
-                    (["newpath", "path for the new file which will be linked"], Normal(Pointer_To_Text(""))),
+                    (["newpath", "path for the new file which will be linked"], Pointer_To_Text("")),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -490,12 +489,12 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "create a hard link for a file, with an optional anchor directory, and path resolution flags",
                 &[
-                    (["olddirfd", "file descriptor of a path to use as anchor if oldpath is relative"], Normal(File_Descriptor(""))),
-                    (["oldpath", "existing file we will link to"], Normal(Pointer_To_Text(""))),
-                    (["newdirfd", "file descriptor of a path to use as anchor if newpath is relative"], Normal(File_Descriptor(""))),
+                    (["olddirfd", "file descriptor of a path to use as anchor if oldpath is relative"], File_Descriptor("")),
+                    (["oldpath", "existing file we will link to"], Pointer_To_Text("")),
+                    (["newdirfd", "file descriptor of a path to use as anchor if newpath is relative"], File_Descriptor("")),
                     // if existing, will not be overwritten
-                    (["newpath", "path for the new file which will be linked"], Normal(Pointer_To_Text(""))),
-                    (["flags", "path resolution flags"], Normal(General_Flag(FileAtFlags))),
+                    (["newpath", "path for the new file which will be linked"], Pointer_To_Text("")),
+                    (["flags", "path resolution flags"], General_Flag(FileAtFlags)),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -508,7 +507,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "either deletes a file or directory, or in the case that other references still exist, simply reduces the reference count of the inode",
                 &[
-                    (["pathname", "path of the file or directory to be removed"], Normal(Pointer_To_Text(""))),
+                    (["pathname", "path of the file or directory to be removed"], Pointer_To_Text("")),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -519,9 +518,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "either deletes a file or directory, or in the case that other references still exist, simply reduces the reference count of the inode, in addtion to an optional anchor directory, and a behaviour customization flag",
                 &[
-                    (["dirfd", "file descriptor of a path to use as anchor if pathname is relative"], Normal(File_Descriptor(""))),
-                    (["pathname", "path of the file or directory to be removed"], Normal(Pointer_To_Text(""))),
-                    (["flags", "flag specifying similar behaviour to rmdir or not"], Normal(General_Flag(FileAtFlags))),
+                    (["dirfd", "file descriptor of a path to use as anchor if pathname is relative"], File_Descriptor("")),
+                    (["pathname", "path of the file or directory to be removed"], Pointer_To_Text("")),
+                    (["flags", "flag specifying similar behaviour to rmdir or not"], General_Flag(FileAtFlags)),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -532,7 +531,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "delete a specific directory",
                 &[
-                    (["pathname", "path of the directory to remove"], Normal(Pointer_To_Text(""))),
+                    (["pathname", "path of the directory to remove"], Pointer_To_Text("")),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -545,9 +544,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "create a symbolic link with the given name linked to the given target",
                 &[
-                    (["target", "path of the target file to be linked"], Normal(Pointer_To_Text(""))),
+                    (["target", "path of the target file to be linked"], Pointer_To_Text("")),
                     // If linkpath exists, it will not be overwritten.
-                    (["linkpath", "path of the symlink to be created"], Normal(Pointer_To_Text(""))),
+                    (["linkpath", "path of the symlink to be created"], Pointer_To_Text("")),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -558,10 +557,10 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "create a symbolic link with the given name linked to the given target",
                 &[
-                    (["target", "path of the target file to be linked"], Normal(Pointer_To_Text(""))),
-                    (["dirfd", "file descriptor of a path to use as anchor if linkpath is relative"], Normal(File_Descriptor(""))),
+                    (["target", "path of the target file to be linked"], Pointer_To_Text("")),
+                    (["dirfd", "file descriptor of a path to use as anchor if linkpath is relative"], File_Descriptor("")),
                     // If linkpath exists, it will not be overwritten.
-                    (["linkpath", "path of the symlink to be created"], Normal(Pointer_To_Text(""))),
+                    (["linkpath", "path of the symlink to be created"], Pointer_To_Text("")),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -573,9 +572,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "read the contents of a symbolic link (its target path) to a buffer",
                 &[
-                    (["pathname", "path of the symlink to be read"], Normal(Pointer_To_Text(""))),
-                    (["buf", "buffer where the the symlink contents will be stored"], Normal(Pointer_To_Text(""))),
-                    (["bufsiz", "size of the buffer"], Normal(Length_Of_Bytes_Specific))
+                    (["pathname", "path of the symlink to be read"], Pointer_To_Text("")),
+                    (["buf", "buffer where the the symlink contents will be stored"], Pointer_To_Text("")),
+                    (["bufsiz", "size of the buffer"], Length_Of_Bytes_Specific)
                 ],
                 (["return value", "the number of bytes read to the buffer (can truncate if filled), -1 is returned On error and errno is modified"],Length_Of_Bytes_Specific_Or_Errno)
             )
@@ -586,10 +585,10 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "read the contents of a symbolic link (its target path) to a buffer",
                 &[
-                    (["dirfd", "file descriptor of a path to use as anchor if pathname is relative"], Normal(File_Descriptor(""))),
-                    (["pathname", "path of the symlink to be read"], Normal(Pointer_To_Text(""))),
-                    (["buf", "buffer where the the symlink contents will be stored"], Normal(Pointer_To_Text(""))),
-                    (["bufsiz", "size of the buffer"], Normal(Length_Of_Bytes_Specific))
+                    (["dirfd", "file descriptor of a path to use as anchor if pathname is relative"], File_Descriptor("")),
+                    (["pathname", "path of the symlink to be read"], Pointer_To_Text("")),
+                    (["buf", "buffer where the the symlink contents will be stored"], Pointer_To_Text("")),
+                    (["bufsiz", "size of the buffer"], Length_Of_Bytes_Specific)
                 ],
                 (["return value", "the number of bytes read to the buffer (can truncate if filled), -1 is returned On error and errno is modified"],Length_Of_Bytes_Specific_Or_Errno)
             )
@@ -600,8 +599,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "change the mode (rwx rwx rwx, set-uid, set-guid, sticky bits) of the file given through a file path",
                 &[
-                    (["pathname", "path of the file to be altered"], Normal(Pointer_To_Text(""))),
-                    (["mode", "directory permissions (rwx rwx rwx, set-uid, set-guid, sticky bits)"], Normal(General_Flag(FileMode))),
+                    (["pathname", "path of the file to be altered"], Pointer_To_Text("")),
+                    (["mode", "directory permissions (rwx rwx rwx, set-uid, set-guid, sticky bits)"], General_Flag(FileMode)),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -612,10 +611,10 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "change the mode (rwx rwx rwx, set-uid, set-guid, sticky bits) of the file given through a file descriptor",
                 &[
-                    (["fd", "file descriptor of the file to be altered"], Normal(File_Descriptor(""))),
+                    (["fd", "file descriptor of the file to be altered"], File_Descriptor("")),
                     // the RWX combination variants are infact a combination of the 3 R W X flags
                     // its not its own variant
-                    (["mode", "directory permissions (rwx rwx rwx, set-uid, set-guid, sticky bits)"], Normal(General_Flag(FileMode))),
+                    (["mode", "directory permissions (rwx rwx rwx, set-uid, set-guid, sticky bits)"], General_Flag(FileMode)),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -626,10 +625,10 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "change the mode (rwx rwx rwx, set-uid, set-guid, sticky bits) of the file given through a file path, in addition to path traversal flags",
                 &[
-                    (["dirfd", "file descriptor of a path to use as anchor if pathname is relative"], Normal(File_Descriptor(""))),
-                    (["pathname", "path of the file to be altered"], Normal(Pointer_To_Text(""))),
-                    (["mode", "directory permissions (rwx rwx rwx, set-uid, set-guid, sticky bits)"], Normal(General_Flag(FileMode))),
-                    (["flags", "path traversal flags"], Normal(General_Flag(FileChmodAtFlags))),
+                    (["dirfd", "file descriptor of a path to use as anchor if pathname is relative"], File_Descriptor("")),
+                    (["pathname", "path of the file to be altered"], Pointer_To_Text("")),
+                    (["mode", "directory permissions (rwx rwx rwx, set-uid, set-guid, sticky bits)"], General_Flag(FileMode)),
+                    (["flags", "path traversal flags"], General_Flag(FileChmodAtFlags)),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -643,9 +642,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "change the owner and group of a given file by its path",
                 &[
-                    (["pathname", "path of the file to be altered"], Normal(Pointer_To_Text(""))),
-                    (["owner", "new owner to be set for the file"], Normal(Unsigned_Numeric)),
-                    (["group", "new group to be set for the file"], Normal(Unsigned_Numeric)),
+                    (["pathname", "path of the file to be altered"], Pointer_To_Text("")),
+                    (["owner", "new owner to be set for the file"], Unsigned_Numeric),
+                    (["group", "new group to be set for the file"], Unsigned_Numeric),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -656,9 +655,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "change the owner and group of a given file by its file descriptor",
                 &[
-                    (["fd", "file descriptor of the file to be altered"], Normal(File_Descriptor(""))),
-                    (["owner", "new owner to be set for the file"], Normal(Unsigned_Numeric)),
-                    (["group", "new group to be set for the file"], Normal(Unsigned_Numeric)),
+                    (["fd", "file descriptor of the file to be altered"], File_Descriptor("")),
+                    (["owner", "new owner to be set for the file"], Unsigned_Numeric),
+                    (["group", "new group to be set for the file"], Unsigned_Numeric),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -671,9 +670,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "change the owner and group of a given file by its path without recursing symbolic links",
                 &[
-                    (["pathname", "path of the file to be altered"], Normal(Pointer_To_Text(""))),
-                    (["owner", "new owner to be set for the file"], Normal(Unsigned_Numeric)),
-                    (["group", "new group to be set for the file"], Normal(Unsigned_Numeric)),
+                    (["pathname", "path of the file to be altered"], Pointer_To_Text("")),
+                    (["owner", "new owner to be set for the file"], Unsigned_Numeric),
+                    (["group", "new group to be set for the file"], Unsigned_Numeric),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -684,11 +683,11 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "change the owner and group of a given file by its path, with an optional anchor directory, in addition to path traversal flags",
                 &[
-                    (["dirfd", "file descriptor of a path to use as anchor if pathname is relative"], Normal(File_Descriptor(""))),
-                    (["pathname", "path of the file to be altered"], Normal(Pointer_To_Text(""))),
-                    (["owner", "new owner to be set for the file"], Normal(Numeric)),
-                    (["group", "new group to be set for the file"], Normal(Numeric)),
-                    (["flags", "path traversal flags"], Normal(General_Flag(FileAtFlags))),
+                    (["dirfd", "file descriptor of a path to use as anchor if pathname is relative"], File_Descriptor("")),
+                    (["pathname", "path of the file to be altered"], Pointer_To_Text("")),
+                    (["owner", "new owner to be set for the file"], Numeric),
+                    (["group", "new group to be set for the file"], Numeric),
+                    (["flags", "path traversal flags"], General_Flag(FileAtFlags)),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -710,7 +709,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "flush all current pending filesystem data and metadata writes via a file descriptor within that filesystem",
                 &[
-                    (["fd", "file descriptor of a file inside the filesystem to be flushed"], Normal(File_Descriptor(""))),
+                    (["fd", "file descriptor of a file inside the filesystem to be flushed"], File_Descriptor("")),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -722,7 +721,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "flush all current pending data and metadata writes for a specific file",
                 &[
-                    (["fd", "file descriptor of the file whose pending writes are to be flushed"], Normal(File_Descriptor(""))),
+                    (["fd", "file descriptor of the file whose pending writes are to be flushed"], File_Descriptor("")),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -736,7 +735,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "flush all current pending data writes and ignore non-critical metadata writes for a specific file",
                 &[
-                    (["fd", "file descriptor of the file whose pending writes are to be flushed"], Normal(File_Descriptor(""))),
+                    (["fd", "file descriptor of the file whose pending writes are to be flushed"], File_Descriptor("")),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -766,8 +765,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "extend or truncate a file to a precise size",
                 &[
-                    (["path", "path of the file to be truncated or expanded"], Normal(Pointer_To_Text(""))),
-                    (["length", "new length of the file"], Normal(Length_Of_Bytes_Specific))
+                    (["path", "path of the file to be truncated or expanded"], Pointer_To_Text("")),
+                    (["length", "new length of the file"], Length_Of_Bytes_Specific)
 
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
@@ -780,8 +779,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "extend or truncate a file to a precise size",
                 &[
-                    (["fd", "file descriptor of the file to be truncated or expanded"], Normal(File_Descriptor(""))),
-                    (["length", "new length of the file"], Normal(Length_Of_Bytes_Specific))
+                    (["fd", "file descriptor of the file to be truncated or expanded"], File_Descriptor("")),
+                    (["length", "new length of the file"], Length_Of_Bytes_Specific)
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -803,7 +802,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "close a file descriptor, will no longer refer to any file",
                 &[
-                    (["fd", "file descriptor of the file to be closed"], Normal(File_Descriptor("")))
+                    (["fd", "file descriptor of the file to be closed"], File_Descriptor(""))
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -815,8 +814,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "find information about a file using its path",
                 &[
-                    (["pathname", "path of the file, CWD is used as anchor if relative"], Normal(Pointer_To_Text(""))),
-                    (["statbuf", "pointer to a buffer which will contain the information about the file upon success"], Normal(Pointer_To_Struct))
+                    (["pathname", "path of the file, CWD is used as anchor if relative"], Pointer_To_Text("")),
+                    (["statbuf", "pointer to a buffer which will contain the information about the file upon success"], Pointer_To_Struct)
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -828,8 +827,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "find information about a file using a file descriptor",
                 &[
-                    (["fd", "file descriptor of the file"], Normal(File_Descriptor(""))),
-                    (["statbuf", "pointer to a buffer which will contain the information about the file upon success"], Normal(Pointer_To_Struct))
+                    (["fd", "file descriptor of the file"], File_Descriptor("")),
+                    (["statbuf", "pointer to a buffer which will contain the information about the file upon success"], Pointer_To_Struct)
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -842,8 +841,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "find information about a file using a path without recursing symbolic links",
                 &[
-                    (["pathname", "path of the file, CWD is used as anchor if relative"], Normal(Pointer_To_Text(""))),
-                    (["statbuf", "pointer to a buffer which will contain the information about the file upon success"], Normal(Pointer_To_Struct))
+                    (["pathname", "path of the file, CWD is used as anchor if relative"], Pointer_To_Text("")),
+                    (["statbuf", "pointer to a buffer which will contain the information about the file upon success"], Pointer_To_Struct)
                     ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -854,10 +853,10 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "find information about a file using its path, while specifying an anchor, and path resolution flags",
                 &[
-                    (["dirfd", "file descriptor used either as anchor for pathname, or as a target file"], Normal(File_Descriptor(""))),
-                    (["pathname", "path of the file"], Normal(Pointer_To_Text(""))),
-                    (["statbuf", "pointer to a struct where the retrieved information will be stored"], Normal(Pointer_To_Struct)),
-                    (["flags", "path resolution behaviour"], Normal(General_Flag(FileAtFlags))),
+                    (["dirfd", "file descriptor used either as anchor for pathname, or as a target file"], File_Descriptor("")),
+                    (["pathname", "path of the file"], Pointer_To_Text("")),
+                    (["statbuf", "pointer to a struct where the retrieved information will be stored"], Pointer_To_Struct),
+                    (["flags", "path resolution behaviour"], General_Flag(FileAtFlags)),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -868,11 +867,11 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "find information about a file using its path, while specifying an anchor, path resolution flags, and specific fields to retrieve",
                 &[
-                    (["dirfd", "file descriptor of a path to use as anchor if pathname is relative"], Normal(File_Descriptor(""))),
-                    (["pathname", "path of the file"], Normal(Pointer_To_Text(""))),
-                    (["flags", "path resolution behaviour"], Normal(General_Flag(FileAtFlags))),
-                    (["mask", "mask specifying the fields of interest to be retrieved"], Normal(General_Flag(FileStatxFlags))),
-                    (["statxbuf", "pointer to a struct where the retrieved information will be stored"], Normal(Pointer_To_Struct)),
+                    (["dirfd", "file descriptor of a path to use as anchor if pathname is relative"], File_Descriptor("")),
+                    (["pathname", "path of the file"], Pointer_To_Text("")),
+                    (["flags", "path resolution behaviour"], General_Flag(FileAtFlags)),
+                    (["mask", "mask specifying the fields of interest to be retrieved"], General_Flag(FileStatxFlags)),
+                    (["statxbuf", "pointer to a struct where the retrieved information will be stored"], Pointer_To_Struct),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -883,8 +882,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "get information about a specific filesystem using a path",
                 &[
-                    (["path", "path of the mounted file system"], Normal(Pointer_To_Text(""))),
-                    (["buf", "pointer to a struct where the retrieved information will be stored"], Normal(Pointer_To_Struct)),
+                    (["path", "path of the mounted file system"], Pointer_To_Text("")),
+                    (["buf", "pointer to a struct where the retrieved information will be stored"], Pointer_To_Struct),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -895,8 +894,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "get information about a specific filesystem using a file descriptor",
                 &[
-                    (["fd", "file descriptor of the mounted file system"], Normal(File_Descriptor(""))),
-                    (["buf", "pointer to a struct where the retrieved information will be stored"], Normal(Pointer_To_Struct)),
+                    (["fd", "file descriptor of the mounted file system"], File_Descriptor("")),
+                    (["buf", "pointer to a struct where the retrieved information will be stored"], Pointer_To_Struct),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -908,8 +907,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Device,
                 "",
                 &[
-                    (["dev", "number of the device where a filesystem is mounted"], Normal(Unsigned_Numeric)),
-                    (["ubuf", "pointer to a struct where the retrieved information will be stored"], Normal(Pointer_To_Struct)),
+                    (["dev", "number of the device where a filesystem is mounted"], Unsigned_Numeric),
+                    (["ubuf", "pointer to a struct where the retrieved information will be stored"], Pointer_To_Struct),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -920,12 +919,12 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Memory,
                 "get information about the page cache of a file",
                 &[
-                    (["fd", "file descriptor of the target file"], Normal(File_Descriptor(""))),
+                    (["fd", "file descriptor of the target file"], File_Descriptor("")),
                     // pages ceil
-                    (["cachestat_range", "pointer to a struct identifying the offset and range of bytes to find information about, pages ceil"], Normal(Pointer_To_Struct)),
-                    (["cachestat", "pointer to a struct where the page caches information will be stored"], Normal(Pointer_To_Struct)),
+                    (["cachestat_range", "pointer to a struct identifying the offset and range of bytes to find information about, pages ceil"], Pointer_To_Struct),
+                    (["cachestat", "pointer to a struct where the page caches information will be stored"], Pointer_To_Struct),
                     // Some unknown flag argument
-                    (["flags", "some flag semantics"], Normal(General_Flag(ReservedForFutureUse))),
+                    (["flags", "some flag semantics"], General_Flag(ReservedForFutureUse)),
                 ],
                 // unknown for now error value
                 (["return value", "some error semantics"], Numeric_Or_Errno)
@@ -943,9 +942,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "reposition read/write file offset",
                 &[
-                    (["fd", "file descriptor"], Normal(File_Descriptor(""))),
-                    (["offset", "new offset count"], Normal(Length_Of_Bytes_Specific)),
-                    (["whence", "determine usage of the offset (offset as new position vs offset as addititon to current position vs ... etc)"], Normal(General_Flag(LSeekWhence)))
+                    (["fd", "file descriptor"], File_Descriptor("")),
+                    (["offset", "new offset count"], Length_Of_Bytes_Specific),
+                    (["whence", "determine usage of the offset (offset as new position vs offset as addititon to current position vs ... etc)"], General_Flag(LSeekWhence))
                 ],
                 (["return value", "on success returns resulting offset location as measured in bytes from the beginning of the file. (off_t) -1 is returned On error and errno is modified"],Length_Of_Bytes_Specific_Or_Errno)
             )
@@ -957,13 +956,13 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 "create a memory mapping potentially backed by a file",
                 &[
                     // Nullable
-                    (["addr", "hint for the starting address of the memory map"], Normal(Address)),
-                    (["len", "amount of bytes to be mapped"], Normal(Length_Of_Bytes_Page_Aligned_Ceil)),
+                    (["addr", "hint for the starting address of the memory map"], Address),
+                    (["len", "amount of bytes to be mapped"], Length_Of_Bytes_Page_Aligned_Ceil),
                     // must not conflict with the open mode of the file
-                    (["prot", "memory protection flags"], Normal(General_Flag(Prot))),
-                    (["flags", "memory mapping flags"], Normal(General_Flag(Map))),
-                    (["fd", "file descriptor of the file to be mapped"], Normal(File_Descriptor(""))),
-                    (["off", "offset of where the mapping must start"], Normal(Length_Of_Bytes_Specific)),
+                    (["prot", "memory protection flags"], General_Flag(Prot)),
+                    (["flags", "memory mapping flags"], General_Flag(Map)),
+                    (["fd", "file descriptor of the file to be mapped"], File_Descriptor("")),
+                    (["off", "offset of where the mapping must start"], Length_Of_Bytes_Specific),
                 ],
                 (["return value", "on success: pointer to the mapped area.  On error, the value MAP_FAILED (that is, (void *) -1) is returned, and errno is modified"],Address_Or_MAP_FAILED_Errno("")),
             )
@@ -975,9 +974,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Memory,
                 "set protection on a region of memory",
                 &[
-                    (["start", "starting address of the range to be protected"], Normal(Address)),
-                    (["len", "amount of bytes to be protected, memory pages ceil"], Normal(Length_Of_Bytes_Page_Aligned_Ceil)),
-                    (["prot", "protection/access flags"], Normal(General_Flag(Prot))),
+                    (["start", "starting address of the range to be protected"], Address),
+                    (["len", "amount of bytes to be protected, memory pages ceil"], Length_Of_Bytes_Page_Aligned_Ceil),
+                    (["prot", "protection/access flags"], General_Flag(Prot)),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -989,8 +988,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Memory,
                 "unmap previously mmapped region of memory",
                 &[
-                    (["addr", "address where memory unmapping will begin"], Normal(Address)),
-                    (["len", "amount of bytes to be unmapped from memory"], Normal(Length_Of_Bytes_Page_Aligned_Ceil))
+                    (["addr", "address where memory unmapping will begin"], Address),
+                    (["len", "amount of bytes to be unmapped from memory"], Length_Of_Bytes_Page_Aligned_Ceil)
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -1001,7 +1000,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Memory,
                 "change the location of the program break",
                 &[
-                    (["address", "new program break address"], Normal(Address)),
+                    (["address", "new program break address"], Address),
                 ],
                 // However, the actual Linux system call returns the new program break on success.  
                 // On failure, the system call returns the current break.
@@ -1015,9 +1014,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Memory,
                 "lock a range of memory in RAM, to prevent swapping",
                 &[
-                    (["addr", "starting address of the memory to be locked"], Normal(Address)),
+                    (["addr", "starting address of the memory to be locked"], Address),
                     // Pages Ceil
-                    (["len", "amount of bytes of memory to lock beginning from the addr, pages ceil"], Normal(Length_Of_Bytes_Page_Aligned_Ceil)),
+                    (["len", "amount of bytes of memory to lock beginning from the addr, pages ceil"], Length_Of_Bytes_Page_Aligned_Ceil),
                 ],
                 (["return value", "0 success. -1 for error and errno modified and no changes made"], Numeric_Or_Errno)
             )
@@ -1029,16 +1028,16 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Memory,
                 "lock a range of memory in RAM to prevent swapping, in addition to a flag that specifies how to handle non-resident pages",
                 &[
-                    (["addr", "starting address of the memory to be locked"], Normal(Address)),
+                    (["addr", "starting address of the memory to be locked"], Address),
                     // Pages Ceil
-                    (["len", "amount of bytes of memory to lock beginning from the addr, pages ceil"], Normal(Length_Of_Bytes_Page_Aligned_Ceil)),
+                    (["len", "amount of bytes of memory to lock beginning from the addr, pages ceil"], Length_Of_Bytes_Page_Aligned_Ceil),
                     // if flag is 0 mlock2 is identical to mlock
                     // MLOCK_ONFAULT
                     //      Lock the pages that are currently resident
                     //      and mark the entire range including non-resident pages
                     //      so that when they are later populated by a page fault
                     //      they get locked
-                    (["flags", "flag that addresses handling non-resident pages"], Normal(General_Flag(MLock))),
+                    (["flags", "flag that addresses handling non-resident pages"], General_Flag(MLock)),
                 ],
                 (["return value", "0 success. -1 for error and errno modified and no changes made"], Numeric_Or_Errno)
             )
@@ -1051,9 +1050,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Memory,
                 "unlock a memory range and allow it to be swappable",
                 &[
-                    (["addr", "starting address of the memory to be unlocked"], Normal(Address)),
+                    (["addr", "starting address of the memory to be unlocked"], Address),
                     // Pages Ceil
-                    (["len", "amount of bytes of memory to unlock beginning from the addr, pages ceil"], Normal(Length_Of_Bytes_Page_Aligned_Ceil)),
+                    (["len", "amount of bytes of memory to unlock beginning from the addr, pages ceil"], Length_Of_Bytes_Page_Aligned_Ceil),
                 ],
                 (["return value", "0 success. -1 for error and errno modified and no changes made"], Numeric_Or_Errno)
             )
@@ -1066,7 +1065,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Memory,
                 "lock the entire memory of a process to prevent swapping, in addition to flags for handling non-resident and future pages",
                 &[
-                    (["flags", "flags that addresses handling non-resident and future pages"], Normal(General_Flag(MLockAll))),
+                    (["flags", "flags that addresses handling non-resident and future pages"], General_Flag(MLockAll)),
                 ],
                 (["return value", "0 success. -1 for error and errno modified and no changes made"], Numeric_Or_Errno)
             )
@@ -1089,11 +1088,11 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 "shrink or expand or move memory region",
                 &[
                     // must be page aligned
-                    (["old_address", "old address of the memory region to be shrinked, expanded, or moved"], Normal(Address)),
-                    (["old_len", "old amount of bytes"], Normal(Length_Of_Bytes_Page_Aligned_Ceil)),
-                    (["new_len", "new amount of bytes"], Normal(Length_Of_Bytes_Page_Aligned_Ceil)),
-                    (["flags", "remapping flags"], Normal(General_Flag(ReMap))),
-                    (["new_address", "new address in the case where the mapping is moved"], Normal(Address)),
+                    (["old_address", "old address of the memory region to be shrinked, expanded, or moved"], Address),
+                    (["old_len", "old amount of bytes"], Length_Of_Bytes_Page_Aligned_Ceil),
+                    (["new_len", "new amount of bytes"], Length_Of_Bytes_Page_Aligned_Ceil),
+                    (["flags", "remapping flags"], General_Flag(ReMap)),
+                    (["new_address", "new address in the case where the mapping is moved"], Address),
                 ],
                 (["return value", "on success: pointer to the mapped area. On error, the value MAP_FAILED (that is, (void *) -1) is returned, and errno is modified"],Address_Or_MAP_FAILED_Errno("")),
             )
@@ -1104,9 +1103,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Memory,
                 "flush changes made in an mmapped memory range back to the filesystem",
                 &[
-                    (["address", "address in the file mapping where flushing starts"], Normal(Address)),
-                    (["length", "amount of bytes from the beginning address to be flushed"], Normal(Length_Of_Bytes_Page_Aligned_Ceil)),
-                    (["flags", "flushing flags"], Normal(General_Flag(MSync)))
+                    (["address", "address in the file mapping where flushing starts"], Address),
+                    (["length", "amount of bytes from the beginning address to be flushed"], Length_Of_Bytes_Page_Aligned_Ceil),
+                    (["flags", "flushing flags"], General_Flag(MSync))
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -1120,9 +1119,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Memory,
                 "indicate in a vector which parts of a memory range are resident and which will cause a page fault if accessed",
                 &[
-                    (["addr", "address in the file mapping where calculation starts"], Normal(Address)),
-                    (["length", "amount of bytes from beginning address where the calculation of resident pages will consider"], Normal(Length_Of_Bytes_Page_Aligned_Ceil)),
-                    (["vec", "pointer to array of bytes each represents a memory page, every byte indicates if the respective page is resident"], Normal(Byte_Stream))
+                    (["addr", "address in the file mapping where calculation starts"], Address),
+                    (["length", "amount of bytes from beginning address where the calculation of resident pages will consider"], Length_Of_Bytes_Page_Aligned_Ceil),
+                    (["vec", "pointer to array of bytes each represents a memory page, every byte indicates if the respective page is resident"], Byte_Stream)
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -1136,9 +1135,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 &[
                     // only operates on whole pages
                     // so must be page aligned
-                    (["addr", "beginning of the memory range where the advice is applied"], Normal(Address)),
-                    (["length", "amount of bytes from beginning address indicating the range where the advice should be taken in consideration"], Normal(Length_Of_Bytes_Page_Aligned_Ceil)),
-                    (["advice", "memory advice flags"], Normal(General_Flag(Madvise)))
+                    (["addr", "beginning of the memory range where the advice is applied"], Address),
+                    (["length", "amount of bytes from beginning address indicating the range where the advice should be taken in consideration"], Length_Of_Bytes_Page_Aligned_Ceil),
+                    (["advice", "memory advice flags"], General_Flag(Madvise))
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -1150,17 +1149,17 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 AsyncIO,
                 "block while watching file descriptor sets for readiness to read, write, in addition to exceptional conditions",
                 &[
-                    (["nfds", "the number of the highest file descriptor in the three sets + 1, used by the kernel to loop each set"], Normal(Numeric)),
+                    (["nfds", "the number of the highest file descriptor in the three sets + 1, used by the kernel to loop each set"], Numeric),
                     // you can set any of these sets to NULL if you don’t care about waiting for it
-                    (["readfds", "pointer to struct containing an array of file descriptors watched to see if they are ready for reading"], Normal(Pointer_To_Struct)),
-                    (["writefds,", "pointer to struct containing an array of file descriptors watched to see if they are ready for writing"], Normal(Pointer_To_Struct)),
-                    (["exceptfds,", "pointer to struct containing an array of file descriptors in this set are watched for \"exceptional conditions\""], Normal(Pointer_To_Struct)),
+                    (["readfds", "pointer to struct containing an array of file descriptors watched to see if they are ready for reading"], Pointer_To_Struct),
+                    (["writefds,", "pointer to struct containing an array of file descriptors watched to see if they are ready for writing"], Pointer_To_Struct),
+                    (["exceptfds,", "pointer to struct containing an array of file descriptors in this set are watched for \"exceptional conditions\""], Pointer_To_Struct),
                     // Some Unices update the timeout here to show how much time is left, not all of them
                     // If you set the fields in your struct timeval to 0,
                     // select() will timeout immediately, effectively polling all the file descriptors in your sets.
                     // If you set the parameter timeout to NULL,
                     // it will wait forever until the first file descriptor is ready.
-                    (["timeout", "pointer to struct describing the amount of time select will block in microseconds"], Normal(Pointer_To_Struct)),
+                    (["timeout", "pointer to struct describing the amount of time select will block in microseconds"], Pointer_To_Struct),
                     ],
                 (["retrun value", "total number of file descriptors in all sets, 0 if timeout expired before any file descriptors became ready, On error -1, and errno modified, file descriptor sets are left unmodified, and timeout becomes undefined"], Numeric_Or_Errno),
             )
@@ -1171,23 +1170,23 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 AsyncIO,
                 "block while watching file descriptor sets for readiness to read, write, in addition to exceptional conditions, and watch for new signals",
                 &[
-                    (["nfds", "the number of the highest file descriptor in the three sets + 1, used by the kernel to loop each set"], Normal(Numeric)),
+                    (["nfds", "the number of the highest file descriptor in the three sets + 1, used by the kernel to loop each set"], Numeric),
                     // you can set any of these sets to NULL if you don’t care about waiting for it
-                    (["readfds", "pointer to struct containing an array of file descriptors watched to see if they are ready for reading"], Normal(Pointer_To_Struct)),
-                    (["writefds,", "pointer to struct containing an array of file descriptors watched to see if they are ready for writing"], Normal(Pointer_To_Struct)),
-                    (["exceptfds,", "pointer to struct containing an array of file descriptors in this set are watched for \"exceptional conditions\""], Normal(Pointer_To_Struct)),
+                    (["readfds", "pointer to struct containing an array of file descriptors watched to see if they are ready for reading"], Pointer_To_Struct),
+                    (["writefds,", "pointer to struct containing an array of file descriptors watched to see if they are ready for writing"], Pointer_To_Struct),
+                    (["exceptfds,", "pointer to struct containing an array of file descriptors in this set are watched for \"exceptional conditions\""], Pointer_To_Struct),
                     // pselect never updates timeout to indicate how much time is left (normal select does that in some unices)
                     // If you set the fields in your struct timeval to 0,
                     // select() will timeout immediately, effectively polling all the file descriptors in your sets.
                     // If you set the parameter timeout to NULL,
                     // it will wait forever until the first file descriptor is ready.
-                    (["timeout", "pointer to struct describing the amount of time select will block in nanoseconds"], Normal(Pointer_To_Struct)),
+                    (["timeout", "pointer to struct describing the amount of time select will block in nanoseconds"], Pointer_To_Struct),
                     // The final argument of the pselect6() system call is not a sigset_t * pointer, but is instead a structure of the form:
                     // struct {
                     //     const kernel_sigset_t *ss;   /* Pointer to signal set */
                     //     size_t ss_len;               /* Size (in bytes) of object pointed to by 'ss' */
                     // };
-                    (["sig", "pointer to struct containing both the signal mask to watch for and its size"], Normal(Pointer_To_Struct)),
+                    (["sig", "pointer to struct containing both the signal mask to watch for and its size"], Pointer_To_Struct),
                 ],
                 (["retrun value", "total number of file descriptors in all sets, 0 if timeout expired before any file descriptors became ready, On error -1, and errno modified, file descriptor sets are left unmodified, and timeout becomes undefined"], Numeric_Or_Errno),
             )
@@ -1198,9 +1197,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 AsyncIO,
                 "block until specific events occur on the provided file descriptors",
                 &[
-                    (["fds", "array of file descriptor-event pairs for poll to monitor"], Normal(Array_Of_Struct)),
-                    (["nfds", "number of elements in pollfd"], Normal(Unsigned_Numeric)),
-                    (["timeout_msecs", "amount of time for poll to block in milliseconds"], Normal(Numeric)),
+                    (["fds", "array of file descriptor-event pairs for poll to monitor"], Array_Of_Struct),
+                    (["nfds", "number of elements in pollfd"], Unsigned_Numeric),
+                    (["timeout_msecs", "amount of time for poll to block in milliseconds"], Numeric),
                 ],
                 // It doesn’t tell you which elements (you still have to scan for that), it only tell you how many,
                 (["return value", "number of elements in nfds for which events have occurred, -1 on error, errno modified"], Numeric_Or_Errno),
@@ -1212,12 +1211,12 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 AsyncIO,
                 "block until specific events occur on the provided file descriptors or until some signals are caught",
                 &[
-                    (["fds", "array of file descriptor-event pairs for poll to monitor"], Normal(Array_Of_Struct)),
-                    (["nfds", "number of elements in pollfd"], Normal(Unsigned_Numeric)),
-                    (["tmo_p", "pointer to struct containing amount of time to block in nanoseconds"], Normal(Pointer_To_Struct)),
+                    (["fds", "array of file descriptor-event pairs for poll to monitor"], Array_Of_Struct),
+                    (["nfds", "number of elements in pollfd"], Unsigned_Numeric),
+                    (["tmo_p", "pointer to struct containing amount of time to block in nanoseconds"], Pointer_To_Struct),
                     // if null then no mask manipulation is performed
-                    (["sigmask", "signal mask containing the signals to watch for"], Normal(Pointer_To_Struct)),
-                    (["sigsetsize", "the size in bytes of the signal mask"], Normal(Length_Of_Bytes_Specific))
+                    (["sigmask", "signal mask containing the signals to watch for"], Pointer_To_Struct),
+                    (["sigsetsize", "the size in bytes of the signal mask"], Length_Of_Bytes_Specific)
                 ],
                 // It doesn’t tell you which elements (you still have to scan for that), 
                 // it only tell you how many,
@@ -1236,7 +1235,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                     // the kerenl now however does not need that information and instead dynamically allocates space
                     // it is kept for backward compatibility
                     // and must be greater than zero
-                    (["size", "number of fds expected to be added later, this argument is no longer needed, but must not be 0"], Normal(Unsigned_Numeric))
+                    (["size", "number of fds expected to be added later, this argument is no longer needed, but must not be 0"], Unsigned_Numeric)
                 ],
                 (["return value", "-1 on error, errno modified"],File_Descriptor_Or_Errno(""))
             )
@@ -1251,7 +1250,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 "creates a new epoll instance and return a file descriptor for it, in addition to customizing behaviour with a flag",
                 &[
                     // if this argument is zero, this syscall is identical to epoll_create
-                    (["flags", "flags for different epoll behaviours"], Normal(General_Flag(EPollCreate1Flags))),
+                    (["flags", "flags for different epoll behaviours"], General_Flag(EPollCreate1Flags)),
                 ],
                 (["return value", "-1 on error, errno modified"],File_Descriptor_Or_Errno(""))
             )
@@ -1266,14 +1265,14 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 AsyncIO,
                 "block and wait for events on an epoll instance, equivalent to fetching from the ready list",
                 &[
-                    (["epfd", "file descriptor of the epoll instance to be waited on"], Normal(File_Descriptor(""))),
-                    (["epoll_event", "buffer where information about ready file descriptors will be stored"], Normal(Pointer_To_Struct)),
-                    (["maxevents", "maximum number of events to be returned from the epoll instance"], Normal(Unsigned_Numeric)),
+                    (["epfd", "file descriptor of the epoll instance to be waited on"], File_Descriptor("")),
+                    (["epoll_event", "buffer where information about ready file descriptors will be stored"], Pointer_To_Struct),
+                    (["maxevents", "maximum number of events to be returned from the epoll instance"], Unsigned_Numeric),
                     // Time is measured against the CLOCK_MONOTONIC clock
                     // timeout interval will be rounded up to the system clock granularity
                     // -1 means block indefinitely
                     // 0 means return immediately
-                    (["timeout", "amount of time for epoll to block in milliseconds"], Normal(Numeric)),
+                    (["timeout", "amount of time for epoll to block in milliseconds"], Numeric),
                     ],
                 (["return value", "number of file descriptors ready for the requested I/O,"], Numeric_Or_Errno)
             )
@@ -1285,17 +1284,17 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 AsyncIO,
                 "block and wait until either an event on the epoll instance or a signal, equivalent to fetching from the ready list or waiting for a signal",
                 &[
-                    (["epfd", "file descriptor of the epoll instance to be waited on"], Normal(File_Descriptor(""))),
-                    (["events", "buffer where information about ready file descriptors will be stored"], Normal(Pointer_To_Struct)),
-                    (["maxevents", "maximum number of events to be returned from the epoll instance"], Normal(Unsigned_Numeric)),
+                    (["epfd", "file descriptor of the epoll instance to be waited on"], File_Descriptor("")),
+                    (["events", "buffer where information about ready file descriptors will be stored"], Pointer_To_Struct),
+                    (["maxevents", "maximum number of events to be returned from the epoll instance"], Unsigned_Numeric),
                     // Time is measured against the CLOCK_MONOTONIC clock
                     // timeout interval will be rounded up to the system clock granularity
                     // -1 means block indefinitely
                     // 0 means return immediately
-                    (["timeout", "amount of time for epoll to block in milliseconds"], Normal(Numeric)),
+                    (["timeout", "amount of time for epoll to block in milliseconds"], Numeric),
                     // if null this syscall is equivalent to epoll_pwait
-                    (["sigmask", "signal mask containing the signals to watch for"], Normal(Pointer_To_Struct)),
-                    (["sigsetsize", "the size in bytes of the signal mask"], Normal(Length_Of_Bytes_Specific))
+                    (["sigmask", "signal mask containing the signals to watch for"], Pointer_To_Struct),
+                    (["sigsetsize", "the size in bytes of the signal mask"], Length_Of_Bytes_Specific)
                 ],
                 (["return value", "number of file descriptors ready for the requested I/O,"], Numeric_Or_Errno)
             )
@@ -1307,17 +1306,17 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 AsyncIO,
                 "block and wait until either an event on the epoll instance or a signal, equivalent to fetching from the ready list or waiting for a signal",
                 &[
-                    (["epfd", "file descriptor of the epoll instance to be waited on"], Normal(File_Descriptor(""))),
-                    (["events", "buffer where information about ready file descriptors will be stored"], Normal(Pointer_To_Struct)),
-                    (["maxevents", "maximum number of events to be returned from the epoll instance"], Normal(Unsigned_Numeric)),
+                    (["epfd", "file descriptor of the epoll instance to be waited on"], File_Descriptor("")),
+                    (["events", "buffer where information about ready file descriptors will be stored"], Pointer_To_Struct),
+                    (["maxevents", "maximum number of events to be returned from the epoll instance"], Unsigned_Numeric),
                     // Time is measured against the CLOCK_MONOTONIC clock
                     // timeout interval will be rounded up to the system clock granularity
                     // -1 means block indefinitely
                     // 0 means return immediately
-                    (["timeout", "pointer to struct containing amount of time to block in nanoseconds"], Normal(Pointer_To_Struct)),
+                    (["timeout", "pointer to struct containing amount of time to block in nanoseconds"], Pointer_To_Struct),
                     // if null this syscall is equivalent to epoll_pwait
-                    (["sigmask", "signal mask containing the signals to watch for"], Normal(Pointer_To_Struct)),
-                    (["sigsetsize", "the size in bytes of the signal mask"], Normal(Length_Of_Bytes_Specific))
+                    (["sigmask", "signal mask containing the signals to watch for"], Pointer_To_Struct),
+                    (["sigsetsize", "the size in bytes of the signal mask"], Length_Of_Bytes_Specific)
                 ],
                 (["return value", "number of file descriptors ready for the requested I/O,"], Numeric_Or_Errno)
             )
@@ -1328,10 +1327,10 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 AsyncIO,
                 "add, modify, or remove entries in the interest list of the epoll instance",
                 &[
-                    (["epfd", "file descriptor of the epoll instance"], Normal(File_Descriptor(""))),
-                    (["op", "operation to be performed on the epoll instance, add/remove/change"], Normal(General_Flag(EPollCTLOperationFlags))),
-                    (["fd", "the file descriptor that the operation refers to"], Normal(File_Descriptor(""))),
-                    (["event", "struct containing information about the event associated with the operation"], Normal(Pointer_To_Struct)),
+                    (["epfd", "file descriptor of the epoll instance"], File_Descriptor("")),
+                    (["op", "operation to be performed on the epoll instance, add/remove/change"], General_Flag(EPollCTLOperationFlags)),
+                    (["fd", "the file descriptor that the operation refers to"], File_Descriptor("")),
+                    (["event", "struct containing information about the event associated with the operation"], Pointer_To_Struct),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -1342,9 +1341,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Network,
                 "create a socket file descriptor",
                 &[
-                    (["family", "communication domain (Internet/IPV4, IPV6, Bluetooth, Amateur radio, XDP ..etc)"], Normal(General_Flag(SocketFamily))),
-                    (["type", "communication type (Streaming, Datagram, etc..)"], Normal(General_Flag(SocketType))),
-                    (["protocol", "specific protocol (TCP, UDP, RAW)"], Normal(General_Flag(SocketProtocol)))
+                    (["family", "communication domain (Internet/IPV4, IPV6, Bluetooth, Amateur radio, XDP ..etc)"], General_Flag(SocketFamily)),
+                    (["type", "communication type (Streaming, Datagram, etc..)"], General_Flag(SocketType)),
+                    (["protocol", "specific protocol (TCP, UDP, RAW)"], General_Flag(SocketProtocol))
                 ],
                 (["return value", "-1 on error, errno modified"],File_Descriptor_Or_Errno(""))
             )
@@ -1355,9 +1354,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Network,
                 "assign an address to a socket file descriptor",
                 &[
-                    (["sockfd", "file descriptor of the socket to be assigned"], Normal(File_Descriptor(""))),
-                    (["addr", "struct containing the address which the socket will get assigned"], Normal(Pointer_To_Struct)),
-                    (["addrlen", "size of the socket address struct in bytes"], Normal(Length_Of_Bytes_Specific))
+                    (["sockfd", "file descriptor of the socket to be assigned"], File_Descriptor("")),
+                    (["addr", "struct containing the address which the socket will get assigned"], Pointer_To_Struct),
+                    (["addrlen", "size of the socket address struct in bytes"], Length_Of_Bytes_Specific)
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno),
             )
@@ -1368,14 +1367,14 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Network,
                 "get the address a specific socket is bound to",
                 &[
-                    (["sockfd", "file descriptor of the socket we're getting the address of"], Normal(File_Descriptor(""))),
+                    (["sockfd", "file descriptor of the socket we're getting the address of"], File_Descriptor("")),
                         // The returned information is truncated if the buffer provided is too small (addrlen small)
-                    (["addr", "buffer where retrieved address information will get stored"], Normal(Pointer_To_Struct)),
+                    (["addr", "buffer where retrieved address information will get stored"], Pointer_To_Struct),
                         // upon return this pointer gets updated with the length of bytes written in the buffer
                         // but in this case of truncation
                         // it will return a value greater
                         // than was supplied to the call.
-                    (["addrlen", "pointer to integer specifying the length in bytes of the address buffer"], Normal(Pointer_To_Length_Of_Bytes_Specific)),
+                    (["addrlen", "pointer to integer specifying the length in bytes of the address buffer"], Pointer_To_Length_Of_Bytes_Specific),
                     ],
                     (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno),
                 )
@@ -1386,15 +1385,15 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Network,
                 "get the address of the peer connected to a specific socket",
                 &[
-                    (["sockfd", "file descriptor of the socket we're getting peer information of"], Normal(File_Descriptor(""))),
+                    (["sockfd", "file descriptor of the socket we're getting peer information of"], File_Descriptor("")),
                     // The returned information is truncated
                     // if the buffer provided is too small (addrlen small);
-                    (["addr", "buffer where retrieved peer address information will get stored"], Normal(Pointer_To_Struct)),
+                    (["addr", "buffer where retrieved peer address information will get stored"], Pointer_To_Struct),
                     // upon return this pointer gets updated with the length of bytes written in the buffer
                     // but in this case of truncation
                     // it will return a value greater
                     // than was supplied to the call.
-                    (["addrlen", "pointer to integer specifying the length in bytes of the address buffer"], Normal(Pointer_To_Length_Of_Bytes_Specific)),
+                    (["addrlen", "pointer to integer specifying the length in bytes of the address buffer"], Pointer_To_Length_Of_Bytes_Specific),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno),
             )
@@ -1405,11 +1404,11 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Network,
                 "create a pair of connected sockets",
                 &[
-                    (["family", "communication domain (Internet/IPV4, IPV6, Bluetooth, Amateur radio, XDP ..etc)"], Normal(General_Flag(SocketFamily))),
-                    (["type", "communication type (Streaming, Datagram, etc..)"], Normal(General_Flag(SocketType))),
-                    (["protocol", "specific protocol (TCP, UDP, RAW)"], Normal(General_Flag(SocketProtocol))),
-                    // (["sv", "array in which the two created socket descriptors will be stored"],ValueReturn(Pointer_To_File_Descriptor_Array(["", ""]),Pointer_To_File_Descriptor_Array(["", ""])))
-                    (["sv", "array in which the two created socket descriptors will be stored"], Normal(Pointer_To_File_Descriptor_Array(["", ""])))
+                    (["family", "communication domain (Internet/IPV4, IPV6, Bluetooth, Amateur radio, XDP ..etc)"], General_Flag(SocketFamily)),
+                    (["type", "communication type (Streaming, Datagram, etc..)"], General_Flag(SocketType)),
+                    (["protocol", "specific protocol (TCP, UDP, RAW)"], General_Flag(SocketProtocol)),
+                    // (["sv", "array in which the two created socket descriptors will be stored"],ValueReturn(Pointer_To_File_Descriptor_Array(["", ""]),Pointer_To_File_Descriptor_Array(["", ""]))
+                    (["sv", "array in which the two created socket descriptors will be stored"], Pointer_To_File_Descriptor_Array(["", ""]))
                 ],
                 // on error sv is left unchanged
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno),
@@ -1421,16 +1420,16 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Network,
                 "set the options of a socket descriptor",
                 &[
-                    (["sockfd", "socket descriptor whose options will be manipulated"], Normal(File_Descriptor(""))),
-                    (["level", "the protocol level in which the option resides"], Normal(General_Flag(SocketLevel))),
-                    (["optname", "name of the option"], Normal(General_Flag(SocketOption))),
+                    (["sockfd", "socket descriptor whose options will be manipulated"], File_Descriptor("")),
+                    (["level", "the protocol level in which the option resides"], General_Flag(SocketLevel)),
+                    (["optname", "name of the option"], General_Flag(SocketOption)),
 
                     // the argument should be
                     // nonzero to enable a boolean option,
                     // or zero if the option is to be disabled.
-                    (["optval", "buffer containing the new option value to be set"], Normal(Pointer_To_Struct)),
+                    (["optval", "buffer containing the new option value to be set"], Pointer_To_Struct),
 
-                    (["optlen", "pointer to integer specifying the size in bytes of the option value buffer"], Normal(Pointer_To_Length_Of_Bytes_Specific)),
+                    (["optlen", "pointer to integer specifying the size in bytes of the option value buffer"], Pointer_To_Length_Of_Bytes_Specific),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno),
             )
@@ -1441,16 +1440,16 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Network,
                 "retrieve the options of a socket descriptor",
                 &[
-                    (["sockfd", "socket descriptor whose options will be manipulated"], Normal(File_Descriptor(""))),
-                    (["level", "the protocol level in which the option resides"], Normal(General_Flag(SocketLevel))),
-                    (["optname", "name of the option"], Normal(General_Flag(SocketOption))),
+                    (["sockfd", "socket descriptor whose options will be manipulated"], File_Descriptor("")),
+                    (["level", "the protocol level in which the option resides"], General_Flag(SocketLevel)),
+                    (["optname", "name of the option"], General_Flag(SocketOption)),
 
-                    (["optval", "buffer in which the retrieved option value will be stored"], Normal(Pointer_To_Struct)),
+                    (["optval", "buffer in which the retrieved option value will be stored"], Pointer_To_Struct),
                     //    optlen is a value-result argument
                     //     initially containing the size of optval buffer
                     //     and on return modified to the actual size of the value returned
                     //     can be NULL If no option value is to be supplied or returned,
-                    (["optlen", "pointer to integer specifying the length in bytes of the option value buffer"], Normal(Pointer_To_Length_Of_Bytes_Specific)),
+                    (["optlen", "pointer to integer specifying the length in bytes of the option value buffer"], Pointer_To_Length_Of_Bytes_Specific),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno),
             )
@@ -1462,8 +1461,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Network,
                 "create a backlog queue, and mark the socket descriptor as passive (ready to accept connections)",
                 &[
-                    (["sockfd", "file descriptor of the socket to mark"], Normal(File_Descriptor(""))),
-                    (["backlog", "maximum number of connections the queue must hold"], Normal(Numeric))
+                    (["sockfd", "file descriptor of the socket to mark"], File_Descriptor("")),
+                    (["backlog", "maximum number of connections the queue must hold"], Numeric)
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno),
             )
@@ -1474,14 +1473,14 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Network,
                 "extract the first connection from the backlog queue",
                 &[
-                    (["sockfd", "file descriptor of the socket listening for connections"], Normal(File_Descriptor(""))),
+                    (["sockfd", "file descriptor of the socket listening for connections"], File_Descriptor("")),
                     // nullable, and when nullable it is not filled
-                    (["addr", "buffer where information about the peer connection will be stored"], Normal(Pointer_To_Struct)),
+                    (["addr", "buffer where information about the peer connection will be stored"], Pointer_To_Struct),
                     // addrlen is a value-result argument
                     // initially containing the size of optval buffer
                     // and on return modified to the actual size of the value returned
                     // can be NULL If no option value is to be supplied or returned,
-                    (["addrlen", "pointer to struct speciiying the size of the addr buffer"], Normal(Pointer_To_Struct)),
+                    (["addrlen", "pointer to struct speciiying the size of the addr buffer"], Pointer_To_Struct),
                 ],
                 // -1 on error, errno modified
                 (["return value", "file descriptor of the new connection that was extracted, -1 for error and errno modified"],File_Descriptor_Or_Errno(""))
@@ -1496,16 +1495,16 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Network,
                 "extract the first connection from the connection queue in addition to specifying behaviour flag such as non-block and close-on-exec",
                 &[
-                    (["sockfd", "file descriptor of the socket listening for connections"], Normal(File_Descriptor(""))),
+                    (["sockfd", "file descriptor of the socket listening for connections"], File_Descriptor("")),
                     // nullable, and when nullable it is not filled
-                    (["addr", "buffer where information about the peer connection will be stored"], Normal(Pointer_To_Struct)),
+                    (["addr", "buffer where information about the peer connection will be stored"], Pointer_To_Struct),
                     // addrlen is a value-result argument
                     // initially containing the size of optval buffer
                     // and on return modified to the actual size of the value returned
                     // can be NULL If no option value is to be supplied or returned,
-                    (["addrlen", "pointer to struct speciiying the size of the addr buffer"], Normal(Pointer_To_Struct)),
+                    (["addrlen", "pointer to struct speciiying the size of the addr buffer"], Pointer_To_Struct),
                     // if this flag is 0 then accept4 is identical to accept
-                    (["flags", "?"], Normal(General_Flag(SocketFlag))),
+                    (["flags", "?"], General_Flag(SocketFlag)),
                 ],
                 // -1 on error, errno modified
                 (["return value", "file descriptor of the new connection that was extracted, -1 for error and errno modified"],File_Descriptor_Or_Errno(""))
@@ -1517,9 +1516,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Network,
                 "connect a socket file descriptor to an address",
                 &[
-                    (["sockfd", "file descriptor of the socket to be connected"], Normal(File_Descriptor(""))),
-                    (["addr", "struct containing the address to which the socket will connect"], Normal(Pointer_To_Struct)),
-                    (["addrlen", "size of the socket address struct in bytes"], Normal(Length_Of_Bytes_Specific))
+                    (["sockfd", "file descriptor of the socket to be connected"], File_Descriptor("")),
+                    (["addr", "struct containing the address to which the socket will connect"], Pointer_To_Struct),
+                    (["addrlen", "size of the socket address struct in bytes"], Length_Of_Bytes_Specific)
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -1530,15 +1529,15 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Network,
                 "send a message to another socket",
                 &[
-                    (["sockfd", "file descriptor of the sending socket"], Normal(File_Descriptor(""))),
-                    (["buf", "pointer to a buffer containing the message to be sent and the length of the message"], Normal(Pointer_To_Text(""))),
-                    (["len", "size of the message buffer in bytes"], Normal(Length_Of_Bytes_Specific)),
-                    (["flags", "flags to customize syscall behaviour"], Normal(General_Flag(SocketMessageFlag))),
+                    (["sockfd", "file descriptor of the sending socket"], File_Descriptor("")),
+                    (["buf", "pointer to a buffer containing the message to be sent and the length of the message"], Pointer_To_Text("")),
+                    (["len", "size of the message buffer in bytes"], Length_Of_Bytes_Specific),
+                    (["flags", "flags to customize syscall behaviour"], General_Flag(SocketMessageFlag)),
                     // WILL BE USED if connection-less (like UDP)
                     // WILL BE IGNORED if connection-mode (like TCP, or SEQ) and must be null or 0
-                    (["dest_addr", "address of the target socket"], Normal(Pointer_To_Struct)),
+                    (["dest_addr", "address of the target socket"], Pointer_To_Struct),
                     // IGNORED if connection-mode (like TCP, or SEQ) (UDP IS CONNECTIONLESS) and must be null or 0
-                    (["addr_len", "size of the destination address struct in bytes"], Normal(Length_Of_Bytes_Specific)),
+                    (["addr_len", "size of the destination address struct in bytes"], Length_Of_Bytes_Specific),
                 ],
                 (["return value", "number of bytes written, 0 means end of file, -1 means error, and errno modified"],Length_Of_Bytes_Specific_Or_Errno)
             )
@@ -1549,9 +1548,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Network,
                 "send a message to another socket",
                 &[
-                    (["sockfd", "file descriptor of the sending socket"], Normal(File_Descriptor(""))),
-                    (["msg", "pointer to struct containing the target socket address, the size of the struct, and an array containing the message to be sent"], Normal(Pointer_To_Struct)),
-                    (["flags", "flags to customize syscall behaviour"], Normal(General_Flag(SocketMessageFlag)))
+                    (["sockfd", "file descriptor of the sending socket"], File_Descriptor("")),
+                    (["msg", "pointer to struct containing the target socket address, the size of the struct, and an array containing the message to be sent"], Pointer_To_Struct),
+                    (["flags", "flags to customize syscall behaviour"], General_Flag(SocketMessageFlag))
                 ],
                 (["return value", "number of bytes written, 0 means end of file, -1 means error, and errno modified"],Length_Of_Bytes_Specific_Or_Errno)
             )
@@ -1562,19 +1561,19 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Network,
                 "receive a message from a socket",
                 &[
-                    (["sockfd", "file descriptor of the socket to receive data from"], Normal(File_Descriptor(""))),
+                    (["sockfd", "file descriptor of the socket to receive data from"], File_Descriptor("")),
                     // If a message is too long to fit in the supplied buffer,
                     // excess bytes may be discarded depending
                     // on the type of socket the message is received from.
-                    (["buf", "buffer in which the received data will be stored"], Normal(Pointer_To_Text(""))),
-                    (["len", "size in bytes of the buffer"], Normal(Length_Of_Bytes_Specific)),
-                    (["flags", "?"], Normal(General_Flag(SocketMessageReceiveFlag))),
+                    (["buf", "buffer in which the received data will be stored"], Pointer_To_Text("")),
+                    (["len", "size in bytes of the buffer"], Length_Of_Bytes_Specific),
+                    (["flags", "?"], General_Flag(SocketMessageReceiveFlag)),
                     // if src_addr and addrlen are NULL
                     // it means we do not care or want src_addr details
                     // otherwise addrlen is value-result argument
-                    (["src_addr", "buffer which will contain the source address of the socket we received the data from"], Normal(Pointer_To_Struct)),
+                    (["src_addr", "buffer which will contain the source address of the socket we received the data from"], Pointer_To_Struct),
                     // value-result argument, will become the length of the buffer, and truncation rules apply
-                    (["addrlen", "size of the source address buffer"], Normal(Pointer_To_Struct)),
+                    (["addrlen", "size of the source address buffer"], Pointer_To_Struct),
                 ],
                 (["return value", "number of bytes written, 0 means zero-length datagrams which are permitted, -1 means error, and errno modified"],Length_Of_Bytes_Specific_Or_Errno)
             )
@@ -1585,12 +1584,12 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Network,
                 "receive a message from a socket",
                 &[
-                    (["sockfd", "file descriptor of the socket to receive data from"], Normal(File_Descriptor(""))),
+                    (["sockfd", "file descriptor of the socket to receive data from"], File_Descriptor("")),
                     // If a message is too long to fit in the supplied buffer,
                     // excess bytes may be discarded depending
                     // on the type of socket the message is received from.
-                    (["msg", "pointer to a struct containing the details of data received including scatter-gather buffer and length information"], Normal(Pointer_To_Struct)),
-                    (["flags", "?"], Normal(General_Flag(SocketMessageFlag)))
+                    (["msg", "pointer to a struct containing the details of data received including scatter-gather buffer and length information"], Pointer_To_Struct),
+                    (["flags", "?"], General_Flag(SocketMessageFlag))
                 ],
                 (["return value", "number of bytes written, 0 means zero-length datagrams which are permitted, -1 means error, and errno modified"],Length_Of_Bytes_Specific_Or_Errno)
             )
@@ -1601,8 +1600,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "shut down a socket connection full or partially",
                 &[
-                    (["sockfd", "file descriptor of the affected socket"], Normal(File_Descriptor(""))),
-                    (["how", "flag specificying shutdown domain"], Normal(General_Flag(SocketShutdownFlag)))
+                    (["sockfd", "file descriptor of the affected socket"], File_Descriptor("")),
+                    (["how", "flag specificying shutdown domain"], General_Flag(SocketShutdownFlag))
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno),
             )
@@ -1616,9 +1615,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                FileOp,
                "perform a file operation on a file",
                 &[
-                    (["fd", "the file descriptor to be operated on"], Normal(File_Descriptor(""))),
-                    (["op", "specific operation to be performed"], Normal(General_Flag(FcntlFlags))),
-                    (["arg", "optional argument varying depending on the operation"], Normal(Pointer_To_Struct)),
+                    (["fd", "the file descriptor to be operated on"], File_Descriptor("")),
+                    (["op", "specific operation to be performed"], General_Flag(FcntlFlags)),
+                    (["arg", "optional argument varying depending on the operation"], Pointer_To_Struct),
                 ],
                 (["return value", "0 on success (sometimes this is a output value), -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -1629,13 +1628,13 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Device,
                 "carry out a specific operation/request on a device",
                 &[
-                    (["fd", "file descriptor of the device"], Normal(File_Descriptor(""))),
-                    (["request", "code of the specific request to be carried out"], Normal(Unsigned_Numeric)),
+                    (["fd", "file descriptor of the device"], File_Descriptor("")),
+                    (["request", "code of the specific request to be carried out"], Unsigned_Numeric),
                     // The arg parameter to the ioctl is opaque at the generic vfs level (an opaque data type is a data type whose concrete data structure is not defined in an interface)
                     // How to interpret it is up to the driver or filesystem that actually handles it
                     // So it may be a pointer to userspace memory, or it could be an index, a flag, whatever
                     // It might even be unused and conventionally passed in a 0
-                    (["argp", "typeless extra argument, the driver defineds it, and can vary based on what the driver wants"], Normal(Pointer_To_Struct)),
+                    (["argp", "typeless extra argument, the driver defineds it, and can vary based on what the driver wants"], Pointer_To_Struct),
                 ],
                 (["return value", "0 on success (sometimes this is a output value), -1 on error, errno modified"], Numeric_Or_Errno)
 
@@ -1650,10 +1649,10 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "set architecture-specific process/thread state",
                 &[
-                    (["op", "specific operation to perform"], Normal(General_Flag(ArchPrctlFlags))),
+                    (["op", "specific operation to perform"], General_Flag(ArchPrctlFlags)),
                     // TODO! this argument is a number for set operations and a pointer to a number for get operations 
                     // Pointer_To_Numeric_Or_Numeric is a special case for arch_prctl, because it depends on the op union
-                    (["addr", "can be either an unsigned long for set operations, or a pointer to unsigned long for get operations"], Normal(Pointer_To_Numeric_Or_Numeric(None))),
+                    (["addr", "can be either an unsigned long for set operations, or a pointer to unsigned long for get operations"], Pointer_To_Numeric_Or_Numeric(None)),
                 ],
                 (["return value", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -1676,11 +1675,11 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 "change action for a specific signal",
                 &[
                     // can be any valid signal except SIGKILL and SIGSTOP.
-                    (["signum", "specific signal for which the action should be changed"], Normal(General_Flag(Signal))),
-                    (["act", "sigaction struct where new action to take is specified"], Normal(Pointer_To_Struct)),
+                    (["signum", "specific signal for which the action should be changed"], General_Flag(Signal)),
+                    (["act", "sigaction struct where new action to take is specified"], Pointer_To_Struct),
                     // nullable meaning we dont want it
-                    (["oldact", "pointe to struct where the old sigaction struct will be saved"], Normal(Pointer_To_Struct)),
-                    (["sigsetsize", "size of the signal sets in the action mask and the old action mask"], Normal(Length_Of_Bytes_Specific)),
+                    (["oldact", "pointe to struct where the old sigaction struct will be saved"], Pointer_To_Struct),
+                    (["sigsetsize", "size of the signal sets in the action mask and the old action mask"], Length_Of_Bytes_Specific),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -1691,12 +1690,12 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Signals,
                 "modify or get the signal mask (signals blocked from delivery) of the calling thread",
                 &[
-                    (["how", "specific signal for which the action should be changed"], Normal(General_Flag(SignalHow))),
+                    (["how", "specific signal for which the action should be changed"], General_Flag(SignalHow)),
                     // If NULL, then the signal mask is unchanged.
-                    (["set", "sigaction struct where new action to take is specified"], Normal(Pointer_To_Struct)),
+                    (["set", "sigaction struct where new action to take is specified"], Pointer_To_Struct),
                     // If non-NULL, the previous value of the mask is stored here.
-                    (["oldset", "sigaction struct where new action to take is specified"], Normal(Pointer_To_Struct)),
-                    (["sigsetsize", "size of the signal sets in the new set and the old set"], Normal(Length_Of_Bytes_Specific)),
+                    (["oldset", "sigaction struct where new action to take is specified"], Pointer_To_Struct),
+                    (["sigsetsize", "size of the signal sets in the new set and the old set"], Length_Of_Bytes_Specific),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -1712,8 +1711,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 "temporarily alter the signal mask of the process, and suspend execution until the delivery of a signal that has a handler or one that terminates the thread",
                 &[
                     // SIGKILL or SIGSTOP can not be blocked
-                    (["mask", "new temporary mask to be set"], Normal(Pointer_To_Struct)),
-                    (["sigsetsize", "size of the mask struct in bytes"], Normal(Length_Of_Bytes_Specific))
+                    (["mask", "new temporary mask to be set"], Pointer_To_Struct),
+                    (["sigsetsize", "size of the mask struct in bytes"], Length_Of_Bytes_Specific)
                 ],
                 // always returns -1, with errno set to indicate the error (normally, EINTR)
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
@@ -1730,9 +1729,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 "define an alternative signal stack or retrieve the state of the current one",
                 &[
                     // can be null if dont want this part of the operation
-                    (["ss", "pointer to a struct containing information about the new signal stack to use"], Normal(Pointer_To_Struct)),
+                    (["ss", "pointer to a struct containing information about the new signal stack to use"], Pointer_To_Struct),
                     // NULLABLE meaning we dont want it
-                    (["old_ss", "pointer to an empty signal stack struct to store the old signal stack information"], Normal(Pointer_To_Struct)),
+                    (["old_ss", "pointer to an empty signal stack struct to store the old signal stack information"], Pointer_To_Struct),
                     ],
                     (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -1753,8 +1752,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Signals,
                 "return the set of signals pending for delivery for the calling thread",
                 &[
-                    (["set", "pointer to struct set where the signals will be stored"], Normal(Pointer_To_Struct)),
-                    (["sigsetsize", "size of the set struct in bytes"], Normal(Length_Of_Bytes_Specific))
+                    (["set", "pointer to struct set where the signals will be stored"], Pointer_To_Struct),
+                    (["sigsetsize", "size of the set struct in bytes"], Length_Of_Bytes_Specific)
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -1765,11 +1764,11 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Signals,
                 "suspends execution of the process until one of the signals provided is pending, or a given timeout is exceeded",
                 &[
-                    (["set", "pointer to struct containing the set of signals to check for"], Normal(Pointer_To_Struct)),
+                    (["set", "pointer to struct containing the set of signals to check for"], Pointer_To_Struct),
                     // NULLABLE
-                    (["info", "pointer to struct where information about the signals found will be stored"], Normal(Pointer_To_Struct)),
-                    (["timeout", "pointer to struct containing amount of time to block in nanoseconds"], Normal(Pointer_To_Struct)),
-                    (["sigsetsize", "size of the set struct in bytes"], Normal(Length_Of_Bytes_Specific))
+                    (["info", "pointer to struct where information about the signals found will be stored"], Pointer_To_Struct),
+                    (["timeout", "pointer to struct containing amount of time to block in nanoseconds"], Pointer_To_Struct),
+                    (["sigsetsize", "size of the set struct in bytes"], Length_Of_Bytes_Specific)
                 ],
                 (["signal", "signal number on success, -1 on error, errno modified"],Signal_Or_Errno(""))
             )
@@ -1782,9 +1781,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Signals,
                 "send a signal plus data to a process/thread group",
                 &[
-                    (["tgid", "id of the thread group where the signal will be sent"], Normal(PID)),
-                    (["sig", "the signal to be sent"], Normal(General_Flag(Signal))),
-                    (["info", "address of the struct containing the data to be sent"], Normal(Pointer_To_Struct)),
+                    (["tgid", "id of the thread group where the signal will be sent"], PID),
+                    (["sig", "the signal to be sent"], General_Flag(Signal)),
+                    (["info", "address of the struct containing the data to be sent"], Pointer_To_Struct),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -1797,10 +1796,10 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Signals,
                 "send a signal plus data to a specific thread within a process/thread group",
                 &[
-                    (["tgid", "id of the thread group where the signal will be sent"], Normal(PID)),
-                    (["pid", "id of the specific thread in the thread group"], Normal(PID)),
-                    (["sig", "the signal to be sent"], Normal(General_Flag(Signal))),
-                    (["info", "address of the struct containing the data to be sent"], Normal(Pointer_To_Struct)),
+                    (["tgid", "id of the thread group where the signal will be sent"], PID),
+                    (["pid", "id of the specific thread in the thread group"], PID),
+                    (["sig", "the signal to be sent"], General_Flag(Signal)),
+                    (["info", "address of the struct containing the data to be sent"], Pointer_To_Struct),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -1812,10 +1811,10 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 "create a new file for accepting signals",
                 &[
                     // fd of a file, or -1, let the kernel create a new file descriptor
-                    (["fd", "file descriptor of the file to be used to receive signals"], Normal(File_Descriptor(""))),
+                    (["fd", "file descriptor of the file to be used to receive signals"], File_Descriptor("")),
                     // It is not possible to receive SIGKILL or SIGSTOP
                     // SIGKILL or SIGSTOP can not be blocked
-                    (["mask", "the set of signals to be accept via the file descriptor"], Normal(Pointer_To_Struct)),
+                    (["mask", "the set of signals to be accept via the file descriptor"], Pointer_To_Struct),
                 ],
                 (["return value", "-1 on error, errno modified"],File_Descriptor_Or_Errno(""))
             )
@@ -1827,11 +1826,11 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 "create a file descriptor for accepting signals, in addition to file customization flags",
                 &[
                     // fd of a file, or -1, let the kernel create a new file descriptor
-                    (["fd", "file descriptor of the file to be used to receive signals"], Normal(File_Descriptor(""))),
+                    (["fd", "file descriptor of the file to be used to receive signals"], File_Descriptor("")),
                     // It is not possible to receive SIGKILL or SIGSTOP
                     // SIGKILL or SIGSTOP can not be blocked
-                    (["mask", "the set of signals to be accept via the file descriptor"], Normal(Pointer_To_Struct)),
-                    (["flags", "flags to customize the file descriptor"], Normal(General_Flag(SignalFDFlags)))
+                    (["mask", "the set of signals to be accept via the file descriptor"], Pointer_To_Struct),
+                    (["flags", "flags to customize the file descriptor"], General_Flag(SignalFDFlags))
                 ],
                 (["return value", "-1 on error, errno modified"],File_Descriptor_Or_Errno(""))
             )
@@ -1846,13 +1845,13 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Signals,
                 "send a signal to a process specified by a file descriptor",
                 &[
-                    (["pidfd", "file descriptor of the process of where the siganl is to be sent"], Normal(File_Descriptor(""))),
-                    (["sig", "signal to be sent"], Normal(General_Flag(Signal))),
+                    (["pidfd", "file descriptor of the process of where the siganl is to be sent"], File_Descriptor("")),
+                    (["sig", "signal to be sent"], General_Flag(Signal)),
                     // if null, its equivalent to the struct version which is provided a signal is sent using kill
                     // otherwise the buffer is equivalent to the info buffer specified by the rt_sigqueueinfo syscall
-                    (["info", "struct containing information about the signal"], Normal(Pointer_To_Struct)),
+                    (["info", "struct containing information about the signal"], Pointer_To_Struct),
                     // reserved for future use, currently should be 0
-                    (["flags", "flag for customization, currently does not provide any functionality"], Normal(General_Flag(ReservedForFutureUse))),
+                    (["flags", "flag for customization, currently does not provide any functionality"], General_Flag(ReservedForFutureUse)),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -1895,9 +1894,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Device,
                 "fill a specified buffer with random bytes",
                 &[
-                    (["buf", "pointer to a buffer where the random bytes will be stored"], Normal(Pointer_To_Struct)),
-                    (["buflen", "amount of bytes to fill in the buffer"], Normal(Length_Of_Bytes_Specific)),
-                    (["flags", "flags to select the random source, and whether the call should block"], Normal(General_Flag(GetRandomFlags))),
+                    (["buf", "pointer to a buffer where the random bytes will be stored"], Pointer_To_Struct),
+                    (["buflen", "amount of bytes to fill in the buffer"], Length_Of_Bytes_Specific),
+                    (["flags", "flags to select the random source, and whether the call should block"], General_Flag(GetRandomFlags)),
                 ],
                 (["return value", "number of random bytes retrieved, -1 On error and errno is modified"],Length_Of_Bytes_Specific_Or_Errno)
             )
@@ -1908,8 +1907,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "set the soft and hard resource limits of a process",
                 &[
-                    (["resource", "specific resource type to limit"], Normal(General_Flag(ResourceFlags))),
-                    (["rlim", "pointer to a struct containing the soft and hard limits"], Normal(Pointer_To_Struct)),
+                    (["resource", "specific resource type to limit"], General_Flag(ResourceFlags)),
+                    (["rlim", "pointer to a struct containing the soft and hard limits"], Pointer_To_Struct),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -1920,8 +1919,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "get the soft and hard resource limits of a process",
                 &[
-                    (["resource", "specific resource type to retrieve"], Normal(General_Flag(ResourceFlags))),
-                    (["rlim", "pointer to a struct where the soft and hard limits of the resource will get stored"], Normal(Pointer_To_Struct)),
+                    (["resource", "specific resource type to retrieve"], General_Flag(ResourceFlags)),
+                    (["rlim", "pointer to a struct where the soft and hard limits of the resource will get stored"], Pointer_To_Struct),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -1935,12 +1934,12 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 "get or set the soft and hard limits of a specific resource for a process",
                 &[
                     // if zero then operate on the calling process
-                    (["pid", "process id of the process to operate on"], Normal(PID)),
-                    (["resource", "specific resource type to operate on"], Normal(General_Flag(ResourceFlags))),
+                    (["pid", "process id of the process to operate on"], PID),
+                    (["resource", "specific resource type to operate on"], General_Flag(ResourceFlags)),
                     // NULLABLE
-                    (["new_limit", "pointer to a struct containing the soft and hard limits to use as new limits"], Normal(Pointer_To_Struct)),
+                    (["new_limit", "pointer to a struct containing the soft and hard limits to use as new limits"], Pointer_To_Struct),
                     // NULLABLE
-                    (["old_limit", "pointer to a struct where the soft and hard limits of the resource will get stored"], Normal(Pointer_To_Struct)),
+                    (["old_limit", "pointer to a struct where the soft and hard limits of the resource will get stored"], Pointer_To_Struct),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -1967,8 +1966,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "get resource usage metrics for a specific process domain",
                 &[
-                    (["who", "which domain of the process to measure"], Normal(General_Flag(RusageWhoFlags))),
-                    (["usage", "pointer to a struct where the the resource usage metrics will get stored"], Normal(Pointer_To_Struct)),
+                    (["who", "which domain of the process to measure"], General_Flag(RusageWhoFlags)),
+                    (["usage", "pointer to a struct where the the resource usage metrics will get stored"], Pointer_To_Struct),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -1979,7 +1978,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "get memory and swap usage metrics",
                 &[
-                    (["info", "pointer to a struct where the the system info will get stored"], Normal(Pointer_To_Struct)),
+                    (["info", "pointer to a struct where the the system info will get stored"], Pointer_To_Struct),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -1990,7 +1989,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "get time metrics for the calling process and its children",
                 &[
-                    (["buf", "pointer to a struct where various timing metrics for the process will get stored"], Normal(Pointer_To_Struct)),
+                    (["buf", "pointer to a struct where various timing metrics for the process will get stored"], Pointer_To_Struct),
                 ],
                 (["numeric return", "number of clock ticks for the process since an arbitrary point, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -2002,9 +2001,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 "set specific CPUs for this thread to run on",
                 &[
                     // if zero then the calling thread is the thread referred to
-                    (["pid", "thread id of the thread to operate on"], Normal(PID)),
-                    (["cpusetsize", "size of the CPU mask struct"], Normal(Length_Of_Bytes_Specific)),
-                    (["mask", "pointer to struct containing the bitmask of CPUs"], Normal(Pointer_To_Struct)),
+                    (["pid", "thread id of the thread to operate on"], PID),
+                    (["cpusetsize", "size of the CPU mask struct"], Length_Of_Bytes_Specific),
+                    (["mask", "pointer to struct containing the bitmask of CPUs"], Pointer_To_Struct),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -2016,9 +2015,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 "find which CPUs this thread is allowed to run on",
                 &[
                     // if zero then the calling thread is the thread referred to
-                    (["pid", "thread id of the thread to operate on"], Normal(PID)),
-                    (["cpusetsize", "size of the CPU mask struct"], Normal(Length_Of_Bytes_Specific)),
-                    (["mask", "pointer to struct where the current thread's CPU bitmask will be stored"], Normal(Pointer_To_Struct)),
+                    (["pid", "thread id of the thread to operate on"], PID),
+                    (["cpusetsize", "size of the CPU mask struct"], Length_Of_Bytes_Specific),
+                    (["mask", "pointer to struct where the current thread's CPU bitmask will be stored"], Pointer_To_Struct),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -2033,7 +2032,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "exit the calling process",
                 &[
-                    (["status", "status of the process on exit"], Normal(Numeric)),
+                    (["status", "status of the process on exit"], Numeric),
                 ],
                 (["", ""], Never_Returns)
             )
@@ -2044,7 +2043,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "exit all threads in this process's thread group",
                 &[
-                    (["status", "status of the process on exit"], Normal(Numeric)),
+                    (["status", "status of the process on exit"], Numeric),
                 ],
                 (["", ""], Never_Returns)
             )
@@ -2059,9 +2058,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 "send a signal to a specific thread in a specific thread",
                 &[
                     // If tgid is specified as -1, tgkill() is equivalent to tkill().
-                    (["tgid", "id of the thread group where the signal will be sent"], Normal(PID)),
-                    (["tid", "id of the specific thread in the thread group"], Normal(PID)),
-                    (["sig", "the signal to be sent"], Normal(General_Flag(Signal))),
+                    (["tgid", "id of the thread group where the signal will be sent"], PID),
+                    (["tid", "id of the specific thread in the thread group"], PID),
+                    (["sig", "the signal to be sent"], General_Flag(Signal)),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -2073,8 +2072,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Thread,
                 "send a signal to a specific thread in a specific thread",
                 &[
-                    (["tid", "id of the specific thread to which the signal will be sent"], Normal(PID)),
-                    (["sig", "the signal to be sent"], Normal(General_Flag(Signal))),
+                    (["tid", "id of the specific thread to which the signal will be sent"], PID),
+                    (["sig", "the signal to be sent"], General_Flag(Signal)),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -2086,16 +2085,16 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 "register a per-thread data structure shared between kernel and user-space",
                 &[
                     // Only one rseq can be registered per thread,
-                    (["rseq", "pointer to the thread-local rseq struct to be shared between kernel and user-space"], Normal(Pointer_To_Struct)),
-                    (["rseq len", "size of the struct rseq"], Normal(Length_Of_Bytes_Specific)),
+                    (["rseq", "pointer to the thread-local rseq struct to be shared between kernel and user-space"], Pointer_To_Struct),
+                    (["rseq len", "size of the struct rseq"], Length_Of_Bytes_Specific),
                     // 0 for registration, and RSEQ FLAG UNREGISTER for unregistration
-                    (["flags", "the signal to be sent"], Normal(General_Flag(RSeqFlag))),
+                    (["flags", "the signal to be sent"], General_Flag(RSeqFlag)),
                     // Each supported architecture provides a RSEQ_SIG macro in sys/rseq.h
                     // which contains a signature. That signature is expected to be present in the code
                     // before each restartable sequences abort handler.
                     // Failure to provide the expected signature may terminate the process
                     // with a segmentation fault.
-                    (["sig", "32-bit signature to be expected before the abort handler code"], Normal(Unsigned_Numeric)),
+                    (["sig", "32-bit signature to be expected before the abort handler code"], Unsigned_Numeric),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -2106,7 +2105,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 System,
                 "get system information",
                 &[
-                    (["mask", "pointer to struct where the system information will be stored"], Normal(Pointer_To_Struct)),
+                    (["mask", "pointer to struct where the system information will be stored"], Pointer_To_Struct),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -2159,7 +2158,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "set the effective user ID of the calling process",
                 &[
-                    (["uid", "id of the thread group where the signal will be sent"], Normal(User_Group)),
+                    (["uid", "id of the thread group where the signal will be sent"], User_Group),
                 ],
                 // The user ID specified in uid is not valid in this user namespace.
                 // The  user  is  not  privileged (does not have the CAP_SETUID capability)
@@ -2173,7 +2172,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "set the effective user ID of the calling process",
                 &[
-                    (["gid", "id of the thread group where the signal will be sent"], Normal(User_Group)),
+                    (["gid", "id of the thread group where the signal will be sent"], User_Group),
                 ],
                 // The calling process is not privileged (does not have the CAP_SETGID),
                 // and gid does not match the real group ID or saved set-group-ID of the calling process.
@@ -2188,12 +2187,12 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 AsyncIO,
                 "set the effective user ID of the calling process",
                 &[
-                    (["uaddr", "pointer to the futex-word"], Normal(Pointer_To_Unsigned_Numeric)),
-                    (["futex_op", "specific futex operation to carry"], Normal(General_Flag(FutexOpFlags))),
-                    (["val", "value specific to each operation"], Normal(Unsigned_Numeric)),
-                    (["timeout", "either a pointer to a timeout struct for blocking operations or a normal numeric value specific to some operations"], Normal(Pointer_To_Struct)),
-                    (["uaddr2", "pointer to a second futex-word"], Normal(Pointer_To_Unsigned_Numeric)),
-                    (["val3", "value specific to each operation"], Normal(Unsigned_Numeric)),
+                    (["uaddr", "pointer to the futex-word"], Pointer_To_Unsigned_Numeric),
+                    (["futex_op", "specific futex operation to carry"], General_Flag(FutexOpFlags)),
+                    (["val", "value specific to each operation"], Unsigned_Numeric),
+                    (["timeout", "either a pointer to a timeout struct for blocking operations or a normal numeric value specific to some operations"], Pointer_To_Struct),
+                    (["uaddr2", "pointer to a second futex-word"], Pointer_To_Unsigned_Numeric),
+                    (["val3", "value specific to each operation"], Unsigned_Numeric),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -2213,7 +2212,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Thread,
                 "set the `clear_child_tid` value for the calling thread to the id provided",
                 &[
-                    (["tidptr", "pointer to the thread id to use for `clear_child_tid`"], Normal(Pointer_To_Numeric(None))),
+                    (["tidptr", "pointer to the thread id to use for `clear_child_tid`"], Pointer_To_Numeric(None)),
                 ],
                 (["return value", "thread id of the calling thread"], Numeric_Or_Errno)
             )
@@ -2224,7 +2223,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "create a file to use for event notifications/waiting",
                 &[
-                    (["initval", "value specific to each operation"], Normal(Unsigned_Numeric)),
+                    (["initval", "value specific to each operation"], Unsigned_Numeric),
                 ],
                 (["return value", "event file descriptor on success, -1 on error, errno modified"],File_Descriptor_Or_Errno(""))
             )
@@ -2235,8 +2234,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 FileOp,
                 "create a file to use for event notifications/waiting with custom file behaviour",
                 &[
-                    (["initval", "value specific to each operation"], Normal(Unsigned_Numeric)),
-                    (["flags", "event file behaviour flag"], Normal(General_Flag(EventfdFlag))),
+                    (["initval", "value specific to each operation"], Unsigned_Numeric),
+                    (["flags", "event file behaviour flag"], General_Flag(EventfdFlag)),
                 ],
                 (["return value", "event file descriptor on success, -1 on error, errno modified"],File_Descriptor_Or_Errno(""))
             )
@@ -2251,15 +2250,15 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                     // -1    wait for any child process.
                     // 0     wait for any child process whose process group ID is equal to that of the calling process at the time of the call to waitpid().
                     // > 0   wait for the child whose process ID is equal to the value of pid.
-                    (["pid", "number representing which process to wait on"], Normal(User_Group)),
+                    (["pid", "number representing which process to wait on"], User_Group),
                     // If wstatus is not NULL, wait4() stores status information in the int to which it points.  
                     // This integer can be inspected with the following macros  
                     // (which take the integer itself as an argument, not a pointer to it (as is done in syscall))
-                    (["wstatus", "pointer to int representing the status of the process"], Normal(Pointer_To_Numeric(None))),
-                    (["options", "specific state changes to wait for"], Normal(General_Flag(WaitEventFlags))),
+                    (["wstatus", "pointer to int representing the status of the process"], Pointer_To_Numeric(None)),
+                    (["options", "specific state changes to wait for"], General_Flag(WaitEventFlags)),
                     // NULLABLE means do not want
                     // resource usage information about the child
-                    (["rusage", "pointer usage to a struct where the the resource usage metrics will get stored"], Normal(Pointer_To_Struct)),
+                    (["rusage", "pointer usage to a struct where the the resource usage metrics will get stored"], Pointer_To_Struct),
                 ],
                 (["numeric return", "pid of the child whose state has changed, or 0 on no state change for WNOHANG, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -2271,14 +2270,14 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 "wait until a specific event occurs for a specific child process",
                 &[
 
-                    (["idtype", "categoty of process identifier to use for specifying the process"], Normal(General_Flag(WaitIdTypeFlags))),
-                    (["id", "the specific id in the category defined by idtype"], Normal(User_Group)),
-                    (["infop", "pointer to a struct that will store the information about the child"], Normal(Pointer_To_Struct)),
-                    (["options", "specific state changes to wait for"], Normal(General_Flag(WaitEventFlags))),
+                    (["idtype", "categoty of process identifier to use for specifying the process"], General_Flag(WaitIdTypeFlags)),
+                    (["id", "the specific id in the category defined by idtype"], User_Group),
+                    (["infop", "pointer to a struct that will store the information about the child"], Pointer_To_Struct),
+                    (["options", "specific state changes to wait for"], General_Flag(WaitEventFlags)),
                     // NULLABLE means do not want
                     // resource usage information about  the
                     // child, in the same manner as wait4(2).
-                    (["rusage", "pointer usage to a struct where the the resource usage metrics will get stored"], Normal(Pointer_To_Struct)),
+                    (["rusage", "pointer usage to a struct where the the resource usage metrics will get stored"], Pointer_To_Struct),
                     ],
                 // returns 0 on success or if WNOHANG was specified and no child(ren) specified by id has yet changed state
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
@@ -2302,8 +2301,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "modify the robust futexes list of the calling thread",
                 &[
-                    (["head_ptr", "location of the head of the robust futex list"], Normal(Address)),
-                    (["len_ptr", "size of the robust futex list"], Normal(Numeric)),
+                    (["head_ptr", "location of the head of the robust futex list"], Address),
+                    (["len_ptr", "size of the robust futex list"], Numeric),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -2321,9 +2320,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "retrieve the list of robust futexes for a specific thread",
                 &[
-                    (["pid", "id of the process to be modified"], Normal(User_Group)),
-                    (["head_ptr", "address of the head of the robust futex list"], Normal(Address)),
-                    (["len_ptr", "size of the robust futex list"], Normal(Pointer_To_Numeric(None))),
+                    (["pid", "id of the process to be modified"], User_Group),
+                    (["head_ptr", "address of the head of the robust futex list"], Address),
+                    (["len_ptr", "size of the robust futex list"], Pointer_To_Numeric(None)),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -2334,8 +2333,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "set the process group ID of a specific process",
                 &[
-                    (["pid", "id of the process to be modified"], Normal(User_Group)),
-                    (["pgid", "the new process group id to set for the process"], Normal(User_Group)),
+                    (["pid", "id of the process to be modified"], User_Group),
+                    (["pgid", "the new process group id to set for the process"], User_Group),
                 ],
                 (["numeric return", "0 on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -2346,7 +2345,7 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "get the process group ID of a specific process",
                 &[
-                    (["pid", "id of the process to operate on"], Normal(User_Group)),
+                    (["pid", "id of the process to operate on"], User_Group),
                 ],
                 (["return value", "process group id on success, -1 on error, errno modified"], Numeric_Or_Errno)
             )
@@ -2453,8 +2452,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "Create a new child thread",
                 &[
-                    (["cl_args", "pointer to a struct containing the parameters for the new thread"], Normal(Pointer_To_Struct)),
-                    (["size", "size of the cl_args struct"], Normal(Unsigned_Numeric)),
+                    (["cl_args", "pointer to a struct containing the parameters for the new thread"], Pointer_To_Struct),
+                    (["size", "size of the cl_args struct"], Unsigned_Numeric),
                 ],
                 (["return value", "thread id of the new child thread"], Numeric_Or_Errno)
             )
@@ -2465,11 +2464,11 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "Create a new child thread",
                 &[
-                    (["flags", "cloning customization flags"], Normal(General_Flag(CloneFlags))),
-                    (["stack", "pointer to a struct containing the parameters for the new thread"], Normal(Address)),
-                    (["parent_tid", "location where child thread id is stored in parent's memory"], Normal(Pointer_To_Numeric(None))),
-                    (["child_tid", "location where child thread id is stored in child's memory"], Normal(Pointer_To_Numeric(None))),
-                    (["tls", "thread local storage descriptor"], Normal(Unsigned_Numeric)),
+                    (["flags", "cloning customization flags"], General_Flag(CloneFlags)),
+                    (["stack", "pointer to a struct containing the parameters for the new thread"], Address),
+                    (["parent_tid", "location where child thread id is stored in parent's memory"], Pointer_To_Numeric(None)),
+                    (["child_tid", "location where child thread id is stored in child's memory"], Pointer_To_Numeric(None)),
+                    (["tls", "thread local storage descriptor"], Unsigned_Numeric),
                 ],
                 (["return value", "thread id of the new child thread"], Numeric_Or_Errno)
             )
@@ -2520,12 +2519,12 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "execute a program using a pathname and replace the current program",
                 &[
-                    (["pathname", "path of the file of the program to be executed"], Normal(Pointer_To_Text(""))),
+                    (["pathname", "path of the file of the program to be executed"], Pointer_To_Text("")),
                     // the first of these strings should be the filename of the file being executed
                     // terminated by a null pointer
-                    (["argv","array of pointers to strings containing the command-line arguments for the program"],Normal(Array_Of_Strings(&[]))),
+                    (["argv","array of pointers to strings containing the command-line arguments for the program"],Array_Of_Strings(&[])),
                     // terminated by a null pointer
-                    (["envp","array of pointers to `key=value` strings containing the environment of the new program"],Normal(Array_Of_Strings(&[]))),
+                    (["envp","array of pointers to `key=value` strings containing the environment of the new program"],Array_Of_Strings(&[])),
                 ],
                 // does not return on success
                 (["return value", "does not return on success, -1 on error, errno modified"], Numeric_Or_Errno)
@@ -2538,9 +2537,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 "suspend execution of the calling thread until the specified timeout, or ocurrence of siganl handling",
                 &[
                     // The value of the nanoseconds field must be in the range [0, 999999999].
-                    (["duration", "pointer to struct containing amount of time to block in nanoseconds"], Normal(Pointer_To_Struct)),
+                    (["duration", "pointer to struct containing amount of time to block in nanoseconds"], Pointer_To_Struct),
                     // NULLABLE means do not want
-                    (["rem", "pointer to a struct where the remaining time is to be stored in case of an interruption"],Normal(Pointer_To_Struct)),
+                    (["rem", "pointer to a struct where the remaining time is to be stored in case of an interruption"],Pointer_To_Struct),
                 ],
                 (["return value", "0 on success, -1 on interruption or error, errno modified"], Numeric_Or_Errno)
             )
@@ -2672,12 +2671,12 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 &[
                     // these actions will by default be forbidden if no future rules explicitly allows them
                     // Nullable
-                    (["attr", "pointer to struct containing a bitmask of actions to be handled by this ruleset"], Normal(Pointer_To_Struct)),
-                    (["size", "size of the landlock ruleset struct"], Normal(Length_Of_Bytes_Specific)),
+                    (["attr", "pointer to struct containing a bitmask of actions to be handled by this ruleset"], Pointer_To_Struct),
+                    (["size", "size of the landlock ruleset struct"], Length_Of_Bytes_Specific),
                     // flags must be 0 if attr is used.
                     // for now only: LANDLOCK_CREATE_RULESET_VERSION flag available
                     //      If attr is NULL and size is 0, then the returned value is the highest supported Landlock ABI version
-                    (["flags", "flags "], Normal(General_Flag(LandlockCreateFlag))),
+                    (["flags", "flags "], General_Flag(LandlockCreateFlag)),
                 ],
                 (["return value", "landlock ruleset file descriptor, or a Landlock ABI version, -1 for error, and errno modified"],File_Descriptor_Or_Errno(""))
             )
@@ -2688,12 +2687,12 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Security,
                 "add a new Landlock rule to an existing landlock ruleset",
                 &[
-                    (["ruleset_fd", "file descriptor of the landlock ruleset where the rule will be added"], Normal(File_Descriptor(""))),
+                    (["ruleset_fd", "file descriptor of the landlock ruleset where the rule will be added"], File_Descriptor("")),
                     // currently only LANDLOCK_RULE_PATH_BENEATH : bla is file hierarchy.
-                    (["rule_type", "flag identifying the type of rule in rule_attr"], Normal(General_Flag(LandlockRuleTypeFlag))),
-                    (["rule_attr", "pointer to struct containing the new rule details"], Normal(Pointer_To_Struct)),
+                    (["rule_type", "flag identifying the type of rule in rule_attr"], General_Flag(LandlockRuleTypeFlag)),
+                    (["rule_attr", "pointer to struct containing the new rule details"], Pointer_To_Struct),
                     // must be 0
-                    (["flags", "curently no flags supported"], Normal(General_Flag(LandlockAddRuleFlag))),
+                    (["flags", "curently no flags supported"], General_Flag(LandlockAddRuleFlag)),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -2704,9 +2703,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Security,
                 "enforce the ruleset in the provided file descriptor on the calling thread",
                 &[
-                    (["ruleset_fd", "file descriptor of the landlock ruleset"], Normal(File_Descriptor(""))),
+                    (["ruleset_fd", "file descriptor of the landlock ruleset"], File_Descriptor("")),
                     // must be 0
-                    (["flags", "curently no flags supported"], Normal(General_Flag(LandlockRestrictFlag))),
+                    (["flags", "curently no flags supported"], General_Flag(LandlockRestrictFlag)),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -2726,10 +2725,10 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "modify the allocated disk space for a specific file",
                 &[
-                    (["fd", "file descriptor of the file to be modified"], Normal(File_Descriptor(""))),
-                    (["mode", "disk space modification flags"], Normal(General_Flag(FallocFlags))),
-                    (["offset", "offset where the operation starts"], Normal(Length_Of_Bytes_Specific)),
-                    (["len", "amount of bytes from the offset to operate on"], Normal(Length_Of_Bytes)),
+                    (["fd", "file descriptor of the file to be modified"], File_Descriptor("")),
+                    (["mode", "disk space modification flags"], General_Flag(FallocFlags)),
+                    (["offset", "offset where the operation starts"], Length_Of_Bytes_Specific),
+                    (["len", "amount of bytes from the offset to operate on"], Length_Of_Bytes),
                  ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -2741,8 +2740,8 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "get a processes' or user's scheduling priority",
                 &[
-                    (["which", "type of the target (process/process group/user)"], Normal(General_Flag(PriorityWhich))),
-                    (["who", "specific id of the target"], Normal(Numeric)),
+                    (["which", "type of the target (process/process group/user)"], General_Flag(PriorityWhich)),
+                    (["who", "specific id of the target"], Numeric),
                 ],
                 (["return value", "priority of the process/process group/user. -1 for error and errno modified"], Priority_Or_Errno(MaybeUninit::<bool>::zeroed())),
             )
@@ -2754,9 +2753,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 Process,
                 "increase or decrease processes' or user's scheduling priority",
                 &[
-                    (["which", "type of the target (process/process group/user)"], Normal(General_Flag(PriorityWhich))),
-                    (["who", "specific id of the target"], Normal(Numeric)),
-                    (["prio", "new scheduling priority value"], Normal(Unsigned_Numeric)),
+                    (["which", "type of the target (process/process group/user)"], General_Flag(PriorityWhich)),
+                    (["who", "specific id of the target"], Numeric),
+                    (["prio", "new scheduling priority value"], Unsigned_Numeric),
                 ],
                 (["return value", "0 success. -1 for error and errno modified"], Numeric_Or_Errno)
             )
@@ -2767,9 +2766,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "get the directory entries for a specific directory",
                 &[
-                    (["fd", "file descriptor of the directory"], Normal(File_Descriptor(""))),
-                    (["dirp", "pointer to a buffer where the retrieved directory entries will be stored"], Normal(Pointer_To_Struct)),
-                    (["count", "size of the dirp buffer"], Normal(Unsigned_Numeric)),
+                    (["fd", "file descriptor of the directory"], File_Descriptor("")),
+                    (["dirp", "pointer to a buffer where the retrieved directory entries will be stored"], Pointer_To_Struct),
+                    (["count", "size of the dirp buffer"], Unsigned_Numeric),
                 ],
                 // On end of directory, 0 is returned.
                 (["return value", "number of bytes read on success. -1 for error and errno modified"], Length_Of_Bytes_Specific_Or_Errno)
@@ -2782,9 +2781,9 @@ pub fn initialize_syscall_map() -> HashMap<Sysno, SysDetails> {
                 DiskIO,
                 "get the directory entries for a specific directory",
                 &[
-                    (["fd", "file descriptor of the directory"], Normal(File_Descriptor(""))),
-                    (["dirp", "pointer to a buffer where the retrieved directory entries will be stored"], Normal(Pointer_To_Struct)),
-                    (["count", "size of the dirp buffer"], Normal(Unsigned_Numeric)),
+                    (["fd", "file descriptor of the directory"], File_Descriptor("")),
+                    (["dirp", "pointer to a buffer where the retrieved directory entries will be stored"], Pointer_To_Struct),
+                    (["count", "size of the dirp buffer"], Unsigned_Numeric),
                 ],
                 // On end of directory, 0 is returned.
                 (["return value", "number of bytes read on success. -1 for error and errno modified"], Length_Of_Bytes_Specific_Or_Errno)

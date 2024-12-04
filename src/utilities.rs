@@ -236,9 +236,9 @@ pub fn errno_check(rax: u64) -> Option<Errno> {
 }
 
 pub fn display_unsupported() {
-    unsafe {
-        UNSUPPORTED.iter().for_each(|uns| println!(" - {}", uns));
-    }
+    // unsafe {
+    //     UNSUPPORTED.iter().for_each(|uns| println!(" - {}", uns));
+    // }
 }
 
 pub fn x86_signal_to_string(signum: u64) -> Option<&'static str> {

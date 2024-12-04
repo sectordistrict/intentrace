@@ -2,76 +2,14 @@ use std::{fmt::Display, mem::MaybeUninit};
 use colored::Colorize;
 use crate::utilities::PAGE_SIZE;
 
-type FD = &'static str;
-type PID = &'static str;
-type FD_PAIR = [&'static str; 2];
-type ARR = &'static [&'static str];
-type FLAG = Flag;
-type Errored = MaybeUninit<bool>;
-type FLAG_PAIR = [Flag; 2];
-type ADDRESS = &'static str;
-type SIGNAL = &'static str;
-type TEXT = &'static str;
-
-#[derive(Clone, Copy, Debug)]
-pub enum ArgContainer {
-    Normal(SysArg),
-    ValueReturn(SysArg, SysArg),
-}
-
 pub type Annotation = [&'static str; 2];
 pub type SysDetails = (
     Category,
     &'static str,
-    &'static [(Annotation, ArgContainer)],
+    &'static [(Annotation, SysArg)],
     (Annotation, SysReturn),
 );
 
-#[derive(Clone, Copy, Debug)]
-pub enum SysArg {
-    Numeric,
-    Unsigned_Numeric,
-    PID,
-    User_Group,
-    Address,
-    Single_Word,
-    Length_Of_Bytes,
-    Length_Of_Bytes_Page_Aligned_Ceil,
-    Length_Of_Bytes_Page_Aligned_Floor,
-    Pointer_To_Unsigned_Numeric,
-    Length_Of_Bytes_Specific,
-    Pointer_To_Length_Of_Bytes_Specific,
-    Pointer_To_Struct,
-    Array_Of_Struct,
-    Byte_Stream,
-    Array_Of_Strings(ARR),
-    General_Flag(FLAG),
-    Multiple_Flags(FLAG_PAIR),
-    Pointer_To_Numeric(Option<usize>),
-    Pointer_To_Numeric_Or_Numeric(Option<usize>),
-    Pointer_To_Path(TEXT),
-    Pointer_To_Text(TEXT),
-    File_Descriptor(FD),
-    Pointer_To_File_Descriptor_Array(FD_PAIR),
-    File_Descriptor_openat(FD),
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum SysReturn {
-    Numeric_Or_Errno,
-    Always_Successful_Numeric,
-    Length_Of_Bytes_Specific_Or_Errno,
-    Address_Or_Errno(ADDRESS),
-    Address_Or_MAP_FAILED_Errno(ADDRESS),
-    Address_Or_Errno_getcwd(ADDRESS),
-    Signal_Or_Errno(SIGNAL),
-    Priority_Or_Errno(Errored),
-    File_Descriptor_Or_Errno(FD),
-    Does_Not_Return_Anything,
-    Always_Successful_User_Group,
-    Always_Succeeds,
-    Never_Returns,
-}
 
 #[derive(Clone, Copy, Debug)]
 pub enum Flag {
@@ -124,6 +62,68 @@ pub enum Flag {
     LandlockRestrictFlag,
     ReservedForFutureUse,
     LandlockCreateFlag,
+}
+
+type FD = &'static str;
+type PID = &'static str;
+type FD_PAIR = [&'static str; 2];
+type ARR = &'static [&'static str];
+type FLAG = Flag;
+type Errored = MaybeUninit<bool>;
+type FLAG_PAIR = [Flag; 2];
+type ADDRESS = &'static str;
+type SIGNAL = &'static str;
+type TEXT = &'static str;
+
+
+#[derive(Clone, Copy, Debug)]
+pub enum SysArg {
+    Numeric,
+    Unsigned_Numeric,
+    PID,
+    User_Group,
+    Address,
+    Single_Word,
+    Length_Of_Bytes,
+    Length_Of_Bytes_Page_Aligned_Ceil,
+    Length_Of_Bytes_Page_Aligned_Floor,
+    Pointer_To_Unsigned_Numeric,
+    Length_Of_Bytes_Specific,
+    Pointer_To_Length_Of_Bytes_Specific,
+    Pointer_To_Struct,
+    Array_Of_Struct,
+    Byte_Stream,
+    Array_Of_Strings(ARR),
+    General_Flag(FLAG),
+    Multiple_Flags(FLAG_PAIR),
+    Pointer_To_Numeric(Option<usize>),
+    Pointer_To_Numeric_Or_Numeric(Option<usize>),
+    Pointer_To_Path(TEXT),
+    Pointer_To_Text(TEXT),
+    File_Descriptor(FD),
+    Pointer_To_File_Descriptor_Array(FD_PAIR),
+    File_Descriptor_openat(FD),
+}
+
+enum types<T> {
+    Pointer_To(T)
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum SysReturn {
+    Numeric_Or_Errno,
+    Always_Successful_Numeric,
+    Length_Of_Bytes_Specific_Or_Errno,
+    Address_Or_Errno(ADDRESS),
+    Address_Or_MAP_FAILED_Errno(ADDRESS),
+    Address_Or_Errno_getcwd(ADDRESS),
+    Signal_Or_Errno(SIGNAL),
+    Priority_Or_Errno(Errored),
+    File_Descriptor_Or_Errno(FD),
+    Does_Not_Return_Anything,
+    Always_Successful_User_Group,
+    Always_Succeeds,
+    Never_Returns,
 }
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone, Copy)]
