@@ -1,15 +1,17 @@
-use std::{fmt::Display, mem::MaybeUninit};
-use colored::Colorize;
 use crate::utilities::PAGE_SIZE;
+use colored::Colorize;
+use std::{convert::Infallible, fmt::Display, marker::PhantomData, mem::MaybeUninit};
 
 pub type Annotation = [&'static str; 2];
-pub type SysDetails = (
-    Category,
-    &'static str,
-    &'static [(Annotation, SysArg)],
-    (Annotation, SysReturn),
-);
 
+pub type SysAnnotations = (Category, &'static str, &'static [Annotation], Annotation);
+
+#[derive(Clone)]
+pub struct Syscall_Shape {
+    pub category: Category,
+    pub types: &'static [SysArg],
+    pub syscall_return: SysReturn,
+}
 
 #[derive(Clone, Copy, Debug)]
 pub enum Flag {
@@ -75,8 +77,7 @@ type ADDRESS = &'static str;
 type SIGNAL = &'static str;
 type TEXT = &'static str;
 
-
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum SysArg {
     Numeric,
     Unsigned_Numeric,
@@ -103,10 +104,6 @@ pub enum SysArg {
     File_Descriptor(FD),
     Pointer_To_File_Descriptor_Array(FD_PAIR),
     File_Descriptor_openat(FD),
-}
-
-enum types<T> {
-    Pointer_To(T)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -186,7 +183,7 @@ impl Display for Category {
 }
 
 // TODO!
-// consider humansize crate 
+// consider humansize crate
 
 pub enum Bytes {
     norm(usize),
@@ -313,7 +310,6 @@ impl Display for BytesPagesRelevant {
         }
     }
 }
-
 
 #[repr(C)]
 #[derive(Debug)]

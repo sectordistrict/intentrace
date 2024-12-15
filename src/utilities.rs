@@ -1,4 +1,4 @@
-use crate::{syscalls_map::initialize_syscall_map, types::SysDetails};
+use crate::{syscall_annotations_map::initialize_syscall_annotations_map, syscall_skeleton_map::initialize_syscall_skeleton_map, types::{SysAnnotations, Syscall_Shape}};
 use lazy_static::lazy_static;
 use nix::{errno::Errno, libc::__errno_location, unistd::Pid};
 use procfs::process::{MMapPath, MemoryMap};
@@ -7,33 +7,14 @@ use std::{
 };
 use syscalls::Sysno;
 
-macro_rules! p {
-    ($a:expr) => {
-        println!("{:?}", $a)
-    };
-}
-
-macro_rules! pp {
-    ($a:expr,$b:expr) => {
-        println!("{:?}, {:?}", $a, $b)
-    };
-}
-
-macro_rules! ppp {
-    ($a:expr,$b:expr,$c:expr) => {
-        println!("{:?}, {:?}, {:?}", $a, $b, $c)
-    };
-}
-
 pub static mut UNSUPPORTED: Vec<&'static str> = Vec::new();
-
 
 thread_local! {
     pub static PRE_CALL_PROGRAM_BREAK_POINT: Cell<usize> = Cell::new(0);
-    pub static INTENT: Cell<bool> = Cell::new(true);
     pub static STRING_LIMIT: Cell<usize> = Cell::new(36);
-    pub static QUIET: Cell<bool> = Cell::new(false);
     pub static FAILED_ONLY: Cell<bool> = Cell::new(false);
+    pub static QUIET: Cell<bool> = Cell::new(false);
+    pub static ANNOT: Cell<bool> = Cell::new(false);
     pub static ATTACH: Cell<Option<usize>> = Cell::new(None);
     // TODO! Time blocks feature
     // pub static TIME_BLOCKS: Cell<bool> = Cell::new(false);
@@ -45,7 +26,8 @@ lazy_static! {
     pub static ref SUMMARY: AtomicBool = AtomicBool::new(false);
     pub static ref OUTPUT: Mutex<HashMap<Sysno, (usize, Duration)>> = Mutex::new(HashMap::new());
     pub static ref OUTPUT_FOLLOW_FORKS: Mutex<HashMap<Sysno, usize>> = Mutex::new(HashMap::new());
-    pub static ref SYSCALL_MAP: HashMap<Sysno, SysDetails> = initialize_syscall_map();
+    pub static ref SYSANNOT_MAP: HashMap<Sysno, SysAnnotations> = initialize_syscall_annotations_map();
+    pub static ref SYSKELETON_MAP: HashMap<Sysno, Syscall_Shape> = initialize_syscall_skeleton_map();
     pub static ref PAGE_SIZE: usize = page_size::get();
 }
 
@@ -73,6 +55,7 @@ Options:
   -f, --follow-forks                 trace child processes when traced programs create them
   -z, --failed-only                  only print failed syscalls	
   -q, --mute-stdout                  mute the traced program's std output
+  -a, --annotations                  print the classic strace feed with argument annotations
   -h, --help                         print help
   -v, --version                      print version
                 ");
@@ -156,6 +139,16 @@ Options:
             "-q" | "--mute-stdout" => {
                 let _ = args.next().unwrap();
                 QUIET.set(true);
+            }
+            "-a" | "--annotations" => {
+                let _ = args.next().unwrap();
+                if FOLLOW_FORKS.load(Ordering::SeqCst) {
+                    eprintln!(
+                        "Usage: printing annotations and fork following are mutually exclusive\n"
+                    );
+                    std::process::exit(100);
+                }
+                ANNOT.set(true);
             }
             _ => break,
         }

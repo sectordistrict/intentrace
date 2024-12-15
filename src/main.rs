@@ -53,8 +53,10 @@ use utilities::{
 };
 
 mod syscall_object;
-mod syscalls_map;
+mod syscall_object_annotations;
+mod syscall_annotations_map;
 mod types;
+mod syscall_skeleton_map;
 use syscall_object::{SyscallObject, SyscallState};
 mod one_line_formatter;
 mod utilities;
@@ -236,7 +238,7 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
         }
         let syscall_pid = Pid::from_raw(tracee.pid.as_raw());
         match tracee.stop {
-            Stop::SyscallEnter => 'label_for_early_break: {
+            Stop::SyscallEnter => 'for_exiting: {
                 match nix::sys::ptrace::getregs(syscall_pid) {
                     Ok(registers) => {
                         if syscall_pid != last_pid {
@@ -258,7 +260,7 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
                         }
                         syscall_will_run(&mut syscall);
                         if syscall.is_exiting() {
-                            break 'label_for_early_break;
+                            break 'for_exiting;
                         }
                         last_sysno = syscall.sysno;
                         syscall.state = SyscallState::Exiting;
@@ -301,13 +303,13 @@ fn syscall_will_run(syscall: &mut SyscallObject) {
 
     // handle program break point
     if syscall.is_mem_alloc_dealloc() {
-        set_memory_break(syscall.child);
+        set_memory_break(syscall.process_pid);
     }
     if FOLLOW_FORKS.load(Ordering::SeqCst) || syscall.is_exiting() {
         syscall.format();
         if syscall.is_exiting() {
             let exited = " EXITED ".on_bright_red();
-            let pid = format!(" {} ", syscall.child).on_black();
+            let pid = format!(" {} ", syscall.process_pid).on_black();
             print!("\n\n {pid}{exited}\n",);
         }
     }

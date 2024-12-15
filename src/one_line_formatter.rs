@@ -62,6 +62,13 @@ use rustix::{
 use syscalls::Sysno;
 
 impl SyscallObject {
+
+    pub(crate) fn one_line_error(&mut self) {
+        // TODO! Deprecate this logic for more granularity
+        self.one_line.push(" |=> ".white());
+        self.one_line.push(format!("{}", errno_to_string(self.errno.unwrap())).red());
+    }
+
     pub(crate) fn get_syscall_return(&mut self) -> Result<String, ()> {
         let eph_return = self.parse_return_value_one_line();
         if self.paused {
@@ -75,6 +82,7 @@ impl SyscallObject {
         }
         eph_return
     }
+    
     pub(crate) fn one_line_formatter(&mut self) -> Result<(), ()> {
         use crate::syscall_object::SyscallState::*;
 
@@ -82,7 +90,7 @@ impl SyscallObject {
             if FOLLOW_FORKS.load(Ordering::SeqCst)  {
                 self.one_line.extend(vec![
                     "\n".white(),
-                    self.child.to_string().bright_blue(),
+                    self.process_pid.to_string().bright_blue(),
                     " ".dimmed(),
                     SyscallObject::colorize_syscall_name(&self.sysno, &self.category),
                     " - ".dimmed(),
@@ -91,7 +99,7 @@ impl SyscallObject {
                 if self.get_syscall_return().is_ok() {
                     self.one_line.extend(vec![
                         "\n".white(),
-                        self.child.to_string().blue(),
+                        self.process_pid.to_string().blue(),
                         // self.child.to_string().on_black(),
                         " ".dimmed(),
                         SyscallObject::colorize_syscall_name(&self.sysno, &self.category),
@@ -100,7 +108,7 @@ impl SyscallObject {
                 } else {
                     self.one_line.extend(vec![
                         "\n".white(),
-                        self.child.to_string().red(),
+                        self.process_pid.to_string().red(),
                         // self.child.to_string().on_red(),
                         " ".dimmed(),
                         SyscallObject::colorize_syscall_name(&self.sysno, &self.category),
@@ -189,7 +197,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -208,7 +216,7 @@ impl SyscallObject {
                             self.one_line.push("file closed".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -230,7 +238,7 @@ impl SyscallObject {
                             self.one_line.push("successfully opened file".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -329,7 +337,7 @@ impl SyscallObject {
                             self.one_line.push("successfully opened file".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -348,7 +356,7 @@ impl SyscallObject {
                             self.one_line.push("stats retrieved successfully".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -367,7 +375,7 @@ impl SyscallObject {
                             self.one_line.push("stats retrieved successfully".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -388,7 +396,7 @@ impl SyscallObject {
                             self.one_line.push("stats retrieved successfully".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -408,7 +416,7 @@ impl SyscallObject {
                             self.one_line.push("stats retrieved successfully".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -428,7 +436,7 @@ impl SyscallObject {
                             self.one_line.push("stats retrieved successfully".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -486,7 +494,7 @@ impl SyscallObject {
                             self.one_line.push("stats retrieved successfully".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -545,7 +553,7 @@ impl SyscallObject {
                             self.one_line.push("stats retrieved successfully".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -594,7 +602,7 @@ impl SyscallObject {
                             self.one_line.push("ownership changed".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -644,7 +652,7 @@ impl SyscallObject {
                             self.one_line.push("ownership changed".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -693,7 +701,7 @@ impl SyscallObject {
                             self.one_line.push("ownership changed".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -744,7 +752,7 @@ impl SyscallObject {
                             self.one_line.push("ownership changed".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -929,7 +937,7 @@ impl SyscallObject {
                             self.one_line.push("memory advice registered".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1185,7 +1193,7 @@ impl SyscallObject {
                             // }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1207,7 +1215,7 @@ impl SyscallObject {
                             self.one_line.push("successfully unmapped region".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1249,7 +1257,7 @@ impl SyscallObject {
                             self.one_line.push("successfully flushed data".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1327,7 +1335,7 @@ impl SyscallObject {
                             self.one_line.push("memory protection modified".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1440,7 +1448,7 @@ impl SyscallObject {
                             self.one_line.push(eph_return.unwrap().green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1464,7 +1472,7 @@ impl SyscallObject {
                                 .push("memory range is now unswappable".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1498,7 +1506,7 @@ impl SyscallObject {
                                 .push("memory range is now unswappable".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1522,7 +1530,7 @@ impl SyscallObject {
                             self.one_line.push("memory range is now swappable".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1542,7 +1550,7 @@ impl SyscallObject {
                             self.one_line.push("memory range is now swappable".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1608,7 +1616,7 @@ impl SyscallObject {
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1639,7 +1647,7 @@ impl SyscallObject {
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1691,7 +1699,7 @@ impl SyscallObject {
                                 .push("memory range is now unswappable".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1728,7 +1736,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1764,7 +1772,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1803,7 +1811,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1843,7 +1851,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1873,7 +1881,7 @@ impl SyscallObject {
                             self.one_line.push(bytes_string.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1904,7 +1912,7 @@ impl SyscallObject {
                             self.one_line.push(bytes_string.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1937,7 +1945,7 @@ impl SyscallObject {
                             self.one_line.push(bytes_string.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1971,7 +1979,7 @@ impl SyscallObject {
                             self.one_line.push(bytes_string.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -1990,7 +1998,7 @@ impl SyscallObject {
                             self.one_line.push("all writes flushed".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2015,7 +2023,7 @@ impl SyscallObject {
                             self.one_line.push("file moved".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2042,7 +2050,7 @@ impl SyscallObject {
                             self.one_line.push("file moved".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2081,7 +2089,7 @@ impl SyscallObject {
                             self.one_line.push("file moved".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2111,7 +2119,7 @@ impl SyscallObject {
                             self.one_line.push("directory created".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2141,7 +2149,7 @@ impl SyscallObject {
                             self.one_line.push("directory created".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2160,7 +2168,7 @@ impl SyscallObject {
                             self.one_line.push(eph_return.unwrap().yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2183,7 +2191,7 @@ impl SyscallObject {
                             self.one_line.push("symlink created".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2207,7 +2215,7 @@ impl SyscallObject {
                             self.one_line.push("symlink created".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     } // the file does not exist at this point
                 }
@@ -2227,7 +2235,7 @@ impl SyscallObject {
                             self.one_line.push("unlinking successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     } // caution: the file is deleted at this point
                 }
@@ -2255,7 +2263,7 @@ impl SyscallObject {
                             self.one_line.push("unlinking successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2298,7 +2306,7 @@ impl SyscallObject {
                             self.one_line.push("check is positive".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2370,7 +2378,7 @@ impl SyscallObject {
                             self.one_line.push("check is positive".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2443,7 +2451,7 @@ impl SyscallObject {
                             self.one_line.push("check is positive".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2465,7 +2473,7 @@ impl SyscallObject {
                             self.one_line.push(target.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2487,7 +2495,7 @@ impl SyscallObject {
                             self.one_line.push(target.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2508,7 +2516,7 @@ impl SyscallObject {
                             self.one_line.push("mode changed".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2529,7 +2537,7 @@ impl SyscallObject {
                             self.one_line.push("mode changed".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2562,7 +2570,7 @@ impl SyscallObject {
                             self.one_line.push("mode changed".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2581,7 +2589,7 @@ impl SyscallObject {
                             self.one_line.push("successfully flushed data".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2601,7 +2609,7 @@ impl SyscallObject {
                             self.one_line.push(file_descriptors.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2623,7 +2631,7 @@ impl SyscallObject {
                             self.one_line.push(file_descriptors.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2645,7 +2653,7 @@ impl SyscallObject {
                             self.one_line.push(eph_return.unwrap().yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2668,7 +2676,7 @@ impl SyscallObject {
                             self.one_line.push("Successfully duplicated".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2696,7 +2704,7 @@ impl SyscallObject {
                             self.one_line.push("Successfully duplicated".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2717,7 +2725,7 @@ impl SyscallObject {
                             self.one_line.push("all writes flushed".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2736,7 +2744,7 @@ impl SyscallObject {
                             self.one_line.push("all writes flushed".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2758,7 +2766,7 @@ impl SyscallObject {
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2780,7 +2788,7 @@ impl SyscallObject {
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2822,7 +2830,7 @@ impl SyscallObject {
                         if timeout > 0 {
                             let timeval = SyscallObject::read_bytes_as_struct::<16, timeval>(
                                 self.args[4] as usize,
-                                self.child as _,
+                                self.process_pid as _,
                             )
                             .unwrap();
                             self.one_line.push(", and timeout ".white());
@@ -2846,7 +2854,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2894,7 +2902,7 @@ impl SyscallObject {
                         if timeout > 0 {
                             let timespec = SyscallObject::read_bytes_as_struct::<16, timespec>(
                                 self.args[4] as usize,
-                                self.child as _,
+                                self.process_pid as _,
                             )
                             .unwrap();
                             self.one_line.push(", and timeout ".white());
@@ -2918,7 +2926,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2949,7 +2957,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -2974,7 +2982,7 @@ impl SyscallObject {
                         if timeout > 0 {
                             let timespec = SyscallObject::read_bytes_as_struct::<16, timespec>(
                                 self.args[2] as usize,
-                                self.child as _,
+                                self.process_pid as _,
                             )
                             .unwrap();
                             self.one_line.push(", and timeout ".white());
@@ -2998,7 +3006,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3019,7 +3027,7 @@ impl SyscallObject {
                             self.one_line.push("Successfull".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3044,7 +3052,7 @@ impl SyscallObject {
                             self.one_line.push("Successfull".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3077,7 +3085,7 @@ impl SyscallObject {
                             self.one_line.push("Successfull".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3117,7 +3125,7 @@ impl SyscallObject {
                             self.one_line.push("Successfull".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3143,7 +3151,7 @@ impl SyscallObject {
                         if time > 0 {
                             let timespec = SyscallObject::read_bytes_as_struct::<16, timespec>(
                                 self.args[3] as usize,
-                                self.child as _,
+                                self.process_pid as _,
                             )
                             .unwrap();
                             self.one_line.push(", and timeout ".white());
@@ -3161,7 +3169,7 @@ impl SyscallObject {
                             self.one_line.push("Successfull".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3198,7 +3206,7 @@ impl SyscallObject {
                             self.one_line.push("Successfull".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3220,7 +3228,7 @@ impl SyscallObject {
                             self.one_line.push("operation successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3242,7 +3250,7 @@ impl SyscallObject {
                             self.one_line.push("operation successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3336,7 +3344,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3356,7 +3364,7 @@ impl SyscallObject {
                             self.one_line.push("successfully yielded CPU".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3473,7 +3481,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3537,7 +3545,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3555,7 +3563,7 @@ impl SyscallObject {
                                 .push("list of blocked signals modified".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3609,7 +3617,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3627,7 +3635,7 @@ impl SyscallObject {
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3647,7 +3655,7 @@ impl SyscallObject {
                             self.one_line.push("pending signals returned".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3666,7 +3674,7 @@ impl SyscallObject {
                             self.one_line.push("Successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3698,7 +3706,7 @@ impl SyscallObject {
                             self.one_line.push("data and signal sent".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3733,7 +3741,7 @@ impl SyscallObject {
                             self.one_line.push("data and signal sent".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3770,7 +3778,7 @@ impl SyscallObject {
                             self.one_line.push("signal sent".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3799,7 +3807,7 @@ impl SyscallObject {
                             self.one_line.push("Successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3839,7 +3847,7 @@ impl SyscallObject {
                             self.one_line.push("file descriptor created".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3859,7 +3867,7 @@ impl SyscallObject {
                             self.one_line.push(thread.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3879,7 +3887,7 @@ impl SyscallObject {
                             self.one_line.push(process_id.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3899,7 +3907,7 @@ impl SyscallObject {
                             self.one_line.push(process_id.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3922,7 +3930,7 @@ impl SyscallObject {
                         if eph_return.is_ok() {
                             let address = self.pavfol(1);
                             let length_of_list =
-                                SyscallObject::read_word(self.args[2] as usize, self.child)
+                                SyscallObject::read_word(self.args[2] as usize, self.process_pid)
                                     .unwrap();
                             self.one_line.push(" |=> ".white());
                             self.one_line
@@ -3932,7 +3940,7 @@ impl SyscallObject {
                             self.one_line.push(length_of_list.to_string().blue());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3956,7 +3964,7 @@ impl SyscallObject {
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -3991,7 +3999,7 @@ impl SyscallObject {
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4019,7 +4027,7 @@ impl SyscallObject {
                             self.one_line.push(pgid.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4039,7 +4047,7 @@ impl SyscallObject {
                             self.one_line.push(pgid.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4097,7 +4105,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4118,7 +4126,7 @@ impl SyscallObject {
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4139,7 +4147,7 @@ impl SyscallObject {
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4188,7 +4196,7 @@ impl SyscallObject {
                             self.one_line.push(" |=> ".white());
                             let rlims = SyscallObject::read_bytes_as_struct::<16, rlimit>(
                                 self.args[3] as usize,
-                                self.child as _,
+                                self.process_pid as _,
                             )
                             .unwrap();
                             match resource {
@@ -4370,7 +4378,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4403,7 +4411,7 @@ impl SyscallObject {
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4423,7 +4431,7 @@ impl SyscallObject {
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4443,7 +4451,7 @@ impl SyscallObject {
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4452,7 +4460,7 @@ impl SyscallObject {
                 let thread_id = self.args[0];
 
                 let cpus =
-                    SyscallObject::read_affinity_from_child(self.args[2] as usize, self.child)
+                    SyscallObject::read_affinity_from_child(self.args[2] as usize, self.process_pid)
                         .unwrap();
                 match self.state {
                     Entering => {
@@ -4485,7 +4493,7 @@ impl SyscallObject {
                             self.one_line.push("thread successfully locked".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4497,7 +4505,7 @@ impl SyscallObject {
                 let mut set: cpu_set_t = unsafe { mem::zeroed() };
 
                 let cpus =
-                    SyscallObject::read_affinity_from_child(self.args[2] as usize, self.child)
+                    SyscallObject::read_affinity_from_child(self.args[2] as usize, self.process_pid)
                         .unwrap();
                 match self.state {
                     Entering => {
@@ -4529,7 +4537,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4601,7 +4609,7 @@ impl SyscallObject {
                             self.one_line.push("signal sent".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4633,7 +4641,7 @@ impl SyscallObject {
                             self.one_line.push("signal sent".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4666,7 +4674,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4685,7 +4693,7 @@ impl SyscallObject {
                             self.one_line.push("information retrieved".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4705,7 +4713,7 @@ impl SyscallObject {
                             self.one_line.push(user_id.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4725,7 +4733,7 @@ impl SyscallObject {
                             self.one_line.push(user_id.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4745,7 +4753,7 @@ impl SyscallObject {
                             self.one_line.push(group_id.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4765,7 +4773,7 @@ impl SyscallObject {
                             self.one_line.push(group_id.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4807,7 +4815,7 @@ impl SyscallObject {
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4953,14 +4961,14 @@ impl SyscallObject {
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
             }
             Sysno::set_tid_address => {
                 let thread_id =
-                    SyscallObject::read_word(self.args[0] as usize, self.child).unwrap();
+                    SyscallObject::read_word(self.args[0] as usize, self.process_pid).unwrap();
                 match self.state {
                     Entering => {
                         self.one_line
@@ -4976,7 +4984,7 @@ impl SyscallObject {
                             self.one_line.push(eph_return.unwrap().yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -4998,7 +5006,7 @@ impl SyscallObject {
                             self.one_line.push(new_process());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -5019,7 +5027,7 @@ impl SyscallObject {
                             self.one_line.push(new_process());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -5039,7 +5047,7 @@ impl SyscallObject {
                             self.one_line.push(file_descriptor.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -5084,7 +5092,7 @@ impl SyscallObject {
                             self.one_line.push(file_descriptor.yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -5165,7 +5173,7 @@ impl SyscallObject {
                             self.one_line.push("Successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -5379,7 +5387,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -5388,7 +5396,7 @@ impl SyscallObject {
                 let size_of_cl_args = self.args[1];
                 let cl_args = SyscallObject::read_bytes_as_struct::<88, clone3::CloneArgs>(
                     self.args[0] as usize,
-                    self.child as _,
+                    self.process_pid as _,
                 )
                 .unwrap();
                 let clone_flags: clone3::Flags = unsafe { std::mem::transmute(cl_args.flags) };
@@ -5562,7 +5570,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -5737,7 +5745,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -5760,7 +5768,7 @@ impl SyscallObject {
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -5768,7 +5776,7 @@ impl SyscallObject {
             Sysno::nanosleep => {
                 let timespec = SyscallObject::read_bytes_as_struct::<16, timespec>(
                     self.args[0] as usize,
-                    self.child as _,
+                    self.process_pid as _,
                 )
                 .unwrap();
                 match self.state {
@@ -5789,7 +5797,7 @@ impl SyscallObject {
                             // TODO! granularity
                             // remaining time due to interruption is stored inside
                             // the second syscall argument *rem (which is a timespec struct)
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -5829,7 +5837,7 @@ impl SyscallObject {
                             }
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -5855,7 +5863,7 @@ impl SyscallObject {
                             self.one_line.push("rule added".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -5878,7 +5886,7 @@ impl SyscallObject {
                             self.one_line.push("ruleset is now enforced".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -6014,7 +6022,7 @@ impl SyscallObject {
                             self.one_line.push("operation successful".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -6064,7 +6072,7 @@ impl SyscallObject {
                             self.one_line.push(eph_return.unwrap().yellow());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -6121,7 +6129,7 @@ impl SyscallObject {
                                 .push("successfully set the scheduling priority".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -6141,7 +6149,7 @@ impl SyscallObject {
                             self.one_line.push("successfully retrieved".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -6161,7 +6169,7 @@ impl SyscallObject {
                             self.one_line.push("successfully retrieved".green());
                         } else {
                             // TODO! granular
-                            one_line_error(eph_return, &mut self.one_line, &self.errno);
+                            self.one_line_error();
                         }
                     }
                 }
@@ -6175,15 +6183,6 @@ impl SyscallObject {
     }
 }
 
-pub fn one_line_error(
-    eph_return: Result<String, ()>,
-    one_line: &mut Vec<ColoredString>,
-    self_errno: &Option<Errno>,
-) {
-    // TODO! Deprecate this logic for more granularity
-    one_line.push(" |=> ".white());
-    one_line.push(format!("{}", errno_to_string(self_errno.unwrap())).red());
-}
 
 pub fn mode_matcher(mode: rustix::fs::Mode, one_line: &mut Vec<ColoredString>) {
     // USER

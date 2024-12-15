@@ -1,11 +1,12 @@
 #![allow(unused_variables)]
 use crate::{
     one_line_formatter::handle_path_file,
+    syscall_object_annotations::SyscallObject_Annotations,
     types::{
-        mlock2, Annotation, Bytes, BytesPagesRelevant, Category, Flag,
-        LandlockCreateFlags, LandlockRuleTypeFlags, SysArg, SysReturn,
+        mlock2, Annotation, Bytes, BytesPagesRelevant, Category, Flag, LandlockCreateFlags,
+        LandlockRuleTypeFlags, SysArg, SysReturn, Syscall_Shape,
     },
-    utilities::{FOLLOW_FORKS, INTENT, SYSCALL_MAP, UNSUPPORTED, lose_relativity_on_path},
+    utilities::{lose_relativity_on_path, FOLLOW_FORKS, SYSANNOT_MAP, SYSKELETON_MAP, UNSUPPORTED},
 };
 
 use colored::{ColoredString, Colorize};
@@ -14,7 +15,8 @@ use nix::{
     errno::Errno,
     fcntl::{self, AtFlags, FallocateFlags, OFlag, RenameFlags},
     libc::{
-        cpu_set_t, iovec, msghdr, sockaddr, user_regs_struct, AT_FDCWD, CPU_ISSET, CPU_SETSIZE, MAP_FAILED, PRIO_PGRP, PRIO_PROCESS, PRIO_USER
+        cpu_set_t, iovec, msghdr, sockaddr, user_regs_struct, AT_FDCWD, CPU_ISSET, CPU_SETSIZE,
+        MAP_FAILED, PRIO_PGRP, PRIO_PROCESS, PRIO_USER,
     },
     sys::{
         eventfd,
@@ -28,16 +30,22 @@ use nix::{
         uio::{process_vm_readv, RemoteIoVec},
         wait::WaitPidFlag,
     },
-    unistd::{AccessFlags, Pid, Whence}, NixPath,
+    unistd::{AccessFlags, Pid, Whence},
+    NixPath,
 };
-
 
 use rustix::{
     fs::StatxFlags, io::ReadWriteFlags, path::Arg, rand::GetRandomFlags, thread::FutexFlags,
 };
 
 use std::{
-    fmt::Display, io::IoSliceMut, mem::{self, transmute, zeroed}, os::{fd::RawFd, raw::c_void}, path::PathBuf, ptr::null, sync::atomic::Ordering
+    fmt::Display,
+    io::IoSliceMut,
+    mem::{self, transmute, zeroed},
+    os::{fd::RawFd, raw::c_void},
+    path::PathBuf,
+    ptr::null,
+    sync::atomic::Ordering,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -47,20 +55,17 @@ pub enum SyscallState {
 }
 
 use syscalls::Sysno;
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SyscallObject {
     pub sysno: Sysno,
-    description: &'static str,
     pub category: Category,
     pub args: Vec<u64>,
-    rich_args: Vec<(Annotation, SysArg)>,
-    count: usize,
-    pub result: (Option<u64>, (Annotation, SysReturn)),
-    pub child: Pid,
+    pub skeleton: Vec<SysArg>,
+    pub result: (Option<u64>, SysReturn),
+    pub process_pid: Pid,
     pub errno: Option<Errno>,
     pub state: SyscallState,
     pub paused: bool,
-    pub successful: bool,
     pub one_line: Vec<ColoredString>,
 }
 
@@ -68,17 +73,14 @@ impl Default for SyscallObject {
     fn default() -> Self {
         SyscallObject {
             sysno: unsafe { mem::zeroed() },
-            description: "",
             category: unsafe { mem::zeroed() },
             args: vec![],
-            rich_args: vec![],
-            count: unsafe { mem::zeroed() },
+            skeleton: vec![],
             result: unsafe { mem::zeroed() },
-            child: unsafe { mem::zeroed() },
+            process_pid: unsafe { mem::zeroed() },
             errno: unsafe { mem::zeroed() },
             state: SyscallState::Entering,
             paused: false,
-            successful: false,
             one_line: vec![],
         }
     }
@@ -86,539 +88,252 @@ impl Default for SyscallObject {
 
 impl SyscallObject {
     pub fn format(&mut self) {
-        if INTENT.get() {
-            if let Ok(_) = self.one_line_formatter() {
-                let mut string = String::new();
-                for i in &mut self.one_line {
-                    string.push_str(&format!("{}", i));
-                }
-                print!("{}", string)
-            } else {
-                if self.state == SyscallState::Entering {
-                    return;
-                }
-                // multiline arguments
-                let mut output = vec![];
-                output.push("\n".dimmed());
-                let eph_return = self.parse_return_value(1);
-                if FOLLOW_FORKS.load(Ordering::SeqCst)  {
-                    output.push(self.child.to_string().bright_blue());
-                } else {
-                    if eph_return.is_ok() {
-                        output.push(self.child.to_string().blue());
-                    } else {
-                        output.push(self.child.to_string().red());
-                    }
-                }
-                output.extend(vec![
-                    " ".dimmed(),
-                    SyscallObject::colorize_syscall_name(&self.sysno, &self.category),
-                    " - ".dimmed(),
-                ]);
-                output.push(self.description.dimmed());
-                output.push("\n".bright_white());
-                output.push("\t(\n".bright_white());
-                let len = self.args.len();
-                for index in 0..len {
-                    // self.args[index], self.rich_args[index]
-                    output.push("\t\t".dimmed());
-                    let parse_output = self.parse_arg_value(index, 1);
-                    output.extend(parse_output);
-                    output.push(",\n".dimmed());
-                }
-                // println!("{}",self.count);
-                output.pop();
-                output.push(",\n\t".dimmed());
-                output.push(") = ".bright_white());
-                match eph_return {
-                    Ok(good) => {
-                        output.extend(good);
-                    }
-                    Err(errno) => {
-                        output.push(errno);
-                    }
-                }
-                let string = String::from_iter(output.into_iter().map(|x| x.to_string()));
-                println!("{}", string)
-                // write!(f, "{}\n", string)?
+        let sysno = self.sysno;
+        if let Ok(_) = self.one_line_formatter() {
+            let mut string = String::new();
+            for string_portion in &mut self.one_line {
+                string.push_str(&format!("{}", string_portion));
             }
+            print!("{}", string)
         } else {
-            //
-            //
-            //
-            //
-            //
-            // multiline arguments
-            let mut output = vec![];
-            let eph_return = self.parse_return_value(1);
-            if eph_return.is_ok() {
-                output.push(self.child.to_string().green());
-            } else {
-                output.push(self.child.to_string().red());
-            }
-            output.extend(vec![
-                " - ".dimmed(),
-                SyscallObject::colorize_syscall_name(&self.sysno, &self.category),
-                " - ".dimmed(),
-            ]);
-            output.push(self.description.dimmed());
-            output.push("\n".bright_white());
-            output.push("\t(\n".bright_white());
-            let len = self.args.len();
-            for index in 0..len {
-                // self.args[index], self.rich_args[index]
-                output.push("\t\t".dimmed());
-                let parse_output = self.parse_arg_value(index, 1);
-                output.extend(parse_output);
-                output.push(",\n".dimmed());
-            }
-            // println!("{}",self.count);
-            output.pop();
-            output.push(",\n\t".dimmed());
-            output.push(") = ".bright_white());
-            match eph_return {
-                Ok(good) => {
-                    output.extend(good);
-                }
-                Err(errno) => {
-                    output.push(errno);
-                }
-            }
-            let string = String::from_iter(output.into_iter().map(|x| x.to_string()));
-            println!("{}", string)
-            //
-            //
-            //
-            //
-            //
+            // disabled for now
+            // switch to syscallobject_annotation formatting
+            // let mut annot_variant = SyscallObject_Annotations::from(self);
+            // annot_variant.format()
         }
-        //
-        //
-        //
-        //
-        //
-        // normal old one line
-        // let mut output = vec![];
-        // output.push(self.sysno.name().bright_green());
-        // output.push(" - ".dimmed());
-        // output.push(self.alt_name.dimmed());
-        // output.push(" (".bright_white());
-        // let len = self.args.len();
-        // for index in 0..len {
-        //     let parse_output = self.parse_arg_value(index, 0);
-        //     output.extend(parse_output);
-        //     output.push(", ".dimmed());
-        // }
-        // output.pop();
-        // output.push(") = ".bright_white());
-        // let (might_register, (annotation, sys_return)) = self.result;
-        // let parse_return_output = match might_register {
-        //     Some(register) => self.parse_return_value(0),
-        //     None => {
-        //         vec![]
-        //     }
-        // };
-        // output.extend(parse_return_output);
-        // let string = String::from_iter(output.into_iter().map(|x| x.to_string()));
-        // write!(f, "{}", string)
-        //
-        //
-        //
-        //
-        //
+    }
+
+    fn replace_content(&mut self, index: usize, sys_arg: SysArg) {
+        self.skeleton[index] = sys_arg
     }
 }
-
 impl SyscallObject {
-    // annotation, arg_container, register_value
-    pub(crate) fn parse_arg_value(&self, index: usize, which: usize) -> Vec<ColoredString> {
-        let annotation = self.rich_args[index].0;
-        let sysarg = self.rich_args[index].1;
-        let register_value = self.args[index];
-
-        let mut output: Vec<ColoredString> = Vec::new();
-        use SysArg::*;
-        output.push(annotation[which].dimmed());
-        output.push(": ".dimmed());
-        let value: ColoredString = match sysarg {
-            // NUMERICS
-            Numeric => format!("{}", register_value as isize).yellow(),
-            PID => format!("{}", register_value as isize).yellow(),
-            User_Group => format!("{}", register_value as isize).yellow(),
-            Unsigned_Numeric => format!("{register_value}").yellow(),
-            File_Descriptor(fd) => format!("{fd}").yellow(),
-            File_Descriptor_openat(fd) => format!("{fd}").yellow(),
-            Pointer_To_File_Descriptor_Array([fd1, fd2]) => {
-                format!("read end: {fd1}, write end: {fd2}").yellow()
+    pub(crate) fn get_sysno(orig_rax: i32) -> Sysno {
+        // println!("{:?}", registers.orig_rax as i32);
+        Sysno::from(orig_rax)
+    }
+    pub(crate) fn build(registers: &user_regs_struct, child: Pid) -> Self {
+        let sysno = Sysno::from(registers.orig_rax as i32);
+        let syscall = match SYSKELETON_MAP.get(&sysno) {
+            Some(&Syscall_Shape {
+                category,
+                types,
+                syscall_return,
+            }) => match types.len() {
+                0 => SyscallObject {
+                    sysno,
+                    category: category,
+                    args: vec![],
+                    skeleton: types.into_iter().cloned().collect(),
+                    result: (None, syscall_return),
+                    process_pid: child,
+                    errno: None,
+                    ..Default::default()
+                },
+                1 => SyscallObject {
+                    sysno,
+                    category: category,
+                    args: vec![registers.rdi],
+                    skeleton: types.into_iter().cloned().collect(),
+                    result: (None, syscall_return),
+                    process_pid: child,
+                    errno: None,
+                    ..Default::default()
+                },
+                2 => SyscallObject {
+                    sysno,
+                    category: category,
+                    args: vec![registers.rdi, registers.rsi],
+                    skeleton: types.into_iter().cloned().collect(),
+                    result: (None, syscall_return),
+                    process_pid: child,
+                    errno: None,
+                    ..Default::default()
+                },
+                3 => SyscallObject {
+                    sysno,
+                    category: category,
+                    args: vec![registers.rdi, registers.rsi, registers.rdx],
+                    skeleton: types.into_iter().cloned().collect(),
+                    result: (None, syscall_return),
+                    process_pid: child,
+                    errno: None,
+                    ..Default::default()
+                },
+                4 => SyscallObject {
+                    sysno,
+                    category: category,
+                    args: vec![registers.rdi, registers.rsi, registers.rdx, registers.r10],
+                    skeleton: types.into_iter().cloned().collect(),
+                    result: (None, syscall_return),
+                    process_pid: child,
+                    errno: None,
+                    ..Default::default()
+                },
+                5 => SyscallObject {
+                    sysno,
+                    category: category,
+                    args: vec![
+                        registers.rdi,
+                        registers.rsi,
+                        registers.rdx,
+                        registers.r10,
+                        registers.r8,
+                    ],
+                    skeleton: types.into_iter().cloned().collect(),
+                    result: (None, syscall_return),
+                    process_pid: child,
+                    errno: None,
+                    ..Default::default()
+                },
+                _ => SyscallObject {
+                    sysno,
+                    category: category,
+                    args: vec![
+                        registers.rdi,
+                        registers.rsi,
+                        registers.rdx,
+                        registers.r10,
+                        registers.r8,
+                        registers.r9,
+                    ],
+                    skeleton: types.into_iter().cloned().collect(),
+                    result: (None, syscall_return),
+                    process_pid: child,
+                    errno: None,
+                    ..Default::default()
+                },
+            },
+            None => {
+                // unsafe {
+                //     if !UNSUPPORTED.contains(&sysno.name()) {
+                //         UNSUPPORTED.push(sysno.name());
+                //     }
+                // }
+                SyscallObject {
+                    sysno,
+                    category: Category::Process,
+                    args: vec![],
+                    result: (None, SysReturn::File_Descriptor_Or_Errno("")),
+                    process_pid: child,
+                    errno: None,
+                    ..Default::default()
+                }
             }
-
+        };
+        syscall
+    }
+    // previously `parse_arg_value_for_one_line`
+    pub(crate) fn pavfol(&self, index: usize) -> String {
+        let register_value = self.args[index];
+        use SysArg::*;
+        match self.skeleton[index] {
+            // NUMERICS
+            Numeric => format!("{}", register_value as isize),
+            PID => format!("{}", register_value as isize),
+            User_Group => format!("{}", register_value as isize),
+            Unsigned_Numeric => format!("{register_value}"),
+            File_Descriptor(fd) => format!("{fd}"),
+            File_Descriptor_openat(fd) => format!("{fd}"),
+            Pointer_To_File_Descriptor_Array([fd1, fd2]) => {
+                format!("read end: {fd1}, write end: {fd2}")
+            }
             // FLAG
-            General_Flag(flag) => SyscallObject::handle_flag(register_value, flag).yellow(),
+            General_Flag(flag) => SyscallObject::handle_flag(register_value, flag),
 
             // BYTES
-            Length_Of_Bytes => SyscallObject::style_bytes(register_value).yellow(),
+            Length_Of_Bytes => SyscallObject::style_bytes(register_value),
+            Length_Of_Bytes_Specific => {
+                format!("{register_value} Bytes")
+            }
             Length_Of_Bytes_Page_Aligned_Ceil => {
-                SyscallObject::style_bytes_page_aligned_ceil(register_value).yellow()
+                SyscallObject::style_bytes_page_aligned_ceil(register_value)
             }
             Length_Of_Bytes_Page_Aligned_Floor => {
-                SyscallObject::style_bytes_page_aligned_floor(register_value).yellow()
+                SyscallObject::style_bytes_page_aligned_floor(register_value)
             }
             // Signed_Length_Of_Bytes_Specific => {
-            //     SyscallObject::style_bytes_signed(register_value).yellow()
+            //     SyscallObject::style_bytes_signed(register_value)
             // }
-            Length_Of_Bytes_Specific => format!("{register_value} Bytes").yellow(),
 
             // can be mined for granular insights
-            Pointer_To_Struct => "0x.. -> {..}".yellow(),
-            Array_Of_Struct => "[{..}, {..}]".yellow(),
+            Pointer_To_Struct => "0x.. -> {..}".to_owned(),
+            Array_Of_Struct => "[ {..}, {..} , {..} ]".to_owned(),
             Array_Of_Strings(array) => {
                 let mut string = String::new();
                 for text in array {
                     string.push_str(&text);
                     string.push(' ');
                 }
-                string.yellow()
+                string
             }
-
-            Byte_Stream => format!("whatever").yellow(), // }
+            Byte_Stream => format!("whatever"),
 
             Single_Word => {
                 let pointer = register_value as *const ();
-                format!("{:p}", pointer).blue()
+                format!("{:p}", pointer)
             }
 
             Pointer_To_Numeric(pid) => {
                 let pointer = register_value as *const ();
                 if pointer.is_null() {
-                    format!("0xNull").magenta()
+                    format!("0xNull")
                 } else {
                     let pid = pid.unwrap();
-                    format!("{pid}").blue()
+                    format!("{pid}")
+                    // format!("{pointer:p} -> {pid}")
                 }
+                // let pointer = register_value as *const i64;
+                // let reference: &i64 = unsafe { transmute(pointer) };
             }
             Pointer_To_Numeric_Or_Numeric(numeric) => {
                 if numeric.is_none() {
-                    format!("").blue()
+                    format!("")
                 } else {
                     let num = numeric.unwrap();
-                    format!("{num}").blue()
+                    format!("{num}")
                 }
             }
 
             Pointer_To_Unsigned_Numeric => {
                 let pointer = register_value as *const ();
                 if pointer.is_null() {
-                    format!("0xNull").magenta()
+                    format!("0xNull")
                 } else {
-                    format!("{:p}", pointer).blue()
+                    format!("{:p}", pointer)
                 }
+                // let pointer = register_value as *const u64;
+                // let reference: &u64 = unsafe { transmute(pointer) };
             }
-
             Pointer_To_Text(text) => {
-                if text.len() > 20 {
-                    let portion = &text[..20];
-                    format!("{:?}", format!("{}...", portion)).purple()
-                } else if text.len() == 0 {
-                    format!("\"\"").bright_yellow()
-                } else {
-                    format!("{:?}", format!("{}", text)).purple()
-                }
+                format!("{}", text)
             }
 
             Pointer_To_Path(text) => {
-                if text.len() > 20 {
-                    let portion = &text[..];
-
-                    format!("{:?}", format!("{}...", portion)).purple()
-                } else if text.len() == 0 {
-                    format!("\"\"").bright_yellow()
-                } else {
-                    format!("{:?}", format!("{}", text)).purple()
-                }
+                format!("{}", text)
             }
 
             Address => {
                 let pointer = register_value as *const ();
                 if pointer == std::ptr::null() {
-                    format!("0xNull").bright_red()
+                    format!("0xNull")
                 } else {
-                    format!("{:p}", pointer).yellow()
+                    format!("{:p}", pointer)
                 }
             }
 
-            Pointer_To_Length_Of_Bytes_Specific => {
-                ColoredString::from("did not handle this yet".yellow())
-            }
-            // should remove
+            Pointer_To_Length_Of_Bytes_Specific => String::from("did not handle this yet"),
             Multiple_Flags([flag1, flag2]) => {
-                SyscallObject::handle_flag(register_value, flag1).yellow()
+                SyscallObject::handle_flag(register_value, flag1)
+                // SyscallObject::handle_multi_flags(register_value, flag1, flag2)
             }
-        };
-        output.push(value);
-        output
-    }
-
-    pub(crate) fn parse_return_value(
-        &self,
-        which: usize,
-    ) -> Result<Vec<ColoredString>, ColoredString> {
-        if self.is_exiting(){
-            return Ok(vec![]);
-        }
-
-        let annotation = self.result.1 .0;
-        let sys_return = self.result.1 .1;
-        let register_value = self.result.0.unwrap();
-        let mut output: Vec<ColoredString> = Vec::new();
-
-        use SysReturn::*;
-        let err: syscalls::Errno = unsafe { std::mem::transmute(self.errno) };
-        // println!("{:?}", err);
-        let value: ColoredString = match sys_return {
-            Numeric_Or_Errno => {
-                output.push(annotation[which].dimmed());
-                output.push(": ".dimmed());
-                let numeric_return = register_value as isize;
-                if numeric_return == -1 {
-                    return Err(self
-                        .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
-                        .to_string()
-                        .red());
-                } else {
-                    format!("{numeric_return}").yellow()
-                }
-            }
-            Always_Successful_Numeric => format!("{}", register_value as isize).yellow(),
-            Signal_Or_Errno(signal) => {
-                output.push(annotation[which].dimmed());
-                output.push(": ".dimmed());
-                let signal_num = register_value as isize;
-                if signal_num == -1 {
-                    return Err(self
-                        .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
-                        .to_string()
-                        .red());
-                } else {
-                    format!("{signal}").yellow()
-                }
-            }
-            // because -1 is a valid priority, we have to check
-            Priority_Or_Errno(errored) => {
-                let priority = register_value as isize;
-                if unsafe { errored.assume_init() } {
-                    return Err(self
-                        .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
-                        .to_string()
-                        .red());
-                } else {
-                    priority.to_string().yellow()
-                }
-            }
-
-            File_Descriptor_Or_Errno(fd) => {
-                output.push(annotation[which].dimmed());
-                output.push(": ".dimmed());
-                let fd_num = register_value as isize;
-                if fd_num == -1 {
-                    return Err(self
-                        .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
-                        .to_string()
-                        .red());
-                } else {
-                    format!("{fd}").yellow()
-                }
-            }
-
-            Length_Of_Bytes_Specific_Or_Errno => {
-                output.push(annotation[which].dimmed());
-                output.push(": ".dimmed());
-                let bytes = register_value as isize;
-                if bytes == -1 {
-                    return Err(self
-                        .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
-                        .to_string()
-                        .red());
-                } else {
-                    format!("{bytes} Bytes").yellow()
-                }
-            }
-            Address_Or_Errno(address) => {
-                output.push(annotation[which].dimmed());
-                output.push(": ".dimmed());
-
-                let pointer = register_value as isize;
-                if pointer == -1 {
-                    return Err(self
-                        .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
-                        .to_string()
-                        .red());
-                } else {
-                    format!("{:p}", pointer as *const ()).yellow()
-                }
-            }
-            Address_Or_MAP_FAILED_Errno(address) => {
-                output.push(annotation[which].dimmed());
-                output.push(": ".dimmed());
-                let pointer = register_value as *mut c_void;
-                if pointer == MAP_FAILED {
-                    return Err(self
-                        .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
-                        .to_string()
-                        .red());
-                } else {
-                    format!("{:p}", pointer as *const ()).yellow()
-                }
-            }
-            Address_Or_Errno_getcwd(current_working_dir) => {
-                output.push(annotation[which].dimmed());
-                output.push(": ".dimmed());
-                let pointer = register_value as *const ();
-                if pointer.is_null() {
-                    return Err(self
-                        .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
-                        .to_string()
-                        .red());
-                } else {
-                    format!("{current_working_dir}").yellow()
-                }
-            }
-            Always_Successful_User_Group => {
-                let result = register_value as isize;
-                format!("{result}").yellow()
-            }
-            Never_Returns => format!("never returns").yellow(),
-            Always_Succeeds => {
-                unimplemented!()
-            }
-            Does_Not_Return_Anything => {
-                // println!("Does_Not_Return_Anything");
-                format!("").yellow()
-            }
-        };
-        output.push(value);
-        Ok(output)
-    }
-
-    // previously `parse_arg_value_for_one_line`
-    pub(crate) fn pavfol(&self, index: usize) -> String {
-        let register_value = self.args[index];
-        let sysarg = self.rich_args[index].1;
-        use SysArg::*;
-        match sysarg {
-                    // NUMERICS
-                    Numeric => format!("{}", register_value as isize),
-                    PID => format!("{}", register_value as isize),
-                    User_Group => format!("{}", register_value as isize),
-                    Unsigned_Numeric => format!("{register_value}"),
-                    File_Descriptor(fd) => format!("{fd}"),
-                    File_Descriptor_openat(fd) => format!("{fd}"),
-                    Pointer_To_File_Descriptor_Array([fd1, fd2]) => {
-                        format!("read end: {fd1}, write end: {fd2}")
-                    }
-                    // FLAG
-                    General_Flag(flag) => SyscallObject::handle_flag(register_value, flag),
-
-                    // BYTES
-                    Length_Of_Bytes => SyscallObject::style_bytes(register_value),
-                    Length_Of_Bytes_Specific => {
-                        format!("{register_value} Bytes")
-                    }
-                    Length_Of_Bytes_Page_Aligned_Ceil => {
-                        SyscallObject::style_bytes_page_aligned_ceil(register_value)
-                    }
-                    Length_Of_Bytes_Page_Aligned_Floor => {
-                        SyscallObject::style_bytes_page_aligned_floor(register_value)
-                    }
-                    // Signed_Length_Of_Bytes_Specific => {
-                    //     SyscallObject::style_bytes_signed(register_value)
-                    // }
-
-                    // can be mined for granular insights
-                    Pointer_To_Struct => "0x.. -> {..}".to_owned(),
-                    Array_Of_Struct => "[ {..}, {..} , {..} ]".to_owned(),
-                    Array_Of_Strings(array) => {
-                        let mut string = String::new();
-                        for text in array {
-                            string.push_str(&text);
-                            string.push(' ');
-                        }
-                        string
-                    }
-                    Byte_Stream => format!("whatever"),
-
-                    Single_Word => {
-                        let pointer = register_value as *const ();
-                        format!("{:p}", pointer)
-                    }
-
-                    Pointer_To_Numeric(pid) => {
-                        let pointer = register_value as *const ();
-                        if pointer.is_null() {
-                            format!("0xNull")
-                        } else {
-                            let pid = pid.unwrap();
-                            format!("{pid}")
-                            // format!("{pointer:p} -> {pid}")
-                        }
-                        // let pointer = register_value as *const i64;
-                        // let reference: &i64 = unsafe { transmute(pointer) };
-                    }
-                    Pointer_To_Numeric_Or_Numeric(numeric) => {
-                        if numeric.is_none() {
-                            format!("")
-                        } else {
-                            let num = numeric.unwrap();
-                            format!("{num}")
-                        }
-                    }
-
-                    Pointer_To_Unsigned_Numeric => {
-                        let pointer = register_value as *const ();
-                        if pointer.is_null() {
-                            format!("0xNull")
-                        } else {
-                            format!("{:p}", pointer)
-                        }
-                        // let pointer = register_value as *const u64;
-                        // let reference: &u64 = unsafe { transmute(pointer) };
-                    }
-                    Pointer_To_Text(text) => {
-                        format!("{}", text)
-                    }
-
-                    Pointer_To_Path(text) => {
-                        format!("{}", text)
-                    }
-
-                    Address => {
-                        let pointer = register_value as *const ();
-                        if pointer == std::ptr::null() {
-                            format!("0xNull")
-                        } else {
-                            format!("{:p}", pointer)
-                        }
-                    }
-
-                    Pointer_To_Length_Of_Bytes_Specific => String::from("did not handle this yet"),
-                    Multiple_Flags([flag1, flag2]) => {
-                        SyscallObject::handle_flag(register_value, flag1)
-                        // SyscallObject::handle_multi_flags(register_value, flag1, flag2)
-                    }
         }
     }
     pub(crate) fn parse_return_value_one_line(&self) -> Result<String, ()> {
         if self.is_exiting() {
             return Ok("".to_owned());
         }
-        let sys_return = self.result.1 .1;
+        let sys_return = self.result.1;
         let register_value = self.result.0.unwrap();
         use SysReturn::*;
 
@@ -631,9 +346,7 @@ impl SyscallObject {
                     Ok(format!("{numeric_return}"))
                 }
             }
-            Always_Successful_Numeric => {
-                Ok(format!("{}", register_value as isize))
-            }
+            Always_Successful_Numeric => Ok(format!("{}", register_value as isize)),
             Signal_Or_Errno(signal) => {
                 let signal_num = register_value as isize;
                 if signal_num + 1 == -1 {
@@ -695,9 +408,7 @@ impl SyscallObject {
                 if pointer.is_null() {
                     Err(())
                 } else {
-                    Ok(format!(
-                        "{current_working_dir}",
-                    ))
+                    Ok(format!("{current_working_dir}",))
                 }
             }
             Always_Successful_User_Group => {
@@ -714,36 +425,113 @@ impl SyscallObject {
             }
         }
     }
+    // basically fill up all the parentheses data
+    pub(crate) fn get_precall_data(&mut self) {
+        // POPULATING ARGUMENTS
+        //
+        //
+        //
+        for index in 0..self.skeleton.len() {
+            use SysArg::*;
+            match self.skeleton[index] {
+                File_Descriptor(ref mut file_descriptor) => {
+                    let fd = self.args[index] as i32;
+
+                    let styled_fd =
+                        SyscallObject::style_file_descriptor(self.args[index], self.process_pid)
+                            .unwrap_or(format!("ignored"));
+                    *file_descriptor = styled_fd.leak();
+                }
+                File_Descriptor_openat(ref mut file_descriptor) => {
+                    let mut styled_fd = String::new();
+                    let fd = self.args[index] as i32;
+                    styled_fd = if fd == AT_FDCWD {
+                        format!("{}", "AT_FDCWD -> Current Working Directory".bright_blue())
+                    } else {
+                        SyscallObject::style_file_descriptor(self.args[index], self.process_pid)
+                            .unwrap_or(format!("ignored"))
+                    };
+                    *file_descriptor = styled_fd.leak();
+                }
+                Pointer_To_Text(ref mut text) => {
+                    // TODO! fix this
+                    let mut styled_fd = String::new();
+                    if self.sysno == Sysno::execve {
+                        continue;
+                    }
+                    if self.sysno == Sysno::write || self.sysno == Sysno::pwrite64 {
+                        if self.args[2] < 20 {
+                            match SyscallObject::read_string_specific_length(
+                                self.args[1] as usize,
+                                self.process_pid,
+                                self.args[2] as usize,
+                            ) {
+                                Some(styled_fd) => {
+                                    *text = styled_fd.leak();
+                                }
+                                None => (),
+                            }
+                            continue;
+                        }
+                    }
+                    let styled_fd =
+                        SyscallObject::string_from_pointer(self.args[index], self.process_pid);
+                    *text = styled_fd.leak();
+                }
+                Array_Of_Strings(ref mut text) => {
+                    // TODO! fix this
+                    if self.sysno == Sysno::execve {
+                        continue;
+                    }
+                    let array_of_texts = SyscallObject::string_from_array_of_strings(
+                        self.args[index],
+                        self.process_pid,
+                    );
+                    let mut svec: Vec<&'static str> = vec![];
+                    for text in array_of_texts {
+                        svec.push(text.leak());
+                    }
+                    *text = Box::leak(svec.into_boxed_slice());
+                }
+                _ => {}
+            }
+        }
+        // POPULATING RETURN (for now only priority)
+        //
+        //
+        //
+        let (register, ref mut sys_return) = self.result;
+        use SysReturn::*;
+        match sys_return {
+            Priority_Or_Errno(_errored) => {
+                errno::set_errno(errno::Errno(0));
+            }
+            _ => {}
+        };
+        // returns are not populted because this is before the syscall runs
+    }
 
     pub(crate) fn get_postcall_data(&mut self) {
         // POPULATING ARGUMENTS
         //
         //
         //
-        let len = self.rich_args.len();
+        let len = self.skeleton.len();
         for index in 0..len {
-            let mut annotation = self.rich_args[index].0;
-            let mut sysarg = self.rich_args[index].1;
             use SysArg::*;
-            match sysarg {
+            match self.skeleton[index] {
                 Pointer_To_File_Descriptor_Array(
                     [ref mut file_descriptor1, ref mut file_descriptor2],
                 ) => {
-                    match SyscallObject::read_two_word(
-                        self.args[index] as usize,
-                        self.child,
-                    ) {
+                    match SyscallObject::read_two_word(self.args[index] as usize, self.process_pid)
+                    {
                         Some([ref mut fd1, ref mut fd2]) => {
-                            let styled_fd1 = SyscallObject::style_file_descriptor(
-                                *fd1 as u64,
-                                self.child,
-                            )
-                            .unwrap_or(format!("ignored"));
-                            let styled_fd2 = SyscallObject::style_file_descriptor(
-                                *fd2 as u64,
-                                self.child,
-                            )
-                            .unwrap_or(format!("ignored"));
+                            let styled_fd1 =
+                                SyscallObject::style_file_descriptor(*fd1 as u64, self.process_pid)
+                                    .unwrap_or(format!("ignored"));
+                            let styled_fd2 =
+                                SyscallObject::style_file_descriptor(*fd2 as u64, self.process_pid)
+                                    .unwrap_or(format!("ignored"));
                             *file_descriptor1 = styled_fd1.leak();
                             *file_descriptor2 = styled_fd2.leak();
                         }
@@ -754,10 +542,11 @@ impl SyscallObject {
                     }
                 }
                 Pointer_To_Numeric(ref mut pid) => {
-                    match SyscallObject::read_word(self.args[index] as usize, self.child) {
+                    match SyscallObject::read_word(self.args[index] as usize, self.process_pid) {
                         Some(pid_at_word) => {
                             if self.sysno == Sysno::wait4 {
-                                self.rich_args[1].1 = Pointer_To_Numeric(Some(pid_at_word));
+                                self.skeleton[1] = Pointer_To_Numeric(Some(pid_at_word))
+                                // self.skeleton[1] = Pointer_To_Numeric(Some(pid_at_word));
                             }
                         }
                         None => {
@@ -784,13 +573,12 @@ impl SyscallObject {
                         || (operation & ARCH_GET_FS) == ARCH_GET_FS
                         || (operation & ARCH_GET_GS) == ARCH_GET_GS
                     {
-                        match SyscallObject::read_word(
-                            self.args[index] as usize,
-                            self.child,
-                        ) {
+                        match SyscallObject::read_word(self.args[index] as usize, self.process_pid)
+                        {
                             Some(pid_at_word) => {
                                 if self.sysno == Sysno::wait4 {
-                                    self.rich_args[1].1 = Pointer_To_Numeric_Or_Numeric(Some(pid_at_word));
+                                    self.skeleton[1] =
+                                        Pointer_To_Numeric_Or_Numeric(Some(pid_at_word));
                                 }
                             }
                             None => {
@@ -815,26 +603,23 @@ impl SyscallObject {
                                 if self.sysno == Sysno::readlink && index == 1 {
                                     match SyscallObject::read_string_specific_length(
                                         self.args[index] as usize,
-                                        self.child,
+                                        self.process_pid,
                                         size as usize,
                                     ) {
-                                        Some(styled_fd) => {
-                                            self.rich_args[1].1 = Pointer_To_Text(styled_fd.leak());
-                                        }
+                                        Some(styled_fd) => self
+                                            .replace_content(1, Pointer_To_Text(styled_fd.leak())),
                                         None => (),
                                     }
                                 } else if self.sysno == Sysno::readlinkat && index == 2 {
                                     match SyscallObject::read_string_specific_length(
                                         self.args[index] as usize,
-                                        self.child,
+                                        self.process_pid,
                                         size as usize,
                                     ) {
-                                        Some(styled_fd) => {
-                                            self.rich_args[1].1 = Pointer_To_Text(styled_fd.leak());
-                                        }
+                                        Some(styled_fd) => self
+                                            .replace_content(1, Pointer_To_Text(styled_fd.leak())),
                                         None => (),
                                     }
-                                    
                                 }
                             }
                         }
@@ -847,18 +632,19 @@ impl SyscallObject {
         //
         //
         //
-        let (register, (ref mut annotation, ref mut sys_return)) = self.result;
+        let (register, ref mut sys_return) = self.result;
         use SysReturn::*;
         match sys_return {
             File_Descriptor_Or_Errno(data) => {
                 let fd = register.unwrap();
-                let styled_fd = SyscallObject::style_file_descriptor(fd, self.child)
+                let styled_fd = SyscallObject::style_file_descriptor(fd, self.process_pid)
                     .unwrap_or(format!("{:?}", self.errno));
                 *data = styled_fd.leak();
             }
 
             Address_Or_Errno_getcwd(data) => {
-                let styled_string = SyscallObject::string_from_pointer(self.args[0], self.child);
+                let styled_string =
+                    SyscallObject::string_from_pointer(self.args[0], self.process_pid);
                 *data = styled_string.leak();
             }
             Priority_Or_Errno(errored) => {
@@ -879,247 +665,6 @@ impl SyscallObject {
             }
             _ => {}
         };
-    }
-    // basically fill up all the parentheses data
-    pub(crate) fn get_precall_data(&mut self) {
-        // POPULATING ARGUMENTS
-        //
-        //
-        //
-        for (index, (annotation, sysarg)) in self.rich_args.iter_mut().enumerate() {
-            use SysArg::*;
-            match sysarg {
-                File_Descriptor(file_descriptor) => {
-                    let fd = self.args[index] as i32;
-
-                    let styled_fd =
-                        SyscallObject::style_file_descriptor(self.args[index], self.child)
-                            .unwrap_or(format!("ignored"));
-                    *file_descriptor = styled_fd.leak();
-                }
-                File_Descriptor_openat(file_descriptor) => {
-                    let mut styled_fd = String::new();
-                    let fd = self.args[index] as i32;
-                    styled_fd = if fd == AT_FDCWD {
-                        format!("{}", "AT_FDCWD -> Current Working Directory".bright_blue())
-                    } else {
-                        SyscallObject::style_file_descriptor(self.args[index], self.child)
-                            .unwrap_or(format!("ignored"))
-                    };
-                    *file_descriptor = styled_fd.leak();
-                }
-                Pointer_To_Text(ref mut text) => {
-                    // TODO! fix this
-                    let mut styled_fd = String::new();
-                    if self.sysno == Sysno::execve {
-                        continue;
-                    }
-                    if self.sysno == Sysno::write || self.sysno == Sysno::pwrite64 {
-                        if self.args[2] < 20 {
-                            match SyscallObject::read_string_specific_length(
-                                self.args[1] as usize,
-                                self.child,
-                                self.args[2] as usize,
-                            ) {
-                                Some(styled_fd) => {
-                                    *text = styled_fd.leak();
-                                }
-                                None => (),
-                            }
-                            continue;
-                        }
-                    }
-                    let styled_fd =
-                        SyscallObject::string_from_pointer(self.args[index], self.child);
-                    *text = styled_fd.leak();
-                }
-                Array_Of_Strings(text) => {
-                    // TODO! fix this
-                    if self.sysno == Sysno::execve {
-                        continue;
-                    }
-                    let array_of_texts = SyscallObject::string_from_array_of_strings(
-                        self.args[index],
-                        self.child,
-                    );
-                    let mut svec: Vec<&'static str> = vec![];
-                    for text in array_of_texts {
-                        svec.push(text.leak());
-                    }
-                    *text = Box::leak(svec.into_boxed_slice());
-                }
-                _ => {}
-            }
-        }
-        // POPULATING RETURN (for now only priority)
-        //
-        //
-        //
-        let (register, (ref mut annotation, ref mut sys_return)) = self.result;
-        use SysReturn::*;
-        match sys_return {
-            Priority_Or_Errno(_errored) => {
-                errno::set_errno(errno::Errno(0));
-            }
-            _ => {}
-        };
-        // returns are not populted because this is before the syscall runs
-    }
-
-    pub(crate) fn get_sysno(orig_rax: i32) -> Sysno {
-        // println!("{:?}", registers.orig_rax as i32);
-        Sysno::from(orig_rax)
-    }
-    pub(crate) fn build(registers: &user_regs_struct, child: Pid) -> Self {
-        let sysno = Sysno::from(registers.orig_rax as i32);
-        let syscall = match SYSCALL_MAP.get(&sysno) {
-            Some((
-                category,
-                syscall_description,
-                annotations_arg_containers,
-                (return_annotation, sys_return),
-            )) => match annotations_arg_containers.len() {
-                0 => SyscallObject {
-                    sysno,
-                    description: syscall_description,
-                    category: *category,
-                    args: vec![],
-                    rich_args: vec![],
-                    count: 0,
-                    result: (None, (*return_annotation, *sys_return)),
-                    child,
-                    errno: None,
-                    ..Default::default()
-                },
-                1 => SyscallObject {
-                    sysno,
-                    description: syscall_description,
-                    category: *category,
-                    args: vec![registers.rdi],
-                    rich_args: vec![annotations_arg_containers[0]],
-                    count: 0,
-                    result: (None, (*return_annotation, *sys_return)),
-                    child,
-                    errno: None,
-                    ..Default::default()
-                },
-                2 => SyscallObject {
-                    sysno,
-                    description: syscall_description,
-                    category: *category,
-                    args: vec![registers.rdi, registers.rsi],
-                    rich_args: vec![annotations_arg_containers[0], annotations_arg_containers[1]],
-                    count: 0,
-                    result: (None, (*return_annotation, *sys_return)),
-                    child,
-                    errno: None,
-                    ..Default::default()
-                },
-                3 => SyscallObject {
-                    sysno,
-                    description: syscall_description,
-                    category: *category,
-                    args: vec![registers.rdi, registers.rsi, registers.rdx],
-                    rich_args: vec![
-                        annotations_arg_containers[0],
-                        annotations_arg_containers[1],
-                        annotations_arg_containers[2],
-                    ],
-                    count: 0,
-                    result: (None, (*return_annotation, *sys_return)),
-                    child,
-                    errno: None,
-                    ..Default::default()
-                },
-                4 => SyscallObject {
-                    sysno,
-                    description: syscall_description,
-                    category: *category,
-                    args: vec![registers.rdi, registers.rsi, registers.rdx, registers.r10],
-                    rich_args: vec![
-                        annotations_arg_containers[0],
-                        annotations_arg_containers[1],
-                        annotations_arg_containers[2],
-                        annotations_arg_containers[3],
-                    ],
-                    count: 0,
-                    result: (None, (*return_annotation, *sys_return)),
-                    child,
-                    errno: None,
-                    ..Default::default()
-                },
-                5 => SyscallObject {
-                    sysno,
-                    description: syscall_description,
-                    category: *category,
-                    args: vec![
-                        registers.rdi,
-                        registers.rsi,
-                        registers.rdx,
-                        registers.r10,
-                        registers.r8,
-                    ],
-                    rich_args: vec![
-                        annotations_arg_containers[0],
-                        annotations_arg_containers[1],
-                        annotations_arg_containers[2],
-                        annotations_arg_containers[3],
-                        annotations_arg_containers[4],
-                    ],
-                    count: 0,
-                    result: (None, (*return_annotation, *sys_return)),
-                    child,
-                    errno: None,
-                    ..Default::default()
-                },
-                _ => SyscallObject {
-                    sysno,
-                    description: syscall_description,
-                    category: *category,
-                    args: vec![
-                        registers.rdi,
-                        registers.rsi,
-                        registers.rdx,
-                        registers.r10,
-                        registers.r8,
-                        registers.r9,
-                    ],
-                    rich_args: vec![
-                        annotations_arg_containers[0],
-                        annotations_arg_containers[1],
-                        annotations_arg_containers[2],
-                        annotations_arg_containers[3],
-                        annotations_arg_containers[4],
-                        annotations_arg_containers[5],
-                    ],
-                    count: 0,
-                    result: (None, (*return_annotation, *sys_return)),
-                    child,
-                    errno: None,
-                    ..Default::default()
-                },
-            },
-            None => {
-                // unsafe {
-                //     if !UNSUPPORTED.contains(&sysno.name()) {
-                //         UNSUPPORTED.push(sysno.name());
-                //     }
-                // }
-                SyscallObject {
-                    sysno,
-                    description: "syscall not covered currently",
-                    category: Category::Process,
-                    args: vec![],
-                    rich_args: vec![],
-                    count: 0,
-                    result: (None, (["", ""], SysReturn::File_Descriptor_Or_Errno(""))),
-                    child,
-                    errno: None,
-                    ..Default::default()
-                }
-            }
-        };
-        syscall
     }
     fn style_file_descriptor(register_value: u64, child: Pid) -> Option<String> {
         let fd = register_value as RawFd;
@@ -1264,34 +809,44 @@ impl SyscallObject {
         bytes.to_string()
     }
 
-    pub(crate) fn possible_dirfd_file(&mut self, dirfd: i32, filename: String){
+    pub(crate) fn possible_dirfd_file(&mut self, dirfd: i32, filename: String) {
         let file_path_buf = PathBuf::from(filename);
         if file_path_buf.is_relative() {
             if dirfd == AT_FDCWD {
-                let cwd = procfs::process::Process::new(self.child.into()).unwrap().cwd().unwrap();
+                let cwd = procfs::process::Process::new(self.process_pid.into())
+                    .unwrap()
+                    .cwd()
+                    .unwrap();
                 self.one_line.push(cwd.as_path().to_string_lossy().yellow());
                 self.one_line.push("/".yellow());
-                let path_without_leading_relativeness = lose_relativity_on_path(file_path_buf.as_path().to_string_lossy().to_owned());
+                let path_without_leading_relativeness =
+                    lose_relativity_on_path(file_path_buf.as_path().to_string_lossy().to_owned());
                 self.one_line.push(path_without_leading_relativeness.blue());
             } else {
-                let file_info = procfs::process::FDInfo::from_raw_fd(self.child.into(), dirfd).unwrap();
+                let file_info =
+                    procfs::process::FDInfo::from_raw_fd(self.process_pid.into(), dirfd).unwrap();
                 match file_info.target {
                     procfs::process::FDTarget::Path(path) => {
-                        self.one_line.push(path.as_path().to_string_lossy().yellow());
+                        self.one_line
+                            .push(path.as_path().to_string_lossy().yellow());
                         if !path.is_absolute() || path.len() != 1 {
                             self.one_line.push("/".yellow());
-                        } 
-                        let path_without_leading_relativeness = lose_relativity_on_path(file_path_buf.as_path().to_string_lossy().to_owned());
+                        }
+                        let path_without_leading_relativeness = lose_relativity_on_path(
+                            file_path_buf.as_path().to_string_lossy().to_owned(),
+                        );
                         self.one_line.push(path_without_leading_relativeness.blue());
                     }
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 }
             }
         } else {
-            handle_path_file(file_path_buf.as_path().to_string_lossy().into_owned(), &mut self.one_line);
+            handle_path_file(
+                file_path_buf.as_path().to_string_lossy().into_owned(),
+                &mut self.one_line,
+            );
         }
-    } 
-
+    }
 
     pub(crate) fn possible_dirfd_file_output(&mut self, dirfd: i32, filename: String) -> String {
         let mut string = String::new();
@@ -1301,34 +856,39 @@ impl SyscallObject {
                 let cwd = procfs::process::Process::new(10).unwrap().cwd().unwrap();
                 string.push_str(&cwd.as_path().to_string_lossy());
                 string.push_str("/");
-                let path_without_leading_relativeness = lose_relativity_on_path(file_path_buf.as_path().to_string_lossy().to_owned());
+                let path_without_leading_relativeness =
+                    lose_relativity_on_path(file_path_buf.as_path().to_string_lossy().to_owned());
                 string.push_str(&path_without_leading_relativeness);
             } else {
-                let file_info = procfs::process::FDInfo::from_raw_fd(self.child.into(), dirfd).unwrap();
+                let file_info =
+                    procfs::process::FDInfo::from_raw_fd(self.process_pid.into(), dirfd).unwrap();
                 match file_info.target {
                     procfs::process::FDTarget::Path(path) => {
-                        self.one_line.push(path.as_path().to_string_lossy().yellow());
+                        self.one_line
+                            .push(path.as_path().to_string_lossy().yellow());
                         if !path.is_absolute() || path.len() != 1 {
                             self.one_line.push("/".yellow());
-                        } 
-                        let path_without_leading_relativeness = lose_relativity_on_path(file_path_buf.as_path().to_string_lossy().to_owned());
+                        }
+                        let path_without_leading_relativeness = lose_relativity_on_path(
+                            file_path_buf.as_path().to_string_lossy().to_owned(),
+                        );
                         self.one_line.push(path_without_leading_relativeness.blue());
                     }
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 }
             }
         } else {
             string.push_str(&file_path_buf.as_path().to_string_lossy().to_owned());
         }
         string
-    } 
+    }
 
     // Use process_vm_readv(2)
     fn string_from_pointer(address: u64, child: Pid) -> String {
         // TODO! execve multi-threaded fails here for some reason
         match SyscallObject::read_bytes_until_null(address as usize, child) {
             Some(data) => String::from_utf8_lossy(&data).into_owned(),
-            None => "".to_owned()
+            None => "".to_owned(),
         }
     }
     fn string_from_array_of_strings(address: u64, child: Pid) -> Vec<String> {
@@ -1515,8 +1075,8 @@ impl SyscallObject {
     }
 
     pub(crate) fn read_affinity_from_child(addr: usize, child: Pid) -> Option<Vec<usize>> {
-        const CPU_SET_USIZE: usize = (CPU_SETSIZE / 8) as usize; 
-        
+        const CPU_SET_USIZE: usize = (CPU_SETSIZE / 8) as usize;
+
         let cpu_mask = SyscallObject::read_bytes_specific_length(addr, child, CPU_SET_USIZE)?;
 
         let a: [u8; CPU_SET_USIZE] = cpu_mask.try_into().ok()?;
@@ -1599,7 +1159,6 @@ impl SyscallObject {
                 // for i in a {
                 //     let bitmap: nix::sys::signal::Signal = unsafe { std::mem::transmute(i) };
                 //     println!("{:?}", bitmap);
-                //     println!("fycjubg good");
                 // }
             }
             SignalHow => {
@@ -1883,19 +1442,5 @@ impl SyscallObject {
         range.push(self.args[1].to_string().yellow());
         range.push(" bytes".to_owned().yellow());
         range
-    }
-}
-
-
-impl Iterator for SyscallObject {
-    type Item = (u64, ([&'static str; 2], SysArg));
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.count != self.args.len() {
-            let out = (self.args[self.count], self.rich_args[self.count]);
-            self.count += 1;
-            return Some(out);
-        } else {
-            None
-        }
     }
 }
