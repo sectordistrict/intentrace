@@ -6,7 +6,10 @@ use crate::{
         mlock2, Annotation, Bytes, BytesPagesRelevant, Category, Flag, LandlockCreateFlags,
         LandlockRuleTypeFlags, SysArg, SysReturn, Syscall_Shape,
     },
-    utilities::{lose_relativity_on_path, FOLLOW_FORKS, SYSANNOT_MAP, SYSKELETON_MAP, UNSUPPORTED},
+    utilities::{
+        lose_relativity_on_path, FOLLOW_FORKS, SYSANNOT_MAP, SYSCALL_CATEGORIES, SYSKELETON_MAP,
+        UNSUPPORTED,
+    },
 };
 
 use colored::{ColoredString, Colorize};
@@ -116,94 +119,96 @@ impl SyscallObject {
         let sysno = Sysno::from(registers.orig_rax as i32);
         let syscall = match SYSKELETON_MAP.get(&sysno) {
             Some(&Syscall_Shape {
-                category,
                 types,
                 syscall_return,
-            }) => match types.len() {
-                0 => SyscallObject {
-                    sysno,
-                    category: category,
-                    args: vec![],
-                    skeleton: types.into_iter().cloned().collect(),
-                    result: (None, syscall_return),
-                    process_pid: child,
-                    errno: None,
-                    ..Default::default()
-                },
-                1 => SyscallObject {
-                    sysno,
-                    category: category,
-                    args: vec![registers.rdi],
-                    skeleton: types.into_iter().cloned().collect(),
-                    result: (None, syscall_return),
-                    process_pid: child,
-                    errno: None,
-                    ..Default::default()
-                },
-                2 => SyscallObject {
-                    sysno,
-                    category: category,
-                    args: vec![registers.rdi, registers.rsi],
-                    skeleton: types.into_iter().cloned().collect(),
-                    result: (None, syscall_return),
-                    process_pid: child,
-                    errno: None,
-                    ..Default::default()
-                },
-                3 => SyscallObject {
-                    sysno,
-                    category: category,
-                    args: vec![registers.rdi, registers.rsi, registers.rdx],
-                    skeleton: types.into_iter().cloned().collect(),
-                    result: (None, syscall_return),
-                    process_pid: child,
-                    errno: None,
-                    ..Default::default()
-                },
-                4 => SyscallObject {
-                    sysno,
-                    category: category,
-                    args: vec![registers.rdi, registers.rsi, registers.rdx, registers.r10],
-                    skeleton: types.into_iter().cloned().collect(),
-                    result: (None, syscall_return),
-                    process_pid: child,
-                    errno: None,
-                    ..Default::default()
-                },
-                5 => SyscallObject {
-                    sysno,
-                    category: category,
-                    args: vec![
-                        registers.rdi,
-                        registers.rsi,
-                        registers.rdx,
-                        registers.r10,
-                        registers.r8,
-                    ],
-                    skeleton: types.into_iter().cloned().collect(),
-                    result: (None, syscall_return),
-                    process_pid: child,
-                    errno: None,
-                    ..Default::default()
-                },
-                _ => SyscallObject {
-                    sysno,
-                    category: category,
-                    args: vec![
-                        registers.rdi,
-                        registers.rsi,
-                        registers.rdx,
-                        registers.r10,
-                        registers.r8,
-                        registers.r9,
-                    ],
-                    skeleton: types.into_iter().cloned().collect(),
-                    result: (None, syscall_return),
-                    process_pid: child,
-                    errno: None,
-                    ..Default::default()
-                },
-            },
+            }) => {
+                let category = *SYSCALL_CATEGORIES.get(&sysno).unwrap();
+                return match types.len() {
+                    0 => SyscallObject {
+                        sysno,
+                        category: category,
+                        args: vec![],
+                        skeleton: types.into_iter().cloned().collect(),
+                        result: (None, syscall_return),
+                        process_pid: child,
+                        errno: None,
+                        ..Default::default()
+                    },
+                    1 => SyscallObject {
+                        sysno,
+                        category: category,
+                        args: vec![registers.rdi],
+                        skeleton: types.into_iter().cloned().collect(),
+                        result: (None, syscall_return),
+                        process_pid: child,
+                        errno: None,
+                        ..Default::default()
+                    },
+                    2 => SyscallObject {
+                        sysno,
+                        category: category,
+                        args: vec![registers.rdi, registers.rsi],
+                        skeleton: types.into_iter().cloned().collect(),
+                        result: (None, syscall_return),
+                        process_pid: child,
+                        errno: None,
+                        ..Default::default()
+                    },
+                    3 => SyscallObject {
+                        sysno,
+                        category: category,
+                        args: vec![registers.rdi, registers.rsi, registers.rdx],
+                        skeleton: types.into_iter().cloned().collect(),
+                        result: (None, syscall_return),
+                        process_pid: child,
+                        errno: None,
+                        ..Default::default()
+                    },
+                    4 => SyscallObject {
+                        sysno,
+                        category: category,
+                        args: vec![registers.rdi, registers.rsi, registers.rdx, registers.r10],
+                        skeleton: types.into_iter().cloned().collect(),
+                        result: (None, syscall_return),
+                        process_pid: child,
+                        errno: None,
+                        ..Default::default()
+                    },
+                    5 => SyscallObject {
+                        sysno,
+                        category: category,
+                        args: vec![
+                            registers.rdi,
+                            registers.rsi,
+                            registers.rdx,
+                            registers.r10,
+                            registers.r8,
+                        ],
+                        skeleton: types.into_iter().cloned().collect(),
+                        result: (None, syscall_return),
+                        process_pid: child,
+                        errno: None,
+                        ..Default::default()
+                    },
+                    _ => SyscallObject {
+                        sysno,
+                        category: category,
+                        args: vec![
+                            registers.rdi,
+                            registers.rsi,
+                            registers.rdx,
+                            registers.r10,
+                            registers.r8,
+                            registers.r9,
+                        ],
+                        skeleton: types.into_iter().cloned().collect(),
+                        result: (None, syscall_return),
+                        process_pid: child,
+                        errno: None,
+                        ..Default::default()
+                    },
+                };
+            }
             None => {
                 // unsafe {
                 //     if !UNSUPPORTED.contains(&sysno.name()) {

@@ -6,7 +6,9 @@ use crate::{
         mlock2, Annotation, Bytes, BytesPagesRelevant, Category, Flag, LandlockCreateFlags,
         LandlockRuleTypeFlags, SysArg, SysReturn, Syscall_Shape,
     },
-    utilities::{lose_relativity_on_path, FOLLOW_FORKS, SYSANNOT_MAP, SYSKELETON_MAP},
+    utilities::{
+        lose_relativity_on_path, FOLLOW_FORKS, SYSANNOT_MAP, SYSCALL_CATEGORIES, SYSKELETON_MAP,
+    },
 };
 
 use colored::{ColoredString, Colorize};
@@ -98,9 +100,10 @@ impl From<&mut SyscallObject> for SyscallObject_Annotations {
             one_line,
         }: &mut SyscallObject,
     ) -> Self {
-        if let Some(&(category, description, annotations_arg_containers, return_annotation)) =
+        if let Some(&(description, annotations_arg_containers, return_annotation)) =
             SYSANNOT_MAP.get(&sysno)
         {
+            let category = *SYSCALL_CATEGORIES.get(&sysno).unwrap();
             SyscallObject_Annotations {
                 sysno: *sysno,
                 description,
@@ -216,22 +219,17 @@ impl SyscallObject_Annotations {
     pub(crate) fn build_annotations(registers: &user_regs_struct, child: Pid) -> Self {
         let sysno = Sysno::from(registers.orig_rax as i32);
         match SYSANNOT_MAP.get(&sysno) {
-            Some((
-                category,
-                syscall_description,
-                annotations_arg_containers,
-                return_annotation,
-            )) => {
+            Some((syscall_description, annotations_arg_containers, return_annotation)) => {
                 let Syscall_Shape {
-                    category,
                     types,
                     syscall_return,
                 } = SYSKELETON_MAP.get(&sysno).unwrap();
+                let category = *SYSCALL_CATEGORIES.get(&sysno).unwrap();
                 match annotations_arg_containers.len() {
                     0 => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: *category,
+                        category: category,
                         rich_args: vec![],
                         result: (None, *return_annotation, *syscall_return),
                         process_pid: child,
@@ -241,7 +239,7 @@ impl SyscallObject_Annotations {
                     1 => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: *category,
+                        category: category,
                         rich_args: vec![annotations_arg_containers[0]],
                         result: (None, *return_annotation, *syscall_return),
                         process_pid: child,
@@ -251,7 +249,7 @@ impl SyscallObject_Annotations {
                     2 => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: *category,
+                        category: category,
                         rich_args: vec![
                             annotations_arg_containers[0],
                             annotations_arg_containers[1],
@@ -264,7 +262,7 @@ impl SyscallObject_Annotations {
                     3 => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: *category,
+                        category: category,
                         rich_args: vec![
                             annotations_arg_containers[0],
                             annotations_arg_containers[1],
@@ -278,7 +276,7 @@ impl SyscallObject_Annotations {
                     4 => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: *category,
+                        category: category,
                         rich_args: vec![
                             annotations_arg_containers[0],
                             annotations_arg_containers[1],
@@ -293,7 +291,7 @@ impl SyscallObject_Annotations {
                     5 => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: *category,
+                        category: category,
                         rich_args: vec![
                             annotations_arg_containers[0],
                             annotations_arg_containers[1],
@@ -309,7 +307,7 @@ impl SyscallObject_Annotations {
                     _ => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: *category,
+                        category: category,
                         rich_args: vec![
                             annotations_arg_containers[0],
                             annotations_arg_containers[1],

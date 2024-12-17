@@ -4,11 +4,10 @@ use std::{convert::Infallible, fmt::Display, marker::PhantomData, mem::MaybeUnin
 
 pub type Annotation = [&'static str; 2];
 
-pub type SysAnnotations = (Category, &'static str, &'static [Annotation], Annotation);
+pub type SysAnnotations = (&'static str, &'static [Annotation], Annotation);
 
 #[derive(Clone)]
 pub struct Syscall_Shape {
-    pub category: Category,
     pub types: &'static [SysArg],
     pub syscall_return: SysReturn,
 }

@@ -54,6 +54,7 @@ use utilities::{
 
 mod syscall_object;
 mod syscall_object_annotations;
+mod syscall_categories;
 mod syscall_annotations_map;
 mod types;
 mod syscall_skeleton_map;

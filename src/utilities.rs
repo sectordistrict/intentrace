@@ -1,4 +1,4 @@
-use crate::{syscall_annotations_map::initialize_syscall_annotations_map, syscall_skeleton_map::initialize_syscall_skeleton_map, types::{SysAnnotations, Syscall_Shape}};
+use crate::{syscall_annotations_map::initialize_syscall_annotations_map, syscall_categories::initialize_syscall_category_map, syscall_skeleton_map::initialize_syscall_skeleton_map, types::{Category, SysAnnotations, Syscall_Shape}};
 use lazy_static::lazy_static;
 use nix::{errno::Errno, libc::__errno_location, unistd::Pid};
 use procfs::process::{MMapPath, MemoryMap};
@@ -28,6 +28,7 @@ lazy_static! {
     pub static ref OUTPUT_FOLLOW_FORKS: Mutex<HashMap<Sysno, usize>> = Mutex::new(HashMap::new());
     pub static ref SYSANNOT_MAP: HashMap<Sysno, SysAnnotations> = initialize_syscall_annotations_map();
     pub static ref SYSKELETON_MAP: HashMap<Sysno, Syscall_Shape> = initialize_syscall_skeleton_map();
+    pub static ref SYSCALL_CATEGORIES: HashMap<Sysno, Category> = initialize_syscall_category_map();
     pub static ref PAGE_SIZE: usize = page_size::get();
 }
 
