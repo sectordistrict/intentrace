@@ -42,46 +42,56 @@ use nix::{
     },
     unistd::{fork, ForkResult::*, Pid},
 };
+use pete::{Ptracer, Restart, Stop, Tracee};
 use procfs::process::{MMapPath, MemoryMap};
 use std::{
-    cell::{Cell, RefCell}, collections::{HashMap, HashSet}, env::args, error::Error, fmt::Debug, mem::{self, transmute, MaybeUninit}, os::{raw::c_void, unix::process::CommandExt}, path::PathBuf, process::{exit, Command, Stdio}, ptr::null, sync::atomic::Ordering, time::Duration
+    cell::{Cell, RefCell},
+    collections::{HashMap, HashSet},
+    env::args,
+    error::Error,
+    fmt::Debug,
+    mem::{self, transmute, MaybeUninit},
+    os::{raw::c_void, unix::process::CommandExt},
+    path::PathBuf,
+    process::{exit, Command, Stdio},
+    ptr::null,
+    sync::atomic::Ordering,
+    time::Duration,
 };
-use pete::{Ptracer, Restart, Stop, Tracee};
 use syscalls::Sysno;
 use utilities::{
-    display_unsupported, errno_check, parse_args, set_memory_break, ATTACH, FAILED_ONLY, FOLLOW_FORKS, HALT_FORK_FOLLOW, OUTPUT, OUTPUT_FOLLOW_FORKS, QUIET, SUMMARY 
+    display_unsupported, errno_check, parse_args, set_memory_break, ATTACH, FAILED_ONLY,
+    FOLLOW_FORKS, HALT_FORK_FOLLOW, OUTPUT, OUTPUT_FOLLOW_FORKS, QUIET, SUMMARY,
 };
 
+mod syscall_annotations_map;
+mod syscall_categories;
 mod syscall_object;
 mod syscall_object_annotations;
-mod syscall_categories;
-mod syscall_annotations_map;
-mod types;
 mod syscall_skeleton_map;
+mod types;
 use syscall_object::{SyscallObject, SyscallState};
 mod one_line_formatter;
 mod utilities;
 
-
-
 fn main() {
-    ctrlc::set_handler(||{
-        HALT_FORK_FOLLOW.store(true,Ordering::SeqCst);
+    ctrlc::set_handler(|| {
+        HALT_FORK_FOLLOW.store(true, Ordering::SeqCst);
         if SUMMARY.load(Ordering::SeqCst) {
             print_table();
         }
         std::process::exit(0);
-    }).unwrap();
+    })
+    .unwrap();
     let cl = parse_args();
     runner(cl);
 }
 
 fn runner(command_line: Vec<String>) {
     if FOLLOW_FORKS.load(Ordering::SeqCst) {
-        if ATTACH.get().is_some() {
-            follow_forks(None);
-        } else {
-            follow_forks(Some(command_line));
+        match ATTACH.get() {
+            Some(_) => follow_forks(None),
+            None => follow_forks(Some(command_line)),
         }
     } else {
         if ATTACH.get().is_some() {
@@ -191,19 +201,16 @@ fn parent(child_or_attach: Option<Pid>) {
                         end = Some(std::time::Instant::now());
                         match nix::sys::ptrace::getregs(child) {
                             Ok(registers) => {
-                                let mut output= OUTPUT.lock().unwrap();
-                                    output
-                                        .entry(syscall.sysno)
-                                        .and_modify(|value| {
-                                            value.0 += 1;
-                                            value.1 = value.1.saturating_add(
-                                                end.unwrap().duration_since(start.unwrap()),
-                                            );
-                                        })
-                                        .or_insert((
-                                            1,
+                                let mut output = OUTPUT.lock().unwrap();
+                                output
+                                    .entry(syscall.sysno)
+                                    .and_modify(|value| {
+                                        value.0 += 1;
+                                        value.1 = value.1.saturating_add(
                                             end.unwrap().duration_since(start.unwrap()),
-                                        ));
+                                        );
+                                    })
+                                    .or_insert((1, end.unwrap().duration_since(start.unwrap())));
                                 start = None;
                                 end = None;
                                 syscall_returned(&mut syscall, &registers)
@@ -356,7 +363,7 @@ fn handle_getting_registers_error(errno: Errno, syscall_enter_or_exit: &str, sys
 }
 
 fn print_table() {
-    if FOLLOW_FORKS.load(Ordering::SeqCst)  {
+    if FOLLOW_FORKS.load(Ordering::SeqCst) {
         let output = OUTPUT_FOLLOW_FORKS.lock().unwrap();
         let mut vec = Vec::from_iter(output.iter());
         vec.sort_by(|(_sysno, count), (_sysno2, count2)| count2.cmp(count));
@@ -373,12 +380,10 @@ fn print_table() {
 
         println!("\n{}", table);
     } else {
-        let mut output= OUTPUT.lock().unwrap();
+        let mut output = OUTPUT.lock().unwrap();
         let mut vec = Vec::from_iter(output.iter());
         vec.sort_by(
-            |(_sysno, (count, duration)), (_sysno2, (count2, duration2))| {
-                duration2.cmp(duration)
-            },
+            |(_sysno, (count, duration)), (_sysno2, (count2, duration2))| duration2.cmp(duration),
         );
 
         use tabled::{builder::Builder, settings::Style};

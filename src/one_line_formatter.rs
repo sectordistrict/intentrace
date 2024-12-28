@@ -2,7 +2,8 @@ use std::{
     env::current_dir,
     mem,
     os::fd::RawFd,
-    path::{Path, PathBuf}, sync::atomic::Ordering,
+    path::{Path, PathBuf},
+    sync::atomic::Ordering,
 };
 
 use crate::{
@@ -18,26 +19,26 @@ use nix::{
     errno::Errno,
     fcntl::{self, AtFlags, FallocateFlags},
     libc::{
-        msghdr, iovec, cpu_set_t, pid_t, rlimit, timespec, timeval, AT_FDCWD, EPOLL_CLOEXEC, EPOLL_CTL_ADD,
-        EPOLL_CTL_DEL, EPOLL_CTL_MOD, FUTEX_CLOCK_REALTIME, FUTEX_CMP_REQUEUE,
-        FUTEX_CMP_REQUEUE_PI, FUTEX_FD, FUTEX_LOCK_PI, FUTEX_LOCK_PI2, FUTEX_PRIVATE_FLAG,
-        FUTEX_REQUEUE, FUTEX_TRYLOCK_PI, FUTEX_UNLOCK_PI, FUTEX_WAIT, FUTEX_WAIT_BITSET,
-        FUTEX_WAIT_REQUEUE_PI, FUTEX_WAKE, FUTEX_WAKE_BITSET, FUTEX_WAKE_OP,
-        LINUX_REBOOT_CMD_CAD_OFF, MADV_COLD, MADV_COLLAPSE, MADV_DODUMP, MADV_DOFORK,
-        MADV_DONTDUMP, MADV_DONTFORK, MADV_DONTNEED, MADV_FREE, MADV_HUGEPAGE, MADV_HWPOISON,
-        MADV_KEEPONFORK, MADV_MERGEABLE, MADV_NOHUGEPAGE, MADV_NORMAL, MADV_PAGEOUT,
-        MADV_POPULATE_READ, MADV_POPULATE_WRITE, MADV_RANDOM, MADV_REMOVE, MADV_SEQUENTIAL,
-        MADV_UNMERGEABLE, MADV_WILLNEED, MADV_WIPEONFORK, MAP_ANON, MAP_ANONYMOUS, MAP_FIXED,
-        MAP_FIXED_NOREPLACE, MAP_GROWSDOWN, MAP_HUGETLB, MAP_HUGE_16GB, MAP_HUGE_16MB,
-        MAP_HUGE_1GB, MAP_HUGE_1MB, MAP_HUGE_256MB, MAP_HUGE_2GB, MAP_HUGE_2MB, MAP_HUGE_32MB,
-        MAP_HUGE_512KB, MAP_HUGE_512MB, MAP_HUGE_64KB, MAP_HUGE_8MB, MAP_LOCKED, MAP_NONBLOCK,
-        MAP_NORESERVE, MAP_POPULATE, MAP_PRIVATE, MAP_SHARED, MAP_SHARED_VALIDATE, MAP_STACK,
-        MAP_SYNC, MCL_CURRENT, MCL_FUTURE, MCL_ONFAULT, O_APPEND, O_ASYNC, O_CLOEXEC, O_CREAT,
-        O_DIRECT, O_DIRECTORY, O_DSYNC, O_EXCL, O_LARGEFILE, O_NDELAY, O_NOATIME, O_NOCTTY,
-        O_NOFOLLOW, O_NONBLOCK, O_PATH, O_SYNC, O_TMPFILE, O_TRUNC, PRIO_PGRP, PRIO_PROCESS,
-        PRIO_USER, P_ALL, P_PGID, P_PID, P_PIDFD, AT_REMOVEDIR, RENAME_EXCHANGE, RENAME_NOREPLACE,
-        RENAME_WHITEOUT, AT_EMPTY_PATH, AT_NO_AUTOMOUNT, AT_SYMLINK_NOFOLLOW, AT_STATX_SYNC_AS_STAT,
-        AT_STATX_FORCE_SYNC, AT_STATX_DONT_SYNC
+        cpu_set_t, iovec, msghdr, pid_t, rlimit, timespec, timeval, AT_EMPTY_PATH, AT_FDCWD,
+        AT_NO_AUTOMOUNT, AT_REMOVEDIR, AT_STATX_DONT_SYNC, AT_STATX_FORCE_SYNC,
+        AT_STATX_SYNC_AS_STAT, AT_SYMLINK_NOFOLLOW, EPOLL_CLOEXEC, EPOLL_CTL_ADD, EPOLL_CTL_DEL,
+        EPOLL_CTL_MOD, FUTEX_CLOCK_REALTIME, FUTEX_CMP_REQUEUE, FUTEX_CMP_REQUEUE_PI, FUTEX_FD,
+        FUTEX_LOCK_PI, FUTEX_LOCK_PI2, FUTEX_PRIVATE_FLAG, FUTEX_REQUEUE, FUTEX_TRYLOCK_PI,
+        FUTEX_UNLOCK_PI, FUTEX_WAIT, FUTEX_WAIT_BITSET, FUTEX_WAIT_REQUEUE_PI, FUTEX_WAKE,
+        FUTEX_WAKE_BITSET, FUTEX_WAKE_OP, LINUX_REBOOT_CMD_CAD_OFF, MADV_COLD, MADV_COLLAPSE,
+        MADV_DODUMP, MADV_DOFORK, MADV_DONTDUMP, MADV_DONTFORK, MADV_DONTNEED, MADV_FREE,
+        MADV_HUGEPAGE, MADV_HWPOISON, MADV_KEEPONFORK, MADV_MERGEABLE, MADV_NOHUGEPAGE,
+        MADV_NORMAL, MADV_PAGEOUT, MADV_POPULATE_READ, MADV_POPULATE_WRITE, MADV_RANDOM,
+        MADV_REMOVE, MADV_SEQUENTIAL, MADV_UNMERGEABLE, MADV_WILLNEED, MADV_WIPEONFORK, MAP_ANON,
+        MAP_ANONYMOUS, MAP_FIXED, MAP_FIXED_NOREPLACE, MAP_GROWSDOWN, MAP_HUGETLB, MAP_HUGE_16GB,
+        MAP_HUGE_16MB, MAP_HUGE_1GB, MAP_HUGE_1MB, MAP_HUGE_256MB, MAP_HUGE_2GB, MAP_HUGE_2MB,
+        MAP_HUGE_32MB, MAP_HUGE_512KB, MAP_HUGE_512MB, MAP_HUGE_64KB, MAP_HUGE_8MB, MAP_LOCKED,
+        MAP_NONBLOCK, MAP_NORESERVE, MAP_POPULATE, MAP_PRIVATE, MAP_SHARED, MAP_SHARED_VALIDATE,
+        MAP_STACK, MAP_SYNC, MCL_CURRENT, MCL_FUTURE, MCL_ONFAULT, O_APPEND, O_ASYNC, O_CLOEXEC,
+        O_CREAT, O_DIRECT, O_DIRECTORY, O_DSYNC, O_EXCL, O_LARGEFILE, O_NDELAY, O_NOATIME,
+        O_NOCTTY, O_NOFOLLOW, O_NONBLOCK, O_PATH, O_SYNC, O_TMPFILE, O_TRUNC, PRIO_PGRP,
+        PRIO_PROCESS, PRIO_USER, P_ALL, P_PGID, P_PID, P_PIDFD, RENAME_EXCHANGE, RENAME_NOREPLACE,
+        RENAME_WHITEOUT,
     },
     sys::{
         eventfd,
@@ -62,11 +63,11 @@ use rustix::{
 use syscalls::Sysno;
 
 impl SyscallObject {
-
     pub(crate) fn one_line_error(&mut self) {
         // TODO! Deprecate this logic for more granularity
         self.one_line.push(" |=> ".white());
-        self.one_line.push(format!("{}", errno_to_string(self.errno.unwrap())).red());
+        self.one_line
+            .push(format!("{}", errno_to_string(self.errno.unwrap())).red());
     }
 
     pub(crate) fn get_syscall_return(&mut self) -> Result<String, ()> {
@@ -82,12 +83,12 @@ impl SyscallObject {
         }
         eph_return
     }
-    
+
     pub(crate) fn one_line_formatter(&mut self) -> Result<(), ()> {
         use crate::syscall_object::SyscallState::*;
 
         if self.state == Entering {
-            if FOLLOW_FORKS.load(Ordering::SeqCst)  {
+            if FOLLOW_FORKS.load(Ordering::SeqCst) {
                 self.one_line.extend(vec![
                     "\n".white(),
                     self.process_pid.to_string().bright_blue(),
@@ -506,9 +507,8 @@ impl SyscallObject {
                 let flags_num = self.args[2] as i32;
                 match self.state {
                     Entering => {
-
                         self.one_line.push("get the stats of the file: ".white());
-                        
+
                         // statx logic for when the pathname is empty
                         if pathname.is_empty() && (flags_num & AT_EMPTY_PATH) > 0 {
                             // if pathname is empty and AT_EMPTY_PATH is given, dirfd is used
@@ -517,19 +517,24 @@ impl SyscallObject {
                         } else {
                             handle_path_file(pathname, &mut self.one_line);
                         }
-                        
-                        let mut flag_directive = vec![]; 
+
+                        let mut flag_directive = vec![];
                         if (flags_num & AT_NO_AUTOMOUNT) > 0 {
                             flag_directive.push("don't automount the basename of the path if its an automount directory".yellow());
                         }
                         if (flags_num & AT_SYMLINK_NOFOLLOW) > 0 {
-                            flag_directive.push("if the path is a symbolic link, get its stats, do not recurse it".yellow());
+                            flag_directive.push(
+                                "if the path is a symbolic link, get its stats, do not recurse it"
+                                    .yellow(),
+                            );
                         }
                         if (flags_num & AT_STATX_SYNC_AS_STAT) > 0 {
                             flag_directive.push("behave similar to the `stat` syscall".yellow());
                         }
                         if (flags_num & AT_STATX_FORCE_SYNC) > 0 {
-                            flag_directive.push("force synchronization / guarantee up to date information".yellow());
+                            flag_directive.push(
+                                "force synchronization / guarantee up to date information".yellow(),
+                            );
                         }
                         if (flags_num & AT_STATX_DONT_SYNC) > 0 {
                             flag_directive.push("don't force synchronization / retrieve whatever information is cached".yellow());
@@ -541,10 +546,10 @@ impl SyscallObject {
                         //     flag_directive.push("recurse symbolic links if found".yellow());
                         // }
                         directives_handler(flag_directive, &mut self.one_line);
-                        
+
                         // TODO!
                         // unnecessary information
-                        // statx_mask is currently unhandled because it's unnecessary information 
+                        // statx_mask is currently unhandled because it's unnecessary information
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -2037,10 +2042,9 @@ impl SyscallObject {
                     Entering => {
                         self.one_line.push("move the file: ".white());
                         self.possible_dirfd_file(old_dirfd, old_filename);
-                        
+
                         self.one_line.push(" to: ".white());
                         self.possible_dirfd_file(new_dirfd, new_filename);
-                        
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -2065,7 +2069,7 @@ impl SyscallObject {
                     Entering => {
                         self.one_line.push("move the file: ".white());
                         self.possible_dirfd_file(old_dirfd, old_filename);
-                        
+
                         self.one_line.push(" to: ".white());
                         self.possible_dirfd_file(new_dirfd, new_filename);
 
@@ -2135,11 +2139,21 @@ impl SyscallObject {
 
                         self.one_line.push("create a new directory ".white());
                         self.one_line.push(
-                            path_rust.file_name().unwrap().to_string_lossy().to_owned().blue(),
+                            path_rust
+                                .file_name()
+                                .unwrap()
+                                .to_string_lossy()
+                                .to_owned()
+                                .blue(),
                         );
                         self.one_line.push(" inside: ".white());
                         self.one_line.push(
-                            path_rust.parent().unwrap().to_string_lossy().to_owned().yellow(),
+                            path_rust
+                                .parent()
+                                .unwrap()
+                                .to_string_lossy()
+                                .to_owned()
+                                .yellow(),
                         );
                     }
                     Exiting => {
@@ -2246,12 +2260,14 @@ impl SyscallObject {
                 let flag = self.args[2] as i32;
                 match self.state {
                     Entering => {
-                        self.one_line.push("unlink and possibly delete the file: ".white());
+                        self.one_line
+                            .push("unlink and possibly delete the file: ".white());
                         self.possible_dirfd_file(dirfd, path);
 
                         if (flag & AT_REMOVEDIR) > 0 {
                             self.one_line.push(" (".white());
-                            self.one_line.push("perform the same operation as ".yellow());
+                            self.one_line
+                                .push("perform the same operation as ".yellow());
                             self.one_line.push("`rmdir`".blue());
                             self.one_line.push(")".white());
                         }
@@ -2483,9 +2499,10 @@ impl SyscallObject {
                 let filename = self.pavfol(1);
                 match self.state {
                     Entering => {
-                        self.one_line.push("get the target path of the symbolic link: ".white());
+                        self.one_line
+                            .push("get the target path of the symbolic link: ".white());
                         self.possible_dirfd_file(dirfd, filename)
-                    }   
+                    }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
@@ -4459,9 +4476,11 @@ impl SyscallObject {
             Sysno::sched_setaffinity => {
                 let thread_id = self.args[0];
 
-                let cpus =
-                    SyscallObject::read_affinity_from_child(self.args[2] as usize, self.process_pid)
-                        .unwrap();
+                let cpus = SyscallObject::read_affinity_from_child(
+                    self.args[2] as usize,
+                    self.process_pid,
+                )
+                .unwrap();
                 match self.state {
                     Entering => {
                         if !cpus.is_empty() {
@@ -4504,9 +4523,11 @@ impl SyscallObject {
                 // let num_cpus = num_cpus::get();
                 let mut set: cpu_set_t = unsafe { mem::zeroed() };
 
-                let cpus =
-                    SyscallObject::read_affinity_from_child(self.args[2] as usize, self.process_pid)
-                        .unwrap();
+                let cpus = SyscallObject::read_affinity_from_child(
+                    self.args[2] as usize,
+                    self.process_pid,
+                )
+                .unwrap();
                 match self.state {
                     Entering => {
                         self.one_line.push("find which CPUs ".white());
@@ -6182,7 +6203,6 @@ impl SyscallObject {
         Ok(())
     }
 }
-
 
 pub fn mode_matcher(mode: rustix::fs::Mode, one_line: &mut Vec<ColoredString>) {
     // USER

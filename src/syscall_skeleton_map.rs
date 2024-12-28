@@ -1,5 +1,4 @@
-use crate::types::{Category, Flag, SysArg, SysReturn, Syscall_Shape}
-;
+use crate::types::{Category, Flag, SysArg, SysReturn, Syscall_Shape};
 use std::collections::HashMap;
 use std::mem::MaybeUninit;
 use syscalls::Sysno;
@@ -1117,7 +1116,7 @@ pub fn initialize_syscall_skeleton_map() -> HashMap<Sysno, Syscall_Shape> {
                     General_Flag(SocketType),
                     General_Flag(SocketProtocol),
                     // (ValueReturn(Pointer_To_File_Descriptor_Array(["", ""],syscall_return: Pointer_To_File_Descriptor_Array(["", ""]))
-                    Pointer_To_File_Descriptor_Array(["", ""],)
+                    Pointer_To_File_Descriptor_Array(["", ""]),
                 ],
                 // on error sv is left unchanged
                 syscall_return: Numeric_Or_Errno,
@@ -2034,13 +2033,12 @@ pub fn initialize_syscall_skeleton_map() -> HashMap<Sysno, Syscall_Shape> {
                     // terminated by a null pointer
                     Array_Of_Strings(&[]),
                     // terminated by a null pointer
-                    Array_Of_Strings(&[])
+                    Array_Of_Strings(&[]),
                 ],
                 // does not return on success
                 syscall_return: Numeric_Or_Errno,
             },
         ),
-
         // (
         //     Sysno::execveat,
         // ),

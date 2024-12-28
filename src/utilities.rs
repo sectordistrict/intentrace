@@ -1,9 +1,21 @@
-use crate::{syscall_annotations_map::initialize_syscall_annotations_map, syscall_categories::initialize_syscall_category_map, syscall_skeleton_map::initialize_syscall_skeleton_map, types::{Category, SysAnnotations, Syscall_Shape}};
+use crate::{
+    syscall_annotations_map::initialize_syscall_annotations_map,
+    syscall_categories::initialize_syscall_category_map,
+    syscall_skeleton_map::initialize_syscall_skeleton_map,
+    types::{Category, SysAnnotations, Syscall_Shape},
+};
 use lazy_static::lazy_static;
 use nix::{errno::Errno, libc::__errno_location, unistd::Pid};
 use procfs::process::{MMapPath, MemoryMap};
 use std::{
-    borrow::BorrowMut, cell::{Cell, RefCell}, collections::HashMap, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, time::Duration
+    borrow::BorrowMut,
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+    time::Duration,
 };
 use syscalls::Sysno;
 
@@ -26,8 +38,10 @@ lazy_static! {
     pub static ref SUMMARY: AtomicBool = AtomicBool::new(false);
     pub static ref OUTPUT: Mutex<HashMap<Sysno, (usize, Duration)>> = Mutex::new(HashMap::new());
     pub static ref OUTPUT_FOLLOW_FORKS: Mutex<HashMap<Sysno, usize>> = Mutex::new(HashMap::new());
-    pub static ref SYSANNOT_MAP: HashMap<Sysno, SysAnnotations> = initialize_syscall_annotations_map();
-    pub static ref SYSKELETON_MAP: HashMap<Sysno, Syscall_Shape> = initialize_syscall_skeleton_map();
+    pub static ref SYSANNOT_MAP: HashMap<Sysno, SysAnnotations> =
+        initialize_syscall_annotations_map();
+    pub static ref SYSKELETON_MAP: HashMap<Sysno, Syscall_Shape> =
+        initialize_syscall_skeleton_map();
     pub static ref SYSCALL_CATEGORIES: HashMap<Sysno, Category> = initialize_syscall_category_map();
     pub static ref PAGE_SIZE: usize = page_size::get();
 }
@@ -46,7 +60,8 @@ pub fn parse_args() -> Vec<String> {
             "-h" | "--help" => {
                 // TODO!
                 // PENDING SWITCH TO CLAP
-                println!("intentrace is a strace for everyone.
+                println!(
+                    "intentrace is a strace for everyone.
 
 Usage: intentrace [OPTIONS] [-- <TRAILING_ARGUMENTS>...]
 
@@ -59,7 +74,8 @@ Options:
   -a, --annotations                  print the classic strace feed with argument annotations
   -h, --help                         print help
   -v, --version                      print version
-                ");
+                "
+                );
                 std::process::exit(0)
             }
             "-v" | "--version" => {
@@ -116,7 +132,7 @@ Options:
                 //     );
                 //     std::process::exit(100);
                 // }
-                FOLLOW_FORKS.store(true,Ordering::SeqCst);
+                FOLLOW_FORKS.store(true, Ordering::SeqCst);
             }
             "-z" | "--failed-only" => {
                 let _ = args.next().unwrap();
@@ -160,8 +176,8 @@ Options:
 
 pub fn lose_relativity_on_path(string: std::borrow::Cow<'_, str>) -> String {
     let mut chars = string.chars().peekable();
-    while let Some(&chara) = chars.peek()  {
-        if chara == '.' || chara == '/'{
+    while let Some(&chara) = chars.peek() {
+        if chara == '.' || chara == '/' {
             let _ = chars.next().unwrap();
             continue;
         }

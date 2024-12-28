@@ -1,7 +1,7 @@
+use crate::types::{Category, Flag, SysAnnotations, SysArg, SysReturn};
 use std::collections::HashMap;
-use syscalls::Sysno;
 use std::mem::MaybeUninit;
-use crate::types::{SysArg, Category, Flag, SysAnnotations, SysReturn};
+use syscalls::Sysno;
 // TODO! differentiate between bitflags (orables) and enums
 // TODO! add granularity for value-return type of syscall arguments
 // these are semantics for syscall arguments that get modified after syscall return
@@ -10,8 +10,8 @@ use crate::types::{SysArg, Category, Flag, SysAnnotations, SysReturn};
 // switch to MaybeUninit
 // TODO! switch to phf later
 pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
-    use SysArg::*;
     use Flag::*;
+    use SysArg::*;
     use SysReturn::*;
     let array: Vec<(Sysno, SysAnnotations)> = vec![
         // read from a file descriptor
@@ -171,7 +171,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             )
         ),
         (
-            Sysno::pipe, 
+            Sysno::pipe,
             (
                
                 "create a unidirectional pipe for process communication",
