@@ -7,8 +7,8 @@ use crate::{
         LandlockRuleTypeFlags, SysArg, SysReturn, Syscall_Shape,
     },
     utilities::{
-        lose_relativity_on_path, FOLLOW_FORKS, SYSANNOT_MAP, SYSCALL_CATEGORIES, SYSKELETON_MAP,
-        UNSUPPORTED,
+        colorize_general, lose_relativity_on_path, FOLLOW_FORKS, GENERAL_TEXT_COLOR, SYSANNOT_MAP,
+        SYSCALL_CATEGORIES, SYSKELETON_MAP, UNSUPPORTED,
     },
 };
 
@@ -109,7 +109,12 @@ impl SyscallObject {
     fn replace_content(&mut self, index: usize, sys_arg: SysArg) {
         self.skeleton[index] = sys_arg
     }
+    #[inline(always)]
+    pub(crate) fn general_text(&mut self, arg: &str) {
+        colorize_general(&mut self.one_line, arg);
+    }
 }
+
 impl SyscallObject {
     pub(crate) fn get_sysno(orig_rax: i32) -> Sysno {
         // println!("{:?}", registers.orig_rax as i32);

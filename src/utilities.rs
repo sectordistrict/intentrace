@@ -4,6 +4,7 @@ use crate::{
     syscall_skeleton_map::initialize_syscall_skeleton_map,
     types::{Category, SysAnnotations, Syscall_Shape},
 };
+use colored::{ColoredString, Colorize, CustomColor};
 use lazy_static::lazy_static;
 use nix::{errno::Errno, libc::__errno_location, unistd::Pid};
 use procfs::process::{MMapPath, MemoryMap};
@@ -27,11 +28,15 @@ thread_local! {
     pub static FAILED_ONLY: Cell<bool> = Cell::new(false);
     pub static QUIET: Cell<bool> = Cell::new(false);
     pub static ANNOT: Cell<bool> = Cell::new(false);
+    pub static GENERAL_TEXT_COLOR: Cell<CustomColor> = Cell::new(CustomColor {
+        r: 255,
+        g: 255,
+        b: 255,
+    });
     pub static ATTACH: Cell<Option<usize>> = Cell::new(None);
     // TODO! Time blocks feature
     // pub static TIME_BLOCKS: Cell<bool> = Cell::new(false);
 }
-
 lazy_static! {
     pub static ref HALT_FORK_FOLLOW: AtomicBool = AtomicBool::new(false);
     pub static ref FOLLOW_FORKS: AtomicBool = AtomicBool::new(false);
@@ -57,33 +62,6 @@ pub fn parse_args() -> Vec<String> {
 
     while let Some(arg) = args.peek() {
         match arg.as_str() {
-            "-h" | "--help" => {
-                // TODO!
-                // PENDING SWITCH TO CLAP
-                println!(
-                    "intentrace is a strace for everyone.
-
-Usage: intentrace [OPTIONS] [-- <TRAILING_ARGUMENTS>...]
-
-Options:
-  -c, --summary                      provide a summary table at the end of tracing
-  -p, --attach <pid>                 attach to an already running proceess
-  -f, --follow-forks                 trace child processes when traced programs create them
-  -z, --failed-only                  only print failed syscalls	
-  -q, --mute-stdout                  mute the traced program's std output
-  -a, --annotations                  print the classic strace feed with argument annotations
-  -h, --help                         print help
-  -v, --version                      print version
-                "
-                );
-                std::process::exit(0)
-            }
-            "-v" | "--version" => {
-                // TODO!
-                // PENDING SWITCH TO CLAP
-                println!("intentrace {}", env!("CARGO_PKG_VERSION"));
-                std::process::exit(0)
-            }
             "-c" | "--summary" => {
                 let _ = args.next().unwrap();
                 // if FOLLOW_FORKS.get() {
@@ -167,6 +145,34 @@ Options:
                 }
                 ANNOT.set(true);
             }
+            "-h" | "--help" => {
+                // TODO!
+                // PENDING SWITCH TO CLAP
+                println!(
+                    "intentrace is a strace for everyone.
+
+Usage: intentrace [OPTIONS] [-- <TRAILING_ARGUMENTS>...]
+
+Options:
+  -c, --summary                      provide a summary table at the end of tracing
+  -p, --attach <pid>                 attach to an already running proceess
+  -f, --follow-forks                 trace child processes when traced programs create them
+  -z, --failed-only                  only print failed syscalls	
+  -q, --mute-stdout                  mute the traced program's std output
+  -a, --annotations                  print the classic strace feed with argument annotations
+  -h, --help                         print help
+  -v, --version                      print version
+                "
+                );
+                std::process::exit(0)
+            }
+            "-v" | "--version" => {
+                // TODO!
+                // PENDING SWITCH TO CLAP
+                println!("intentrace {}", env!("CARGO_PKG_VERSION"));
+                std::process::exit(0)
+            }
+
             _ => break,
         }
     }
@@ -174,6 +180,20 @@ Options:
     args.collect::<Vec<String>>()
 }
 
+pub fn terminal_setup() {
+    if let Ok(theme) = termbg::theme(std::time::Duration::from_millis(10)) {
+        match theme {
+            termbg::Theme::Light => {
+                GENERAL_TEXT_COLOR.set(CustomColor {
+                    r: 64,
+                    g: 64,
+                    b: 64,
+                });
+            }
+            termbg::Theme::Dark => {}
+        }
+    }
+}
 pub fn lose_relativity_on_path(string: std::borrow::Cow<'_, str>) -> String {
     let mut chars = string.chars().peekable();
     while let Some(&chara) = chars.peek() {
@@ -184,6 +204,11 @@ pub fn lose_relativity_on_path(string: std::borrow::Cow<'_, str>) -> String {
         break;
     }
     chars.collect()
+}
+
+#[inline(always)]
+pub fn colorize_general(vector: &mut Vec<ColoredString>, arg: &str) {
+    vector.push(arg.custom_color(GENERAL_TEXT_COLOR.get()))
 }
 
 pub fn get_mem_difference_from_previous(post_call_brk: usize) -> isize {

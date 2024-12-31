@@ -10,8 +10,9 @@ use crate::{
     syscall_object::SyscallObject,
     types::{Bytes, BytesPagesRelevant, LandlockRuleTypeFlags},
     utilities::{
-        errno_to_string, get_child_memory_break, get_mem_difference_from_previous,
-        where_in_childs_memory, x86_signal_to_string, FOLLOW_FORKS,
+        colorize_general, errno_to_string, get_child_memory_break,
+        get_mem_difference_from_previous, where_in_childs_memory, x86_signal_to_string,
+        FOLLOW_FORKS,
     },
 };
 use colored::{Color, ColoredString, Colorize};
@@ -65,7 +66,7 @@ use syscalls::Sysno;
 impl SyscallObject {
     pub(crate) fn one_line_error(&mut self) {
         // TODO! Deprecate this logic for more granularity
-        self.one_line.push(" |=> ".white());
+        self.general_text(" |=> ");
         self.one_line
             .push(format!("{}", errno_to_string(self.errno.unwrap())).red());
     }
@@ -161,16 +162,16 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if getting_current_break {
-                            self.one_line.push("get the current program break".white());
+                            self.general_text("get the current program break");
                         } else {
-                            self.one_line.push("change program break to ".white());
+                            self.general_text("change program break to ");
                             self.one_line.push(syscall_brk.yellow());
                         }
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             if getting_current_break {
                                 self.one_line.push("current program break: ".green());
                                 self.one_line.push(eph_return.unwrap().yellow());
@@ -182,14 +183,13 @@ impl SyscallObject {
                                 let mem_difference_bytes =
                                     BytesPagesRelevant::from_ceil(mem_difference as usize);
                                 if mem_difference == 0 {
-                                    self.one_line
-                                        .push("no allocation or deallocation occured".white());
+                                    self.general_text("no allocation or deallocation occured");
                                 } else if mem_difference > 0 {
-                                    self.one_line.push("allocated ".white());
+                                    self.general_text("allocated ");
                                     self.one_line
                                         .push(mem_difference_bytes.to_string().yellow());
                                 } else {
-                                    self.one_line.push("deallocated ".white());
+                                    self.general_text("deallocated ");
                                     self.one_line
                                         .push(mem_difference_bytes.to_string().yellow());
                                 }
@@ -207,13 +207,13 @@ impl SyscallObject {
                 let filename = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line.push("close the file: ".white());
+                        self.general_text("close the file: ");
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("file closed".green());
                         } else {
                             // TODO! granular
@@ -229,13 +229,13 @@ impl SyscallObject {
                         // TODO! fix open flags granularity
                         // TODO! also fix file mode granularity
                         //
-                        self.one_line.push("open the file ".white());
+                        self.general_text("open the file ");
                         handle_path_file(filename, &mut self.one_line);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successfully opened file".green());
                         } else {
                             // TODO! granular
@@ -261,10 +261,9 @@ impl SyscallObject {
                         // Anything written to the resulting file will be lost
                         // when the last file descriptor is closed, unless the file is given a name.
                         if (flags_num & O_TMPFILE) > 0 {
-                            self.one_line
-                                .push("create an unnamed temporary file in the path: ".white());
+                            self.general_text("create an unnamed temporary file in the path: ");
                         } else {
-                            self.one_line.push("open the file: ".white());
+                            self.general_text("open the file: ");
                         }
                         self.possible_dirfd_file(dirfd, filename);
 
@@ -324,7 +323,7 @@ impl SyscallObject {
                         if (flags_num & O_SYNC) > 0 {
                             directives.push("ensure writes are completely teransferred to hardware before return".yellow());
                         }
-                        directives_handler(directives, &mut self.one_line);
+                        self.directives_handler(directives);
 
                         if (flags_num & O_TRUNC) > 0 {
                             self.one_line
@@ -334,7 +333,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successfully opened file".green());
                         } else {
                             // TODO! granular
@@ -347,13 +346,13 @@ impl SyscallObject {
                 let filename = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line.push("get the stats of the file: ".white());
+                        self.general_text("get the stats of the file: ");
                         handle_path_file(filename, &mut self.one_line);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("stats retrieved successfully".green());
                         } else {
                             // TODO! granular
@@ -366,13 +365,13 @@ impl SyscallObject {
                 let filename = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line.push("get the stats of the file: ".white());
+                        self.general_text("get the stats of the file: ");
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("stats retrieved successfully".green());
                         } else {
                             // TODO! granular
@@ -385,15 +384,14 @@ impl SyscallObject {
                 let filename = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line.push("get the stats of the file: ".white());
+                        self.general_text("get the stats of the file: ");
                         handle_path_file(filename, &mut self.one_line);
-                        self.one_line
-                            .push(" and do not recurse symbolic links".white());
+                        self.general_text(" and do not recurse symbolic links");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("stats retrieved successfully".green());
                         } else {
                             // TODO! granular
@@ -406,14 +404,13 @@ impl SyscallObject {
                 let filename = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("get stats for the filesystem mounted in: ".white());
+                        self.general_text("get stats for the filesystem mounted in: ");
                         handle_path_file(filename, &mut self.one_line);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("stats retrieved successfully".green());
                         } else {
                             // TODO! granular
@@ -426,14 +423,13 @@ impl SyscallObject {
                 let filename = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("get stats for the filesystem that contains the file: ".white());
+                        self.general_text("get stats for the filesystem that contains the file: ");
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("stats retrieved successfully".green());
                         } else {
                             // TODO! granular
@@ -449,7 +445,7 @@ impl SyscallObject {
                     unsafe { std::mem::transmute(self.args[3] as u32) };
                 match self.state {
                     Entering => {
-                        self.one_line.push("get the stats of the file: ".white());
+                        self.general_text("get the stats of the file: ");
                         self.possible_dirfd_file(dirfd, filename);
 
                         let mut flag_directive = vec![];
@@ -476,22 +472,22 @@ impl SyscallObject {
                             );
                         }
                         if flag_directive.len() > 0 {
-                            self.one_line.push(" (".white());
+                            self.general_text(" (");
                             let mut flag_directive_iter = flag_directive.into_iter().peekable();
                             if flag_directive_iter.peek().is_some() {
                                 self.one_line.push(flag_directive_iter.next().unwrap());
                             }
                             for entry in flag_directive_iter {
-                                self.one_line.push(", ".white());
+                                self.general_text(", ");
                                 self.one_line.push(entry);
                             }
-                            self.one_line.push(")".white());
+                            self.general_text(")");
                         }
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("stats retrieved successfully".green());
                         } else {
                             // TODO! granular
@@ -507,7 +503,7 @@ impl SyscallObject {
                 let flags_num = self.args[2] as i32;
                 match self.state {
                     Entering => {
-                        self.one_line.push("get the stats of the file: ".white());
+                        self.general_text("get the stats of the file: ");
 
                         // statx logic for when the pathname is empty
                         if pathname.is_empty() && (flags_num & AT_EMPTY_PATH) > 0 {
@@ -545,7 +541,7 @@ impl SyscallObject {
                         // if flags.contains(rustix::fs::AtFlags::SYMLINK_FOLLOW) {
                         //     flag_directive.push("recurse symbolic links if found".yellow());
                         // }
-                        directives_handler(flag_directive, &mut self.one_line);
+                        self.directives_handler(flag_directive);
 
                         // TODO!
                         // unnecessary information
@@ -554,7 +550,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("stats retrieved successfully".green());
                         } else {
                             // TODO! granular
@@ -577,15 +573,15 @@ impl SyscallObject {
                             let name = user.name();
                             let owner = name.as_str().unwrap();
 
-                            self.one_line.push("change the owner of ".white());
+                            self.general_text("change the owner of ");
                             handle_path_file(filename, &mut self.one_line);
-                            self.one_line.push(" to ".white());
+                            self.general_text(" to ");
                             self.one_line.push(owner.green());
                             if group_given != -1 {
                                 let get_user_by_uid = cache.get_user_by_uid(group_given as _);
                                 let user = get_user_by_uid.unwrap();
                                 let group = user.name().to_str().unwrap();
-                                self.one_line.push(", and its group to ".white());
+                                self.general_text(", and its group to ");
                                 self.one_line.push(group.green());
                             }
                         } else {
@@ -593,9 +589,9 @@ impl SyscallObject {
                                 let get_user_by_uid = cache.get_user_by_uid(group_given as _);
                                 let user = get_user_by_uid.unwrap();
                                 let group = user.name().to_str().unwrap();
-                                self.one_line.push("change the owner of the file: ".white());
+                                self.general_text("change the owner of the file: ");
                                 handle_path_file(filename, &mut self.one_line);
-                                self.one_line.push("to ".white());
+                                self.general_text("to ");
                                 self.one_line.push(group.green());
                             }
                         }
@@ -603,7 +599,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("ownership changed".green());
                         } else {
                             // TODO! granular
@@ -626,15 +622,15 @@ impl SyscallObject {
                             let name = user.name();
                             let owner = name.as_str().unwrap();
 
-                            self.one_line.push("change the owner of the file: ".white());
+                            self.general_text("change the owner of the file: ");
                             self.one_line.push(filename.yellow());
-                            self.one_line.push(" to ".white());
+                            self.general_text(" to ");
                             self.one_line.push(owner.green());
                             if group_given != -1 {
                                 let get_user_by_uid = cache.get_user_by_uid(group_given as _);
                                 let user = get_user_by_uid.unwrap();
                                 let group = user.name().to_str().unwrap();
-                                self.one_line.push(", and its group to ".white());
+                                self.general_text(", and its group to ");
                                 self.one_line.push(group.green());
                             }
                         } else {
@@ -642,10 +638,10 @@ impl SyscallObject {
                                 let get_user_by_uid = cache.get_user_by_uid(group_given as _);
                                 let user = get_user_by_uid.unwrap();
                                 let group = user.name().to_str().unwrap();
-                                self.one_line.push("change the owner of the file: ".white());
+                                self.general_text("change the owner of the file: ");
                                 self.one_line.push(filename.yellow());
 
-                                self.one_line.push("to ".white());
+                                self.general_text("to ");
                                 self.one_line.push(group.green());
                             }
                         }
@@ -653,7 +649,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("ownership changed".green());
                         } else {
                             // TODO! granular
@@ -676,15 +672,15 @@ impl SyscallObject {
                             let name = user.name();
                             let owner = name.as_str().unwrap();
 
-                            self.one_line.push("change the owner of ".white());
+                            self.general_text("change the owner of ");
                             handle_path_file(filename, &mut self.one_line);
-                            self.one_line.push(" to ".white());
+                            self.general_text(" to ");
                             self.one_line.push(owner.green());
                             if group_given != -1 {
                                 let get_user_by_uid = cache.get_user_by_uid(group_given as _);
                                 let user = get_user_by_uid.unwrap();
                                 let group = user.name().to_str().unwrap();
-                                self.one_line.push(", and its group to ".white());
+                                self.general_text(", and its group to ");
                                 self.one_line.push(group.green());
                             }
                         } else {
@@ -692,9 +688,9 @@ impl SyscallObject {
                                 let get_user_by_uid = cache.get_user_by_uid(group_given as _);
                                 let user = get_user_by_uid.unwrap();
                                 let group = user.name().to_str().unwrap();
-                                self.one_line.push("change the owner of the file: ".white());
+                                self.general_text("change the owner of the file: ");
                                 handle_path_file(filename, &mut self.one_line);
-                                self.one_line.push("to ".white());
+                                self.general_text("to ");
                                 self.one_line.push(group.green());
                             }
                         }
@@ -702,7 +698,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("ownership changed".green());
                         } else {
                             // TODO! granular
@@ -726,16 +722,16 @@ impl SyscallObject {
                             let name = user.name();
                             let owner = name.as_str().unwrap();
 
-                            self.one_line.push("change the owner of ".white());
+                            self.general_text("change the owner of ");
                             self.possible_dirfd_file(dirfd, filename);
 
-                            self.one_line.push(" to ".white());
+                            self.general_text(" to ");
                             self.one_line.push(owner.green());
                             if group_given != -1 {
                                 let get_user_by_uid = cache.get_user_by_uid(group_given as _);
                                 let user = get_user_by_uid.unwrap();
                                 let group = user.name().to_str().unwrap();
-                                self.one_line.push(", and its group to ".white());
+                                self.general_text(", and its group to ");
                                 self.one_line.push(group.green());
                             }
                         } else {
@@ -743,9 +739,9 @@ impl SyscallObject {
                                 let get_user_by_uid = cache.get_user_by_uid(group_given as _);
                                 let user = get_user_by_uid.unwrap();
                                 let group = user.name().to_str().unwrap();
-                                self.one_line.push("change the owner of the file: ".white());
+                                self.general_text("change the owner of the file: ");
                                 handle_path_file(filename, &mut self.one_line);
-                                self.one_line.push("to ".white());
+                                self.general_text("to ");
                                 self.one_line.push(group.green());
                             }
                         }
@@ -753,7 +749,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("ownership changed".green());
                         } else {
                             // TODO! granular
@@ -770,175 +766,165 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if (advice & MADV_NORMAL) == MADV_NORMAL {
-                            self.one_line.push("provide default treatment for ".white());
+                            self.general_text("provide default treatment for ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
                         } else if (advice & MADV_RANDOM) == MADV_RANDOM {
-                            self.one_line.push("expect ".white());
+                            self.general_text("expect ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
-                            self.one_line
-                                .push(" to be referenced in random order".white());
+                            self.general_text(" to be referenced in random order");
                         } else if (advice & MADV_SEQUENTIAL) == MADV_SEQUENTIAL {
-                            self.one_line.push("expect ".white());
+                            self.general_text("expect ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
-                            self.one_line
-                                .push(" to be referenced in sequential order".white());
+                            self.general_text(" to be referenced in sequential order");
                         } else if (advice & MADV_WILLNEED) == MADV_WILLNEED {
-                            self.one_line.push("expect ".white());
+                            self.general_text("expect ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
-                            self.one_line.push(" to be accessed in the future".white());
+                            self.general_text(" to be accessed in the future");
                         } else if (advice & MADV_DONTNEED) == MADV_DONTNEED {
                             self.one_line.push("do not expect the".yellow());
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
-                            self.one_line.push(" to be accessed in the future".white());
+                            self.general_text(" to be accessed in the future");
                         } else if (advice & MADV_REMOVE) == MADV_REMOVE {
                             // equivalent to punching a hole in the corresponding range
-                            self.one_line.push("free".white());
+                            self.general_text("free");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
                         } else if (advice & MADV_DONTFORK) == MADV_DONTFORK {
-                            self.one_line.push("do not allow ".white());
+                            self.general_text("do not allow ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
-                            self.one_line
-                                .push(" to be available to children from ".white());
+                            self.general_text(" to be available to children from ");
                             self.one_line.push("fork()".blue());
                         } else if (advice & MADV_DOFORK) == MADV_DOFORK {
-                            self.one_line.push("allow ".white());
+                            self.general_text("allow ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
-                            self.one_line
-                                .push(" to be available to children from ".white());
+                            self.general_text(" to be available to children from ");
                             self.one_line.push("fork()".blue());
-                            self.one_line.push(" ".white());
+                            self.general_text(" ");
                             self.one_line.push("(Undo MADV_DONTFORK)".yellow());
                         } else if (advice & MADV_HWPOISON) == MADV_HWPOISON {
                             // treat subsequent references to those pages like a hardware memory corruption
-                            self.one_line.push("poison ".white());
+                            self.general_text("poison ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
                         } else if (advice & MADV_MERGEABLE) == MADV_MERGEABLE {
                             // KSM merges only private anonymous pages
-                            self.one_line
-                                .push("enable KSM (Kernel Samepage Merging) for ".white());
+                            self.general_text("enable KSM (Kernel Samepage Merging) for ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
                         } else if (advice & MADV_UNMERGEABLE) == MADV_UNMERGEABLE {
-                            self.one_line.push(
-                                "unmerge all previous KSM merges from MADV_MERGEABLE in ".white(),
+                            self.general_text(
+                                "unmerge all previous KSM merges from MADV_MERGEABLE in ",
                             );
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
                         } else if (advice & MADV_HUGEPAGE) == MADV_HUGEPAGE {
                             self.one_line.push("enable".yellow());
-                            self.one_line
-                                .push(" transparent huge pages (THP) on ".white());
+                            self.general_text(" transparent huge pages (THP) on ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
                         } else if (advice & MADV_NOHUGEPAGE) == MADV_NOHUGEPAGE {
                             self.one_line.push("disable".yellow());
-                            self.one_line
-                                .push(" transparent huge pages (THP) on ".white());
+                            self.general_text(" transparent huge pages (THP) on ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
                         } else if (advice & MADV_COLLAPSE) == MADV_COLLAPSE {
                             // TODO! citation needed
-                            self.one_line
-                                .push("perform a synchronous collapse of ".white());
+                            self.general_text("perform a synchronous collapse of ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
-                            self.one_line
-                                .push(" that's mapped into transparent huge pages (THP)".white());
+                            self.general_text(" that's mapped into transparent huge pages (THP)");
                         } else if (advice & MADV_DONTDUMP) == MADV_DONTDUMP {
-                            self.one_line.push("exclude ".white());
+                            self.general_text("exclude ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
-                            self.one_line.push(" from core dumps".white());
+                            self.general_text(" from core dumps");
                         } else if (advice & MADV_DODUMP) == MADV_DODUMP {
-                            self.one_line.push("include ".white());
+                            self.general_text("include ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
-                            self.one_line.push(" in core dumps ".white());
+                            self.general_text(" in core dumps ");
                             self.one_line.push("(Undo MADV_DONTDUMP)".yellow());
                         } else if (advice & MADV_FREE) == MADV_FREE {
-                            self.one_line.push("the range of ".white());
+                            self.general_text("the range of ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
-                            self.one_line
-                                .push(" is no longer required and is ok to free".white());
+                            self.general_text(" is no longer required and is ok to free");
                         } else if (advice & MADV_WIPEONFORK) == MADV_WIPEONFORK {
-                            self.one_line.push("zero-fill the range of ".white());
+                            self.general_text("zero-fill the range of ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
-                            self.one_line.push(" to any child from ".white());
+                            self.general_text(" to any child from ");
                             self.one_line.push("fork()".blue());
                         } else if (advice & MADV_KEEPONFORK) == MADV_KEEPONFORK {
-                            self.one_line.push("keep the range of ".white());
+                            self.general_text("keep the range of ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
-                            self.one_line.push(" to any child from ".white());
+                            self.general_text(" to any child from ");
                             self.one_line.push("fork()".blue());
-                            self.one_line.push(" ".white());
+                            self.general_text(" ");
                             self.one_line.push("(Undo MADV_WIPEONFORK)".yellow());
                         } else if (advice & MADV_COLD) == MADV_COLD {
                             // This makes the pages a more probable reclaim target during memory pressure
-                            self.one_line.push("deactivate ".white());
+                            self.general_text("deactivate ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
-                            self.one_line
-                                .push("  (make more probable to reclaim)".white());
+                            self.general_text("  (make more probable to reclaim)");
                         } else if (advice & MADV_PAGEOUT) == MADV_PAGEOUT {
                             // This is done to free up memory occupied by these pages.
                             // If a page is anonymous, it will be swapped out.
                             // If a page  is  file-backed and dirty, it will be written back to the backing storage
-                            self.one_line.push("page out ".white()); // "page out" is more intuitive, "reclaim" is misleading
+                            self.general_text("page out ");
+                            // "page out" is more intuitive, "reclaim"sleading
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
                         } else if (advice & MADV_POPULATE_READ) == MADV_POPULATE_READ {
-                            self.one_line.push("prefault ".white());
+                            self.general_text("prefault ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
-                            self.one_line.push(" while avoiding memory access ".white());
+                            self.general_text(" while avoiding memory access ");
                             self.one_line.push("(simulate reading)".yellow());
                         } else if (advice & MADV_POPULATE_WRITE) == MADV_POPULATE_WRITE {
-                            self.one_line.push("prefault ".white());
+                            self.general_text("prefault ");
                             self.one_line.push(len.yellow());
-                            self.one_line.push(" of memory starting from ".white());
+                            self.general_text(" of memory starting from ");
                             self.one_line.push(addr.yellow());
-                            self.one_line.push(" while avoiding memory access ".white());
+                            self.general_text(" while avoiding memory access ");
                             self.one_line.push("(simulate writing)".yellow());
                         }
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("memory advice registered".green());
                         } else {
                             // TODO! granular
@@ -987,9 +973,9 @@ impl SyscallObject {
                         //
                         //
                         if !anonymous {
-                            self.one_line.push("map ".white());
+                            self.general_text("map ");
                         } else {
-                            self.one_line.push("allocate ".white());
+                            self.general_text("allocate ");
                         }
                         self.one_line.push(bytes.yellow());
                         // BACKED BY FILE
@@ -997,16 +983,16 @@ impl SyscallObject {
                         //
                         //
                         if !anonymous {
-                            self.one_line.push(" of the file: ".white());
+                            self.general_text(" of the file: ");
                             let filename = self.pavfol(4);
                             self.one_line.push(filename.yellow());
                             if offset_num > 0 {
-                                self.one_line.push(" at an offset of ".white());
+                                self.general_text(" at an offset of ");
                                 self.one_line.push(offset.to_string().yellow());
                             }
                         }
 
-                        self.one_line.push(" as ".white());
+                        self.general_text(" as ");
                         // PRIVATE VS SHARED
                         //
                         //
@@ -1028,7 +1014,7 @@ impl SyscallObject {
                         //
                         //
                         if huge_pages_used {
-                            self.one_line.push(" using ".white());
+                            self.general_text(" using ");
                             if (mapping_flags_num & MAP_HUGE_64KB) == MAP_HUGE_64KB {
                                 self.one_line.push("64 KB ".yellow());
                             } else if (mapping_flags_num & MAP_HUGE_512KB) == MAP_HUGE_512KB {
@@ -1062,7 +1048,7 @@ impl SyscallObject {
                         //
                         //
                         if populate && !non_blocking {
-                            self.one_line.push(" ".white());
+                            self.general_text(" ");
                             self.one_line.push("and prefault it".yellow());
                             // MAP_NON_BLOCK disables MAP_POPULATE since 2.5.46
                         }
@@ -1087,9 +1073,9 @@ impl SyscallObject {
                         }
 
                         if others.len() > 0 {
-                            self.one_line.push(" (".white());
-                            vanilla_commas_handler(others, &mut self.one_line);
-                            self.one_line.push(")".white());
+                            self.general_text(" (");
+                            self.vanilla_commas_handler(others);
+                            self.general_text(")");
                         }
 
                         // ADDRESS
@@ -1097,28 +1083,23 @@ impl SyscallObject {
                         //
                         //
                         if addr.is_null() {
-                            self.one_line.push(" at ".white());
+                            self.general_text(" at ");
                             self.one_line
                                 .push("an appropiate kernel chosen address".yellow());
                         } else if (mapping_flags_num & MAP_FIXED) == MAP_FIXED {
-                            self.one_line.extend([
-                                " starting ".white(),
-                                "exactly at ".yellow(),
-                                address.yellow(),
-                            ]);
+                            self.general_text(" starting ");
+                            self.one_line
+                                .extend(["exactly at ".yellow(), address.yellow()]);
                         } else if (mapping_flags_num & MAP_FIXED_NOREPLACE) == MAP_FIXED_NOREPLACE {
+                            self.general_text(" starting ");
                             self.one_line.extend([
-                                " starting ".white(),
                                 "exactly at ".yellow(),
                                 address.yellow(),
                                 " and fail if a mapping already exists ".yellow(),
                             ]);
                         } else {
-                            self.one_line.extend([
-                                " starting ".white(),
-                                "around ".yellow(),
-                                address.yellow(),
-                            ]);
+                            self.general_text(" starting ");
+                            self.one_line.extend(["around ".yellow(), address.yellow()]);
                         }
 
                         // MEMORY DIRECTION
@@ -1147,8 +1128,8 @@ impl SyscallObject {
                                 flags.push("execution".yellow());
                             }
                             if !flags.is_empty() {
-                                self.one_line.push(" and allow ".white());
-                                vanilla_commas_handler(flags, &mut self.one_line);
+                                self.general_text(" and allow ");
+                                self.vanilla_commas_handler(flags);
                             }
                         } else {
                             // TODO! guard pages note should be improved
@@ -1159,7 +1140,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("new mapping address: ".green());
                             let address = eph_return.unwrap();
                             // p!(where_in_childs_memory(self.child, self.result.0.unwrap())
@@ -1208,15 +1189,15 @@ impl SyscallObject {
                 let bytes = self.pavfol(1);
                 match self.state {
                     Entering => {
-                        self.one_line.push("unmap ".white());
+                        self.general_text("unmap ");
                         self.one_line.push(bytes.yellow());
-                        self.one_line.push(" from memory starting at ".white());
+                        self.general_text(" from memory starting at ");
                         self.one_line.push(address.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successfully unmapped region".green());
                         } else {
                             // TODO! granular
@@ -1231,34 +1212,34 @@ impl SyscallObject {
                 let msync_flags: MsFlags = unsafe { std::mem::transmute(self.args[2] as u32) };
                 match self.state {
                     Entering => {
-                        self.one_line.push("flush all changes made on ".white());
+                        self.general_text("flush all changes made on ");
                         self.one_line.push(bytes.yellow());
-                        self.one_line.push(" of memory starting from ".white());
+                        self.general_text(" of memory starting from ");
                         self.one_line.push(address.yellow());
-                        self.one_line.push(" back to the filesystem".white());
+                        self.general_text(" back to the filesystem");
                         if msync_flags.contains(MsFlags::MS_ASYNC) {
-                            self.one_line.push(" (".white());
+                            self.general_text(" (");
                             self.one_line
                                 .push("schedule the update, but return immediately".yellow());
-                            self.one_line.push(")".white());
+                            self.general_text(")");
                         } else if msync_flags.contains(MsFlags::MS_INVALIDATE) {
-                            self.one_line.push(" (".white());
+                            self.general_text(" (");
                             self.one_line.push("block until completion".yellow());
-                            self.one_line.push(")".white());
+                            self.general_text(")");
                         } else if msync_flags.contains(MsFlags::MS_SYNC) {
                             // this is used to propagate
-                            self.one_line.push(" (".white());
+                            self.general_text(" (");
                             self.one_line.push(
                                 "invalidate other mappings of the file to propagate these changes"
                                     .yellow(),
                             );
-                            self.one_line.push(")".white());
+                            self.general_text(")");
                         }
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successfully flushed data".green());
                         } else {
                             // TODO! granular
@@ -1284,11 +1265,11 @@ impl SyscallObject {
                             // is a technique for mitigating against exploitation of heap buffer overflows.
                             // These guard pages are unmapped pages placed between all memory allocations
                             // of one page or larger. The guard page causes a segmentation fault upon any access.
-                            self.one_line.push("prevent ".white());
+                            self.general_text("prevent ");
                             self.one_line.push("all access".yellow());
                         } else {
                             if all_prots.intersects(prot_flags) {
-                                self.one_line.push("allow ".white());
+                                self.general_text("allow ");
                                 let mut flags = vec![];
                                 if prot_flags.contains(ProtFlags::PROT_READ) {
                                     flags.push(ProtFlags::PROT_READ)
@@ -1323,20 +1304,20 @@ impl SyscallObject {
                         //
                         //
                         //
-                        self.one_line.push(" on ".white());
+                        self.general_text(" on ");
                         self.one_line.push(bytes.yellow());
-                        self.one_line.push(" of memory ".white());
+                        self.general_text(" of memory ");
                         // ADDRESS
                         //
                         //
                         //
-                        self.one_line.push("starting from ".white());
+                        self.general_text("starting from ");
                         self.one_line.push(address.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("memory protection modified".green());
                         } else {
                             // TODO! granular
@@ -1356,10 +1337,9 @@ impl SyscallObject {
                         match whence {
                             Whence::SeekSet => {
                                 if offset_num == 0 {
-                                    self.one_line
-                                        .push("move the file pointer of the file: ".white());
+                                    self.general_text("move the file pointer of the file: ");
                                     self.one_line.push(filename.yellow());
-                                    self.one_line.push(" to ".white());
+                                    self.general_text(" to ");
                                     self.one_line.push("the beginning of the file".yellow());
                                 } else {
                                     self.one_line.push(offset.yellow());
@@ -1368,15 +1348,13 @@ impl SyscallObject {
                                 }
                             }
                             Whence::SeekCur => {
-                                self.one_line
-                                    .push("move the file pointer of the file: ".white());
+                                self.general_text("move the file pointer of the file: ");
                                 self.one_line.push(filename.yellow());
-                                self.one_line.push(" ".white());
+                                self.general_text(" ");
                                 if offset_num == 0 {
-                                    // self.one_line
-                                    //     .push("[intentrace: redundant syscall (won't do anything)]".white());
+                                    // self.general_text.push("[intentrace: redundant syscall (won't do anything)]");
 
-                                    self.one_line.push("to ".white());
+                                    self.general_text("to ");
                                     self.one_line.push("the current file pointer".yellow());
                                 } else if offset_num > 0 {
                                     self.one_line.push(offset.yellow());
@@ -1387,31 +1365,29 @@ impl SyscallObject {
                                 }
                             }
                             Whence::SeekEnd => {
-                                self.one_line
-                                    .push("move the file pointer of the file: ".white());
+                                self.general_text("move the file pointer of the file: ");
                                 self.one_line.push(filename.yellow());
-                                self.one_line.push(" ".white());
+                                self.general_text(" ");
 
                                 if offset_num == 0 {
-                                    self.one_line.push("to ".white());
+                                    self.general_text("to ");
                                     self.one_line.push("the end of the file".yellow());
                                 } else if offset_num > 0 {
                                     self.one_line.push(offset.yellow());
-                                    self.one_line.push(" after ".white());
+                                    self.general_text(" after ");
                                     self.one_line.push("the end of the file".yellow());
                                 } else {
                                     self.one_line.push((&offset[1..]).yellow());
-                                    self.one_line.push(" before ".white());
+                                    self.general_text(" before ");
                                     self.one_line.push("the end of the file".yellow());
                                 }
                             }
                             Whence::SeekData => {
-                                self.one_line
-                                    .push("move the file pointer of the file: ".white());
+                                self.general_text("move the file pointer of the file: ");
                                 self.one_line.push(filename.yellow());
-                                self.one_line.push(" to ".white());
+                                self.general_text(" to ");
                                 self.one_line.push("the nearest data block".yellow());
-                                self.one_line.push(" you find ".white());
+                                self.general_text(" you find ");
                                 if offset_num == 0 {
                                     self.one_line.push("at the beginning of the file".yellow());
                                 } else if offset_num > 0 {
@@ -1425,12 +1401,11 @@ impl SyscallObject {
                                 }
                             }
                             Whence::SeekHole => {
-                                self.one_line
-                                    .push("move the file pointer of the file: ".white());
+                                self.general_text("move the file pointer of the file: ");
                                 self.one_line.push(filename.yellow());
-                                self.one_line.push(" to ".white());
+                                self.general_text(" to ");
                                 self.one_line.push("the nearest data hole".yellow());
-                                self.one_line.push(" you find ".white());
+                                self.general_text(" you find ");
                                 if offset_num == 0 {
                                     self.one_line.push("at the beginning of the file".yellow());
                                 } else if offset_num > 0 {
@@ -1448,7 +1423,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("new offset location: ".green());
                             self.one_line.push(eph_return.unwrap().green());
                         } else {
@@ -1464,15 +1439,15 @@ impl SyscallObject {
                 let bytes = self.pavfol(1);
                 match self.state {
                     Entering => {
-                        self.one_line.push("prevent swapping of memory on ".white());
+                        self.general_text("prevent swapping of memory on ");
                         self.one_line.push(bytes.yellow());
-                        self.one_line.push(" starting from: ".white());
+                        self.general_text(" starting from: ");
                         self.one_line.push(address.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line
                                 .push("memory range is now unswappable".green());
                         } else {
@@ -1489,24 +1464,24 @@ impl SyscallObject {
                 let flags = self.args[2] as u32;
                 match self.state {
                     Entering => {
-                        self.one_line.push("prevent swapping of memory on ".white());
+                        self.general_text("prevent swapping of memory on ");
                         self.one_line.push(bytes.yellow());
-                        self.one_line.push(" starting from: ".white());
+                        self.general_text(" starting from: ");
                         self.one_line.push(address.yellow());
 
                         // if flags.contains(crate::utilities::mlock2::MLOCK_ONFAULT) {
                         // 1 = MLOCK_ONFAULT
                         if (flags & 1) == 1 {
-                            self.one_line.push(" (".white());
+                            self.general_text(" (");
                             // this allow non-resident pages to get locked later when they are faulted
-                            self.one_line.push("only lock resident-pages, only lock non-resident pages once they're faulted".white());
-                            self.one_line.push(")".white());
+                            self.general_text("only lock resident-pages, only lock non-resident pages once they're faulted");
+                            self.general_text(")");
                         }
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line
                                 .push("memory range is now unswappable".green());
                         } else {
@@ -1523,15 +1498,15 @@ impl SyscallObject {
 
                 match self.state {
                     Entering => {
-                        self.one_line.push("allow swapping of memory on ".white());
+                        self.general_text("allow swapping of memory on ");
                         self.one_line.push(bytes.yellow());
-                        self.one_line.push(" starting from: ".white());
+                        self.general_text(" starting from: ");
                         self.one_line.push(address.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("memory range is now swappable".green());
                         } else {
                             // TODO! granular
@@ -1543,15 +1518,14 @@ impl SyscallObject {
             Sysno::munlockall => {
                 match self.state {
                     Entering => {
-                        self.one_line.push(
-                            "allow the entire memory of the calling process to be swappable"
-                                .white(),
+                        self.general_text(
+                            "allow the entire memory of the calling process to be swappable",
                         );
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("memory range is now swappable".green());
                         } else {
                             // TODO! granular
@@ -1574,12 +1548,12 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if new_len_num > old_len_num {
-                            self.one_line.push("expand the memory region of ".white());
+                            self.general_text("expand the memory region of ");
                             self.one_line.push(old_len.yellow());
                             self.one_line.push(" starting from: ".yellow());
                             self.one_line.push(old_address.yellow());
                         } else if new_len_num < old_len_num {
-                            self.one_line.push("shrink the memory region of ".white());
+                            self.general_text("shrink the memory region of ");
                             self.one_line.push(old_len.yellow());
                             self.one_line.push(" starting from: ".yellow());
                             self.one_line.push(old_address.yellow());
@@ -1588,7 +1562,7 @@ impl SyscallObject {
                                 self.one_line
                                     .push("[intentrace Notice: syscall no-op]".blink());
                             } else {
-                                self.one_line.push("move the memory region of ".white());
+                                self.general_text("move the memory region of ");
                                 self.one_line.push(old_len.yellow());
                                 self.one_line.push(" starting from: ".yellow());
                                 self.one_line.push(old_address.yellow());
@@ -1597,19 +1571,17 @@ impl SyscallObject {
                         if flags.contains(MRemapFlags::MREMAP_FIXED)
                             && flags.contains(MRemapFlags::MREMAP_MAYMOVE)
                         {
-                            self.one_line.push(" (".white());
-                            self.one_line.push(
-                        "move the mapping to a different address if you can not expand at current address"
+                            self.general_text(" (");
+                            self.one_line.push(                        "move the mapping to a different address if you can not expand at current address"
                             .yellow(),
                     );
-                            self.one_line.push(")".white());
+                            self.general_text(")");
                         } else if flags.contains(MRemapFlags::MREMAP_MAYMOVE) {
-                            self.one_line.push(" (".white());
-                            self.one_line.push(
-                        "move the mapping to a different address if you can not expand at current address"
+                            self.general_text(" (");
+                            self.one_line.push(                        "move the mapping to a different address if you can not expand at current address"
                             .yellow(),
                     );
-                            self.one_line.push(")".white());
+                            self.general_text(")");
                         } // else if flags.contains( MRemapFlags::MREMAP_DONTUNMAP) {
                           // unsupported at rustix atm
                           // }
@@ -1617,7 +1589,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
@@ -1635,20 +1607,19 @@ impl SyscallObject {
 
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("populate a vector of bytes representing ".white());
+                        self.general_text("populate a vector of bytes representing ");
                         self.one_line.push(length.yellow());
                         self.one_line
                             .push(" of the process's memory starting from: ".yellow());
                         self.one_line.push(address.yellow());
-                        self.one_line.push(
-                            " indicating resident and non-resident pages in each byte".white(),
+                        self.general_text(
+                            " indicating resident and non-resident pages in each byte",
                         );
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
@@ -1663,7 +1634,7 @@ impl SyscallObject {
                     unsafe { std::mem::transmute(self.args[0] as u32) };
                 match self.state {
                     Entering => {
-                        self.one_line.push("prevent swapping of ".white());
+                        self.general_text("prevent swapping of ");
 
                         match (
                             (flags_num & MCL_CURRENT) == MCL_CURRENT,
@@ -1674,21 +1645,21 @@ impl SyscallObject {
                                     .push("all current and future mapped pages".yellow());
                                 if (flags_num & MCL_ONFAULT) == MCL_ONFAULT {
                                     // this allow non-resident pages to get locked later when they are faulted
-                                    self.one_line.push(" (only lock resident-pages for current and future mappings, lock non-resident pages whenever they're faulted)".white());
+                                    self.general_text(" (only lock resident-pages for current and future mappings, lock non-resident pages whenever they're faulted)");
                                 }
                             }
                             (true, false) => {
                                 self.one_line.push("all currently mapped pages".yellow());
                                 if (flags_num & MCL_ONFAULT) == MCL_ONFAULT {
                                     // this allow non-resident pages to get locked later when they are faulted
-                                    self.one_line.push(" (only lock currently resident-pages, only lock non-resident pages once they're faulted)".white());
+                                    self.general_text(" (only lock currently resident-pages, only lock non-resident pages once they're faulted)");
                                 }
                             }
                             (false, true) => {
                                 self.one_line.push("all future mapped pages ".yellow());
                                 if (flags_num & MCL_ONFAULT) == MCL_ONFAULT {
                                     // this allow non-resident pages to get locked later when they are faulted
-                                    self.one_line.push(" (do not lock future pages the moment they're mapped, only lock whenever they're faulted)".white());
+                                    self.general_text(" (do not lock future pages the moment they're mapped, only lock whenever they're faulted)");
                                 }
                             }
                             (false, false) => {
@@ -1699,7 +1670,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line
                                 .push("memory range is now unswappable".green());
                         } else {
@@ -1715,9 +1686,9 @@ impl SyscallObject {
                 let bytes = self.pavfol(2);
                 match self.state {
                     Entering => {
-                        self.one_line.push("read ".white());
+                        self.general_text("read ");
                         self.one_line.push(bytes.yellow());
-                        self.one_line.push(" from the file: ".white());
+                        self.general_text(" from the file: ");
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
@@ -1725,7 +1696,7 @@ impl SyscallObject {
                         if eph_return.is_ok() {
                             let bytes_string = eph_return.unwrap();
                             let bytes_num = self.result.0.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             if bytes_num == 0 {
                                 self.one_line.push("read ".green());
                                 self.one_line.push(bytes_string.yellow());
@@ -1751,13 +1722,13 @@ impl SyscallObject {
                 let filename = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line.push("write ".white());
+                        self.general_text("write ");
                         if bytes_to_write < 20 {
                             self.one_line.push(format!("{:?}", self.pavfol(1)).yellow());
                         } else {
                             self.one_line.push(self.pavfol(2).yellow());
                         }
-                        self.one_line.push(" into the file: ".white());
+                        self.general_text(" into the file: ");
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
@@ -1765,7 +1736,7 @@ impl SyscallObject {
                         if eph_return.is_ok() {
                             let bytes_string = eph_return.unwrap();
                             let bytes_num = self.result.0.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             if bytes_num < bytes_to_write {
                                 self.one_line.push("wrote ".green());
                                 self.one_line.push(bytes_string.yellow());
@@ -1789,11 +1760,11 @@ impl SyscallObject {
                 let offset = self.pavfol(3);
                 match self.state {
                     Entering => {
-                        self.one_line.push("read ".white());
+                        self.general_text("read ");
                         self.one_line.push(bytes.yellow());
-                        self.one_line.push(" from the file: ".white());
+                        self.general_text(" from the file: ");
                         self.one_line.push(filename.yellow());
-                        self.one_line.push(" at an offset of ".white());
+                        self.general_text(" at an offset of ");
                         self.one_line.push(offset.yellow());
                     }
                     Exiting => {
@@ -1801,7 +1772,7 @@ impl SyscallObject {
                         if eph_return.is_ok() {
                             let bytes_string = eph_return.unwrap();
                             let bytes_num: u64 = self.result.0.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             if bytes_num == 0 {
                                 self.one_line.push(bytes_string.yellow());
                                 self.one_line.push(" (end of file)".green());
@@ -1828,15 +1799,15 @@ impl SyscallObject {
 
                 match self.state {
                     Entering => {
-                        self.one_line.push("write ".white());
+                        self.general_text("write ");
                         if bytes_to_write < 20 {
                             self.one_line.push(format!("{:?}", self.pavfol(1)).yellow());
                         } else {
                             self.one_line.push(self.pavfol(2).yellow());
                         }
-                        self.one_line.push(" into the file: ".white());
+                        self.general_text(" into the file: ");
                         self.one_line.push(filename.yellow());
-                        self.one_line.push(" at an offset of ".white());
+                        self.general_text(" at an offset of ");
                         self.one_line.push(offset.yellow());
                     }
                     Exiting => {
@@ -1844,7 +1815,7 @@ impl SyscallObject {
                         if eph_return.is_ok() {
                             let bytes_string = eph_return.unwrap();
                             let bytes_num = self.result.0.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             if bytes_num < bytes_to_write {
                                 self.one_line.push("wrote ".green());
                                 self.one_line.push(bytes_string.yellow());
@@ -1866,14 +1837,12 @@ impl SyscallObject {
                 let filename = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line.push("read from ".white());
+                        self.general_text("read from ");
                         self.one_line.push(number_of_iovecs.to_string().yellow());
                         if number_of_iovecs == 1 {
-                            self.one_line
-                                .push(" region of memory from the file: ".white());
+                            self.general_text(" region of memory from the file: ");
                         } else {
-                            self.one_line
-                                .push(" scattered regions of memory from the file: ".white());
+                            self.general_text(" scattered regions of memory from the file: ");
                         }
                         self.one_line.push(filename.yellow());
                     }
@@ -1881,7 +1850,7 @@ impl SyscallObject {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let bytes_string = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("read ".green());
                             self.one_line.push(bytes_string.yellow());
                         } else {
@@ -1897,14 +1866,12 @@ impl SyscallObject {
 
                 match self.state {
                     Entering => {
-                        self.one_line.push("write into ".white());
+                        self.general_text("write into ");
                         self.one_line.push(number_of_iovecs.to_string().yellow());
                         if number_of_iovecs == 1 {
-                            self.one_line
-                                .push(" region of memory of the file: ".white());
+                            self.general_text(" region of memory of the file: ");
                         } else {
-                            self.one_line
-                                .push(" scattered regions of memory of the file: ".white());
+                            self.general_text(" scattered regions of memory of the file: ");
                         }
                         self.one_line.push(filename.yellow());
                     }
@@ -1912,7 +1879,7 @@ impl SyscallObject {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let bytes_string = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("wrote ".green());
                             self.one_line.push(bytes_string.yellow());
                         } else {
@@ -1928,24 +1895,22 @@ impl SyscallObject {
                 let offset = self.pavfol(3);
                 match self.state {
                     Entering => {
-                        self.one_line.push("read from ".white());
+                        self.general_text("read from ");
                         self.one_line.push(number_of_iovecs.to_string().yellow());
                         if number_of_iovecs == 1 {
-                            self.one_line
-                                .push(" region of memory from the file: ".white());
+                            self.general_text(" region of memory from the file: ");
                         } else {
-                            self.one_line
-                                .push(" scattered regions of memory from the file: ".white());
+                            self.general_text(" scattered regions of memory from the file: ");
                         }
                         self.one_line.push(filename.yellow());
-                        self.one_line.push(" at an offset of ".white());
+                        self.general_text(" at an offset of ");
                         self.one_line.push(offset.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let bytes_string = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("read ".green());
                             self.one_line.push(bytes_string.yellow());
                         } else {
@@ -1962,24 +1927,22 @@ impl SyscallObject {
 
                 match self.state {
                     Entering => {
-                        self.one_line.push("write into ".white());
+                        self.general_text("write into ");
                         self.one_line.push(number_of_iovecs.to_string().yellow());
                         if number_of_iovecs == 1 {
-                            self.one_line
-                                .push(" region of memory of the file: ".white());
+                            self.general_text(" region of memory of the file: ");
                         } else {
-                            self.one_line
-                                .push(" scattered regions of memory of the file: ".white());
+                            self.general_text(" scattered regions of memory of the file: ");
                         }
                         self.one_line.push(filename.yellow());
-                        self.one_line.push(" at an offset of ".white());
+                        self.general_text(" at an offset of ");
                         self.one_line.push(offset.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let bytes_string = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("wrote ".green());
                             self.one_line.push(bytes_string.yellow());
                         } else {
@@ -1993,13 +1956,12 @@ impl SyscallObject {
             Sysno::sync => {
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("flush all pending filesystem data and metadata writes".white());
+                        self.general_text("flush all pending filesystem data and metadata writes");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("all writes flushed".green());
                         } else {
                             // TODO! granular
@@ -2015,16 +1977,16 @@ impl SyscallObject {
                 let new_path = self.pavfol(1);
                 match self.state {
                     Entering => {
-                        self.one_line.push("move the file: ".white());
+                        self.general_text("move the file: ");
                         self.one_line.push(old_path.yellow());
-                        self.one_line.push(" to: ".white());
+                        self.general_text(" to: ");
                         self.one_line.push(new_path.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("file moved".green());
                         } else {
                             // TODO! granular
@@ -2040,17 +2002,17 @@ impl SyscallObject {
                 let new_filename = self.pavfol(3);
                 match self.state {
                     Entering => {
-                        self.one_line.push("move the file: ".white());
+                        self.general_text("move the file: ");
                         self.possible_dirfd_file(old_dirfd, old_filename);
 
-                        self.one_line.push(" to: ".white());
+                        self.general_text(" to: ");
                         self.possible_dirfd_file(new_dirfd, new_filename);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("file moved".green());
                         } else {
                             // TODO! granular
@@ -2067,10 +2029,10 @@ impl SyscallObject {
                 let flags = self.args[2] as u32;
                 match self.state {
                     Entering => {
-                        self.one_line.push("move the file: ".white());
+                        self.general_text("move the file: ");
                         self.possible_dirfd_file(old_dirfd, old_filename);
 
-                        self.one_line.push(" to: ".white());
+                        self.general_text(" to: ");
                         self.possible_dirfd_file(new_dirfd, new_filename);
 
                         let mut directives = vec![];
@@ -2083,13 +2045,13 @@ impl SyscallObject {
                         if (flags & RENAME_WHITEOUT) > 0 {
                             directives.push("white-out the original file".yellow());
                         }
-                        directives_handler(directives, &mut self.one_line);
+                        self.directives_handler(directives);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("file moved".green());
                         } else {
                             // TODO! granular
@@ -2105,10 +2067,10 @@ impl SyscallObject {
                     Entering => match path_rust.canonicalize() {
                         Ok(abs_path) => {
                             let canon_path = abs_path.canonicalize().unwrap();
-                            self.one_line.push("create a new directory ".white());
+                            self.general_text("create a new directory ");
                             self.one_line
                                 .push(canon_path.file_name().unwrap().to_string_lossy().yellow());
-                            self.one_line.push(" inside: ".white());
+                            self.general_text(" inside: ");
                             self.one_line
                                 .push(canon_path.parent().unwrap().to_string_lossy().yellow());
                         }
@@ -2119,7 +2081,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("directory created".green());
                         } else {
                             // TODO! granular
@@ -2137,7 +2099,7 @@ impl SyscallObject {
                         let path = self.possible_dirfd_file_output(dirfd, filename);
                         let path_rust = PathBuf::from(path);
 
-                        self.one_line.push("create a new directory ".white());
+                        self.general_text("create a new directory ");
                         self.one_line.push(
                             path_rust
                                 .file_name()
@@ -2146,7 +2108,7 @@ impl SyscallObject {
                                 .to_owned()
                                 .blue(),
                         );
-                        self.one_line.push(" inside: ".white());
+                        self.general_text(" inside: ");
                         self.one_line.push(
                             path_rust
                                 .parent()
@@ -2159,7 +2121,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("directory created".green());
                         } else {
                             // TODO! granular
@@ -2171,13 +2133,12 @@ impl SyscallObject {
             Sysno::getcwd => {
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("get the current working directory".white());
+                        self.general_text("get the current working directory");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("cwd: ".green());
                             self.one_line.push(eph_return.unwrap().yellow());
                         } else {
@@ -2192,16 +2153,16 @@ impl SyscallObject {
                 let symlink = self.pavfol(1);
                 match self.state {
                     Entering => {
-                        self.one_line.push("create the symlink: ".white());
+                        self.general_text("create the symlink: ");
                         handle_path_file(symlink, &mut self.one_line);
 
-                        self.one_line.push(" and link it with: ".white());
+                        self.general_text(" and link it with: ");
                         handle_path_file(target, &mut self.one_line);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("symlink created".green());
                         } else {
                             // TODO! granular
@@ -2217,15 +2178,15 @@ impl SyscallObject {
 
                 match self.state {
                     Entering => {
-                        self.one_line.push("create the symlink: ".white());
+                        self.general_text("create the symlink: ");
                         self.possible_dirfd_file(dirfd, symlink);
-                        self.one_line.push(" and link it with: ".white());
+                        self.general_text(" and link it with: ");
                         self.one_line.push(target.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("symlink created".green());
                         } else {
                             // TODO! granular
@@ -2238,14 +2199,13 @@ impl SyscallObject {
                 let path = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("unlink and possibly delete the file: ".white());
+                        self.general_text("unlink and possibly delete the file: ");
                         handle_path_file(path, &mut self.one_line);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("unlinking successful".green());
                         } else {
                             // TODO! granular
@@ -2260,22 +2220,21 @@ impl SyscallObject {
                 let flag = self.args[2] as i32;
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("unlink and possibly delete the file: ".white());
+                        self.general_text("unlink and possibly delete the file: ");
                         self.possible_dirfd_file(dirfd, path);
 
                         if (flag & AT_REMOVEDIR) > 0 {
-                            self.one_line.push(" (".white());
+                            self.general_text(" (");
                             self.one_line
                                 .push("perform the same operation as ".yellow());
                             self.one_line.push("`rmdir`".blue());
-                            self.one_line.push(")".white());
+                            self.general_text(")");
                         }
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("unlinking successful".green());
                         } else {
                             // TODO! granular
@@ -2292,7 +2251,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if access_mode.contains(nix::unistd::AccessFlags::F_OK) {
-                            self.one_line.push("check if the file: ".white());
+                            self.general_text("check if the file: ");
                             handle_path_file(filename, &mut self.one_line);
                             self.one_line.push(" exists".yellow());
                         } else {
@@ -2307,10 +2266,9 @@ impl SyscallObject {
                                 checks.push("execute".yellow());
                             }
                             if !checks.is_empty() {
-                                self.one_line
-                                    .push("check if the process is allowed to ".white());
-                                vanilla_commas_handler(checks, &mut self.one_line);
-                                self.one_line.push(" the file: ".white());
+                                self.general_text("check if the process is allowed to ");
+                                self.vanilla_commas_handler(checks);
+                                self.general_text(" the file: ");
                                 handle_path_file(filename, &mut self.one_line);
                             }
                         }
@@ -2318,7 +2276,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("check is positive".green());
                         } else {
                             // TODO! granular
@@ -2338,10 +2296,10 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if access_mode.contains(nix::unistd::AccessFlags::F_OK) {
-                            self.one_line.push("check if the file: ".white());
+                            self.general_text("check if the file: ");
                             self.possible_dirfd_file(dirfd, filename);
 
-                            self.one_line.push(" ".white());
+                            self.general_text(" ");
                             self.one_line.push("exists".yellow());
                         } else {
                             let mut checks = vec![];
@@ -2355,10 +2313,9 @@ impl SyscallObject {
                                 checks.push("execute".yellow());
                             }
                             if !checks.is_empty() {
-                                self.one_line
-                                    .push("check if the process is allowed to ".white());
-                                vanilla_commas_handler(checks, &mut self.one_line);
-                                self.one_line.push(" the file: ".white());
+                                self.general_text("check if the process is allowed to ");
+                                self.vanilla_commas_handler(checks);
+                                self.general_text(" the file: ");
                                 self.possible_dirfd_file(dirfd, filename);
                             }
                         }
@@ -2385,12 +2342,12 @@ impl SyscallObject {
                                 "operate on the anchor directory if pathname is empty".yellow(),
                             );
                         }
-                        directives_handler(flag_directive, &mut self.one_line);
+                        self.directives_handler(flag_directive);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("check is positive".green());
                         } else {
                             // TODO! granular
@@ -2411,9 +2368,9 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if access_mode.contains(nix::unistd::AccessFlags::F_OK) {
-                            self.one_line.push("check if the file: ".white());
+                            self.general_text("check if the file: ");
                             self.possible_dirfd_file(dirfd, filename);
-                            self.one_line.push(" ".white());
+                            self.general_text(" ");
                             self.one_line.push("exists".yellow());
                         } else {
                             let mut checks = vec![];
@@ -2428,10 +2385,9 @@ impl SyscallObject {
                             }
 
                             if !checks.is_empty() {
-                                self.one_line
-                                    .push("check if the process is allowed to ".white());
-                                vanilla_commas_handler(checks, &mut self.one_line);
-                                self.one_line.push(" the file ".white());
+                                self.general_text("check if the process is allowed to ");
+                                self.vanilla_commas_handler(checks);
+                                self.general_text(" the file ");
                                 self.possible_dirfd_file(dirfd, filename);
                             }
                         }
@@ -2458,12 +2414,12 @@ impl SyscallObject {
                                 "operate on the anchor directory if pathname is empty".yellow(),
                             );
                         }
-                        directives_handler(flag_directive, &mut self.one_line);
+                        self.directives_handler(flag_directive);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("check is positive".green());
                         } else {
                             // TODO! granular
@@ -2476,14 +2432,13 @@ impl SyscallObject {
                 let filename = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("get the target path of the symbolic link: ".white());
+                        self.general_text("get the target path of the symbolic link: ");
                         handle_path_file(filename, &mut self.one_line);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("target retrieved: ".green());
                             let target = self.pavfol(1);
                             self.one_line.push(target.yellow());
@@ -2499,14 +2454,13 @@ impl SyscallObject {
                 let filename = self.pavfol(1);
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("get the target path of the symbolic link: ".white());
+                        self.general_text("get the target path of the symbolic link: ");
                         self.possible_dirfd_file(dirfd, filename)
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("target retrieved: ".green());
                             let target = self.pavfol(1);
                             self.one_line.push(target.yellow());
@@ -2522,14 +2476,14 @@ impl SyscallObject {
                 let mode: rustix::fs::Mode = unsafe { std::mem::transmute(self.args[1] as u32) };
                 match self.state {
                     Entering => {
-                        self.one_line.push("change the mode of the file: ".white());
+                        self.general_text("change the mode of the file: ");
                         handle_path_file(filename, &mut self.one_line);
-                        mode_matcher(mode, &mut self.one_line);
+                        self.mode_matcher(mode);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("mode changed".green());
                         } else {
                             // TODO! granular
@@ -2543,14 +2497,14 @@ impl SyscallObject {
                 let mode: rustix::fs::Mode = unsafe { std::mem::transmute(self.args[1] as u32) };
                 match self.state {
                     Entering => {
-                        self.one_line.push("change the mode of the file: ".white());
+                        self.general_text("change the mode of the file: ");
                         self.one_line.push(filename.yellow());
-                        mode_matcher(mode, &mut self.one_line);
+                        self.mode_matcher(mode);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("mode changed".green());
                         } else {
                             // TODO! granular
@@ -2567,10 +2521,10 @@ impl SyscallObject {
                 let flag: FchmodatFlags = unsafe { std::mem::transmute(self.args[3] as u8) };
                 match self.state {
                     Entering => {
-                        self.one_line.push("change the mode of the file: ".white());
+                        self.general_text("change the mode of the file: ");
                         self.possible_dirfd_file(dirfd, filename);
-                        mode_matcher(mode, &mut self.one_line);
-                        self.one_line.push("and ".white());
+                        self.mode_matcher(mode);
+                        self.general_text("and ");
                         match flag {
                             FchmodatFlags::FollowSymlink => {
                                 self.one_line.push("recurse symlinks".yellow());
@@ -2583,7 +2537,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("mode changed".green());
                         } else {
                             // TODO! granular
@@ -2596,13 +2550,13 @@ impl SyscallObject {
                 let filename = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line.push("flush all pending filesystem data and metadata writes for the filesystem that contains the file: ".white());
+                        self.general_text("flush all pending filesystem data and metadata writes for the filesystem that contains the file: ");
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successfully flushed data".green());
                         } else {
                             // TODO! granular
@@ -2615,13 +2569,12 @@ impl SyscallObject {
                 let file_descriptors = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("create a pipe for inter-process communication".white());
+                        self.general_text("create a pipe for inter-process communication");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("created the pipe: ".green());
                             self.one_line.push(file_descriptors.yellow());
                         } else {
@@ -2635,15 +2588,14 @@ impl SyscallObject {
                 let file_descriptors = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("create a pipe for inter-process communication".white());
+                        self.general_text("create a pipe for inter-process communication");
                         // flags
                         //
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("created the pipe: ".green());
                             self.one_line.push(file_descriptors.yellow());
                         } else {
@@ -2657,14 +2609,13 @@ impl SyscallObject {
                 let file_descriptor = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("duplicate the file descriptor: ".white());
+                        self.general_text("duplicate the file descriptor: ");
                         self.one_line.push(file_descriptor.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line
                                 .push("created a new duplicate file descriptor: ".green());
                             self.one_line.push(eph_return.unwrap().yellow());
@@ -2680,16 +2631,15 @@ impl SyscallObject {
                 let duplicate = self.pavfol(1);
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("duplicate the file descriptor: ".white());
+                        self.general_text("duplicate the file descriptor: ");
                         self.one_line.push(to_be_duplicated.yellow());
-                        self.one_line.push(" using the descriptor: ".white());
+                        self.general_text(" using the descriptor: ");
                         self.one_line.push(duplicate.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("Successfully duplicated".green());
                         } else {
                             // TODO! granular
@@ -2704,10 +2654,9 @@ impl SyscallObject {
                 let dup_flag_num = self.args[2] as i32;
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("duplicate the file descriptor: ".white());
+                        self.general_text("duplicate the file descriptor: ");
                         self.one_line.push(to_be_duplicated.yellow());
-                        self.one_line.push(" using the descriptor: ".white());
+                        self.general_text(" using the descriptor: ");
                         self.one_line.push(duplicate.yellow());
                         if (dup_flag_num & O_CLOEXEC) == O_CLOEXEC {
                             self.one_line
@@ -2717,7 +2666,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("Successfully duplicated".green());
                         } else {
                             // TODO! granular
@@ -2730,15 +2679,15 @@ impl SyscallObject {
                 let filename = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line.push(
-                            "flush all pending data and metadata writes for the file: ".white(),
+                        self.general_text(
+                            "flush all pending data and metadata writes for the file: ",
                         );
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("all writes flushed".green());
                         } else {
                             // TODO! granular
@@ -2751,13 +2700,13 @@ impl SyscallObject {
                 let filename = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line.push("flush all pending data and critical metadata writes (ignore non-critical metadata) for the file: ".white());
+                        self.general_text("flush all pending data and critical metadata writes (ignore non-critical metadata) for the file: ");
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("all writes flushed".green());
                         } else {
                             // TODO! granular
@@ -2771,15 +2720,15 @@ impl SyscallObject {
                 let length = self.pavfol(1);
                 match self.state {
                     Entering => {
-                        self.one_line.push("change the size of the file: ".white());
+                        self.general_text("change the size of the file: ");
                         self.one_line.push(filename.yellow());
-                        self.one_line.push(" to precisely ".white());
+                        self.general_text(" to precisely ");
                         self.one_line.push(length.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
@@ -2793,15 +2742,15 @@ impl SyscallObject {
                 let length = self.pavfol(1);
                 match self.state {
                     Entering => {
-                        self.one_line.push("change the size of the file: ".white());
+                        self.general_text("change the size of the file: ");
                         self.one_line.push(filename.yellow());
-                        self.one_line.push(" to precisely ".white());
+                        self.general_text(" to precisely ");
                         self.one_line.push(length.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
@@ -2818,7 +2767,7 @@ impl SyscallObject {
                 let timeout = self.args[4];
                 match self.state {
                     Entering => {
-                        self.one_line.push("block all ".white());
+                        self.general_text("block all ");
                         let mut blockers = vec![];
                         if readfds != 0 {
                             blockers.push("read waiting".yellow());
@@ -2840,8 +2789,8 @@ impl SyscallObject {
                         if exceptfds != 0 {
                             blockers.push("error waiting".yellow());
                         }
-                        anding_handler(blockers, &mut self.one_line);
-                        self.one_line.push(" file descriptors lower than ".white());
+                        self.anding_handler(blockers);
+                        self.general_text(" file descriptors lower than ");
                         self.one_line.push(highest_fd.to_string().blue());
 
                         if timeout > 0 {
@@ -2850,10 +2799,10 @@ impl SyscallObject {
                                 self.process_pid as _,
                             )
                             .unwrap();
-                            self.one_line.push(", and timeout ".white());
-                            format_timeval(timeval.tv_sec, timeval.tv_usec, &mut self.one_line);
+                            self.general_text(", and timeout ");
+                            self.format_timeval(timeval.tv_sec, timeval.tv_usec);
                         } else {
-                            self.one_line.push(", and ".white());
+                            self.general_text(", and ");
                             self.one_line.push("wait forever".yellow());
                         }
                     }
@@ -2861,7 +2810,7 @@ impl SyscallObject {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let res = self.result.0.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             if res == 0 {
                                 self.one_line.push("timed out before any events".green());
                             } else if res > 0 {
@@ -2885,7 +2834,7 @@ impl SyscallObject {
                 let signal_mask = self.args[5];
                 match self.state {
                     Entering => {
-                        self.one_line.push("block for events on all ".white());
+                        self.general_text("block for events on all ");
                         let mut blockers = vec![];
                         if readfds != 0 {
                             blockers.push("read waiting".yellow());
@@ -2907,11 +2856,11 @@ impl SyscallObject {
                         if exceptfds != 0 {
                             blockers.push("error waiting".yellow());
                         }
-                        anding_handler(blockers, &mut self.one_line);
-                        self.one_line.push(" file descriptors lower than ".white());
+                        self.anding_handler(blockers);
+                        self.general_text(" file descriptors lower than ");
                         self.one_line.push(highest_fd.to_string().blue());
                         if signal_mask != 0 {
-                            self.one_line.push(", and ".white());
+                            self.general_text(", and ");
                             self.one_line
                                 .push("any signal from the provided signal mask".yellow());
                         }
@@ -2922,10 +2871,10 @@ impl SyscallObject {
                                 self.process_pid as _,
                             )
                             .unwrap();
-                            self.one_line.push(", and timeout ".white());
-                            format_timespec(timespec.tv_sec, timespec.tv_nsec, &mut self.one_line);
+                            self.general_text(", and timeout ");
+                            self.format_timespec(timespec.tv_sec, timespec.tv_nsec);
                         } else {
-                            self.one_line.push(", and ".white());
+                            self.general_text(", and ");
                             self.one_line.push("wait forever".yellow());
                         }
                     }
@@ -2933,7 +2882,7 @@ impl SyscallObject {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let res = self.result.0.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             if res == 0 {
                                 self.one_line.push("timed out before any events".green());
                             } else if res > 0 {
@@ -2953,18 +2902,18 @@ impl SyscallObject {
                 let timeout = self.args[2];
                 match self.state {
                     Entering => {
-                        self.one_line.push("block for new events on the ".white());
+                        self.general_text("block for new events on the ");
                         self.one_line.push(nfds.to_string().blue());
-                        self.one_line.push(" provided file descriptors, ".white());
-                        self.one_line.push("and timeout after ".white());
+                        self.general_text(" provided file descriptors, ");
+                        self.general_text("and timeout after ");
                         self.one_line.push(timeout.to_string().blue());
-                        self.one_line.push(" milliseconds".white());
+                        self.general_text(" milliseconds");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let num_fds = self.result.0.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             if num_fds == 0 {
                                 self.one_line.push("timed out before any events".green());
                             } else {
@@ -2986,12 +2935,12 @@ impl SyscallObject {
 
                 match self.state {
                     Entering => {
-                        self.one_line.push("block for new events on the ".white());
+                        self.general_text("block for new events on the ");
                         self.one_line.push(nfds.to_string().blue());
-                        self.one_line.push(" provided file descriptors".white());
+                        self.general_text(" provided file descriptors");
 
                         if signal_mask != 0 {
-                            self.one_line.push(", or ".white());
+                            self.general_text(", or ");
                             self.one_line
                                 .push("any signal from the provided signal mask".yellow());
                         }
@@ -3002,10 +2951,10 @@ impl SyscallObject {
                                 self.process_pid as _,
                             )
                             .unwrap();
-                            self.one_line.push(", and timeout ".white());
-                            format_timespec(timespec.tv_sec, timespec.tv_nsec, &mut self.one_line);
+                            self.general_text(", and timeout ");
+                            self.format_timespec(timespec.tv_sec, timespec.tv_nsec);
                         } else {
-                            self.one_line.push(", and ".white());
+                            self.general_text(", and ");
                             self.one_line.push("wait forever".yellow());
                         }
                     }
@@ -3013,7 +2962,7 @@ impl SyscallObject {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let num_fds = self.result.0.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             if num_fds == 0 {
                                 self.one_line.push("timed out before any events".green());
                             } else {
@@ -3032,15 +2981,14 @@ impl SyscallObject {
                 let nfds = self.args[0];
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("create an epoll instance with a capacity of ".white());
+                        self.general_text("create an epoll instance with a capacity of ");
                         self.one_line.push(nfds.to_string().yellow());
-                        self.one_line.push(" file descriptors".white());
+                        self.general_text(" file descriptors");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("Successfull".green());
                         } else {
                             // TODO! granular
@@ -3053,19 +3001,19 @@ impl SyscallObject {
                 let flags = self.args[0];
                 match self.state {
                     Entering => {
-                        self.one_line.push("create an epoll instance ".white());
+                        self.general_text("create an epoll instance ");
 
                         if flags as i32 == EPOLL_CLOEXEC {
-                            self.one_line.push("(".white());
+                            self.general_text("(");
                             self.one_line
                                 .push("close file descriptors on the next exec syscall".yellow());
-                            self.one_line.push(")".white());
+                            self.general_text(")");
                         }
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("Successfull".green());
                         } else {
                             // TODO! granular
@@ -3080,25 +3028,24 @@ impl SyscallObject {
                 let time = self.args[3];
                 match self.state {
                     Entering => {
-                        self.one_line.push("block until a maximum of ".white());
+                        self.general_text("block until a maximum of ");
                         self.one_line.push(max_events.to_string().yellow());
-                        self.one_line
-                            .push(" events occur on epoll instance ".white());
+                        self.general_text(" events occur on epoll instance ");
                         self.one_line.push(epfd.to_string().blue());
                         if time > 0 {
-                            self.one_line.push(" and wait for ".white());
+                            self.general_text(" and wait for ");
                             self.one_line.push(time.to_string().blue());
                             self.one_line.push(" milliseconds".yellow());
                         } else {
                             self.one_line.push(" and wait forever".yellow());
                         }
 
-                        self.one_line.push(" ".white());
+                        self.general_text(" ");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("Successfull".green());
                         } else {
                             // TODO! granular
@@ -3114,31 +3061,30 @@ impl SyscallObject {
                 let signal_mask = self.args[4];
                 match self.state {
                     Entering => {
-                        self.one_line.push("block until a maximum of ".white());
+                        self.general_text("block until a maximum of ");
                         self.one_line.push(max_events.to_string().yellow());
-                        self.one_line
-                            .push(" events occur on epoll instance ".white());
+                        self.general_text(" events occur on epoll instance ");
                         self.one_line.push(epfd.to_string().blue());
                         if signal_mask != 0 {
-                            self.one_line.push(", or ".white());
+                            self.general_text(", or ");
                             self.one_line
                                 .push("any signal from the provided signal mask".yellow());
                         }
 
                         if time > 0 {
-                            self.one_line.push(" and wait for ".white());
+                            self.general_text(" and wait for ");
                             self.one_line.push(time.to_string().blue());
                             self.one_line.push(" milliseconds".yellow());
                         } else {
                             self.one_line.push(" and wait forever".yellow());
                         }
 
-                        self.one_line.push(" ".white());
+                        self.general_text(" ");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("Successfull".green());
                         } else {
                             // TODO! granular
@@ -3154,13 +3100,12 @@ impl SyscallObject {
                 let signal_mask = self.args[4];
                 match self.state {
                     Entering => {
-                        self.one_line.push("block until a maximum of ".white());
+                        self.general_text("block until a maximum of ");
                         self.one_line.push(max_events.to_string().yellow());
-                        self.one_line
-                            .push(" events occur on epoll instance ".white());
+                        self.general_text(" events occur on epoll instance ");
                         self.one_line.push(epfd.to_string().blue());
                         if signal_mask != 0 {
-                            self.one_line.push(", or ".white());
+                            self.general_text(", or ");
                             self.one_line
                                 .push("any signal from the provided signal mask".yellow());
                         }
@@ -3171,18 +3116,18 @@ impl SyscallObject {
                                 self.process_pid as _,
                             )
                             .unwrap();
-                            self.one_line.push(", and timeout ".white());
-                            format_timespec(timespec.tv_sec, timespec.tv_nsec, &mut self.one_line);
+                            self.general_text(", and timeout ");
+                            self.format_timespec(timespec.tv_sec, timespec.tv_nsec);
                         } else {
                             self.one_line.push(" and wait forever".yellow());
                         }
 
-                        self.one_line.push(" ".white());
+                        self.general_text(" ");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("Successfull".green());
                         } else {
                             // TODO! granular
@@ -3199,27 +3144,27 @@ impl SyscallObject {
                     Entering => {
                         if (operation as i32 & EPOLL_CTL_ADD) == EPOLL_CTL_ADD {
                             self.one_line.push("add".yellow());
-                            self.one_line.push(" file descriptor ".white());
+                            self.general_text(" file descriptor ");
                             self.one_line.push(file_descriptor.to_string().blue());
-                            self.one_line.push(" to ".white());
+                            self.general_text(" to ");
                         } else if (operation as i32 & EPOLL_CTL_DEL) == EPOLL_CTL_DEL {
                             self.one_line.push("remove".yellow());
-                            self.one_line.push(" file descriptor ".white());
+                            self.general_text(" file descriptor ");
                             self.one_line.push(file_descriptor.to_string().blue());
-                            self.one_line.push(" from ".white());
+                            self.general_text(" from ");
                         } else if (operation as i32 & EPOLL_CTL_MOD) == EPOLL_CTL_MOD {
                             self.one_line.push("modify the settings of ".yellow());
-                            self.one_line.push(" file descriptor ".white());
+                            self.general_text(" file descriptor ");
                             self.one_line.push(file_descriptor.to_string().blue());
-                            self.one_line.push(" in ".white());
+                            self.general_text(" in ");
                         }
-                        self.one_line.push("epoll instance ".white());
+                        self.general_text("epoll instance ");
                         self.one_line.push(epfd.to_string().blue());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("Successfull".green());
                         } else {
                             // TODO! granular
@@ -3232,16 +3177,16 @@ impl SyscallObject {
                 let filename = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line.push("perform operation ".white());
+                        self.general_text("perform operation ");
                         self.one_line
                             .push(format!("#{}", self.args[1].to_string()).yellow());
-                        self.one_line.push(" on the device: ".white());
+                        self.general_text(" on the device: ");
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("operation successful".green());
                         } else {
                             // TODO! granular
@@ -3254,16 +3199,16 @@ impl SyscallObject {
                 let filename = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line.push("perform operation ".white());
+                        self.general_text("perform operation ");
                         self.one_line
                             .push(format!("#{}", self.args[1].to_string()).yellow());
-                        self.one_line.push(" on the file: ".white());
+                        self.general_text(" on the file: ");
                         self.one_line.push(filename.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("operation successful".green());
                         } else {
                             // TODO! granular
@@ -3288,42 +3233,38 @@ impl SyscallObject {
                     Entering => {
                         if (operation & ARCH_SET_CPUID) == ARCH_SET_CPUID {
                             if value == 0 {
-                                self.one_line.push(
-                                    "disable the `cpuid` instruction for the calling thread"
-                                        .white(),
+                                self.general_text(
+                                    "disable the `cpuid` instruction for the calling thread",
                                 );
                             } else {
-                                self.one_line.push(
-                                    "enable the `cpuid` instruction for the calling thread".white(),
+                                self.general_text(
+                                    "enable the `cpuid` instruction for the calling thread",
                                 );
                             }
                         } else if (operation & ARCH_GET_CPUID) == ARCH_GET_CPUID {
-                            self.one_line.push(
-                                "check whether the `cpuid` instruction is enabled or disabled"
-                                    .white(),
+                            self.general_text(
+                                "check whether the `cpuid` instruction is enabled or disabled",
                             );
                         } else if (operation & ARCH_SET_FS) == ARCH_SET_FS {
-                            self.one_line
-                                .push("Set the 64-bit base for the FS register to ".white());
+                            self.general_text("Set the 64-bit base for the FS register to ");
                             self.one_line.push(value.to_string().blue());
                         } else if (operation & ARCH_GET_FS) == ARCH_GET_FS {
-                            self.one_line.push(
-                                "retrieve the calling thread's 64-bit FS register value".white(),
+                            self.general_text(
+                                "retrieve the calling thread's 64-bit FS register value",
                             );
                         } else if (operation & ARCH_SET_GS) == ARCH_SET_GS {
-                            self.one_line
-                                .push("Set the 64-bit base for the GS register to ".white());
+                            self.general_text("Set the 64-bit base for the GS register to ");
                             self.one_line.push(value.to_string().blue());
                         } else if (operation & ARCH_GET_GS) == ARCH_GET_GS {
-                            self.one_line.push(
-                                "retrieve the calling thread's 64-bit GS register value".white(),
+                            self.general_text(
+                                "retrieve the calling thread's 64-bit GS register value",
                             );
                         }
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
 
                             if (operation & ARCH_SET_CPUID) == ARCH_SET_CPUID {
                                 if value == 0 {
@@ -3369,15 +3310,14 @@ impl SyscallObject {
             Sysno::sched_yield => {
                 match self.state {
                     Entering => {
-                        self.one_line.push(
-                            "relinquish the CPU, and move to the end of the scheduler queue"
-                                .white(),
+                        self.general_text(
+                            "relinquish the CPU, and move to the end of the scheduler queue",
                         );
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successfully yielded CPU".green());
                         } else {
                             // TODO! granular
@@ -3441,22 +3381,20 @@ impl SyscallObject {
                                 // second is NULL: query the current signal handler
                                 // second and third is NULL: check whether a given signal is valid for the current machine
                                 if !signal_action.is_null() {
-                                    self.one_line
-                                        .push("change the process's default handler for ".white());
+                                    self.general_text("change the process's default handler for ");
                                     self.one_line.push(signal_as_string.yellow());
-                                    self.one_line.push(" to the provided action".white());
+                                    self.general_text(" to the provided action");
                                     if !old_signal_action.is_null() {
-                                        self.one_line.push(
-                                            ", and retrieve the current signal handler".white(),
+                                        self.general_text(
+                                            ", and retrieve the current signal handler",
                                         );
                                     }
                                 } else {
                                     if !old_signal_action.is_null() {
-                                        self.one_line
-                                            .push("retrieve the current signal handler".white());
+                                        self.general_text("retrieve the current signal handler");
                                     } else {
-                                        self.one_line.push(
-                                            "check if the current machine supports: ".white(),
+                                        self.general_text(
+                                            "check if the current machine supports: ",
                                         );
                                         self.one_line.push(signal_as_string.yellow());
                                     }
@@ -3474,7 +3412,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             match x86_signal_to_string(signal_num) {
                                 Some(signal_as_string) => {
                                     if !signal_action.is_null() {
@@ -3512,9 +3450,8 @@ impl SyscallObject {
                     Entering => {
                         if set.is_null() {
                             if !old_set.is_null() {
-                                self.one_line.push(
-                                    "retrieve the proccess's current list of blocked signals"
-                                        .white(),
+                                self.general_text(
+                                    "retrieve the proccess's current list of blocked signals",
                                 );
                             } else {
                                 self.one_line
@@ -3523,13 +3460,13 @@ impl SyscallObject {
                         } else {
                             match how {
                                 nix::sys::signal::SigmaskHow::SIG_BLOCK => {
-                                    self.one_line.push("add any missing signal from the provided signals to the proccess's list of blocked signals".white());
+                                    self.general_text("add any missing signal from the provided signals to the proccess's list of blocked signals");
                                 }
                                 nix::sys::signal::SigmaskHow::SIG_UNBLOCK => {
-                                    self.one_line.push("remove the provided signals from the proccess's list of blocked signals".white());
+                                    self.general_text("remove the provided signals from the proccess's list of blocked signals");
                                 }
                                 nix::sys::signal::SigmaskHow::SIG_SETMASK => {
-                                    self.one_line.push("replace the proccess's list of blocked signals with the signals provided".white());
+                                    self.general_text("replace the proccess's list of blocked signals with the signals provided");
                                 }
                                 _ => {}
                             }
@@ -3538,7 +3475,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             if set.is_null() {
                                 if !old_set.is_null() {
                                     self.one_line.push("retrieved blocked signals".green());
@@ -3570,12 +3507,12 @@ impl SyscallObject {
             Sysno::rt_sigsuspend => {
                 match self.state {
                     Entering => {
-                        self.one_line.push("replace the process' list of blocked signals with the signals provided, then wait until the delivery of either a signal that invokes a signal handler or a signal that terminates the thread".white());
+                        self.general_text("replace the process' list of blocked signals with the signals provided, then wait until the delivery of either a signal that invokes a signal handler or a signal that terminates the thread");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line
                                 .push("list of blocked signals modified".green());
                         } else {
@@ -3597,24 +3534,20 @@ impl SyscallObject {
                             );
                         }
                         (true, false) => {
-                            self.one_line
-                                .push("replace the current signal stack with a new one".white());
+                            self.general_text("replace the current signal stack with a new one");
                         }
                         (false, true) => {
-                            self.one_line
-                                .push("retrieve the current signal stack".white());
+                            self.general_text("retrieve the current signal stack");
                         }
                         (false, false) => {
-                            self.one_line.push(
-                            "retrieve the current signal stack and then replace it with a new one,"
-                                .white(),
+                            self.general_text(                            "retrieve the current signal stack and then replace it with a new one,",
                         );
                         }
                     },
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             match (new_stack_null, old_stack_null) {
                                 (true, true) => {
                                     self.one_line.push("successful".green());
@@ -3642,13 +3575,12 @@ impl SyscallObject {
             Sysno::rt_sigreturn => {
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("return from signal handler and cleanup".white());
+                        self.general_text("return from signal handler and cleanup");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
@@ -3660,15 +3592,14 @@ impl SyscallObject {
             Sysno::rt_sigpending => {
                 match self.state {
                     Entering => {
-                        self.one_line.push(
-                            "return the signals pending for delivery for the calling thread"
-                                .white(),
+                        self.general_text(
+                            "return the signals pending for delivery for the calling thread",
                         );
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("pending signals returned".green());
                         } else {
                             // TODO! granular
@@ -3681,13 +3612,12 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         // TODO! use the timespec struct
-                        self.one_line
-                .push("stop the calling process until one of the signals provided is pending, or the given timeout is exceeded".white());
+                        self.general_text("stop the calling process until one of the signals provided is pending, or the given timeout is exceeded");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("Successful".green());
                         } else {
                             // TODO! granular
@@ -3702,10 +3632,9 @@ impl SyscallObject {
                 match self.state {
                     Entering => match x86_signal_to_string(signal_num) {
                         Some(signal_as_string) => {
-                            self.one_line
-                                .push("send the data attached and the ".white());
+                            self.general_text("send the data attached and the ");
                             self.one_line.push(signal_as_string.yellow());
-                            self.one_line.push(" signal to the thread group: ".white());
+                            self.general_text(" signal to the thread group: ");
                             self.one_line.push(thread_group.to_string().yellow());
                         }
                         None => {
@@ -3719,7 +3648,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("data and signal sent".green());
                         } else {
                             // TODO! granular
@@ -3735,12 +3664,11 @@ impl SyscallObject {
                 match self.state {
                     Entering => match x86_signal_to_string(signal_num) {
                         Some(signal_as_string) => {
-                            self.one_line
-                                .push("send the data attached and the ".white());
+                            self.general_text("send the data attached and the ");
                             self.one_line.push(signal_as_string.yellow());
-                            self.one_line.push(" signal to thread: ".white());
+                            self.general_text(" signal to thread: ");
                             self.one_line.push(thread.to_string().yellow());
-                            self.one_line.push(" in thread group: ".white());
+                            self.general_text(" in thread group: ");
                             self.one_line.push(thread_group.to_string().yellow());
                         }
                         None => {
@@ -3754,7 +3682,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("data and signal sent".green());
                         } else {
                             // TODO! granular
@@ -3770,12 +3698,11 @@ impl SyscallObject {
                     Entering => {
                         match x86_signal_to_string(signal_num) {
                             Some(signal_as_string) => {
-                                self.one_line.push("send the ".white());
+                                self.general_text("send the ");
                                 self.one_line.push(signal_as_string.yellow());
                                 // bad wording
-                                self.one_line.push(
-                                    " signal to the process identified with the file descriptor: "
-                                        .white(),
+                                self.general_text(
+                                    " signal to the process identified with the file descriptor: ",
                                 );
                                 self.one_line.push(process.yellow());
                             }
@@ -3791,7 +3718,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("signal sent".green());
                         } else {
                             // TODO! granular
@@ -3805,22 +3732,19 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if fd == -1 {
-                            self.one_line.push(
-                        "create a new file descriptor for receiving the set of specified signals"
-                            .white(),
+                            self.general_text(                        "create a new file descriptor for receiving the set of specified signals",
                     );
                         } else {
                             let fd_file = self.pavfol(0);
-                            self.one_line.push("use the file: ".white());
+                            self.general_text("use the file: ");
                             self.one_line.push(fd_file.yellow());
-                            self.one_line
-                                .push(" to receive the provided signals".white());
+                            self.general_text(" to receive the provided signals");
                         }
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("Successful".green());
                         } else {
                             // TODO! granular
@@ -3835,16 +3759,13 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if fd == -1 {
-                            self.one_line.push(
-                                "create a file descriptor to use for receiving the provided signals"
-                                    .white(),
+                            self.general_text(                                "create a file descriptor to use for receiving the provided signals",
                             );
                         } else {
                             let fd_file = self.pavfol(0);
-                            self.one_line.push("use the file: ".white());
+                            self.general_text("use the file: ");
                             self.one_line.push(fd_file.yellow());
-                            self.one_line
-                                .push(" to receive the provided signals".white());
+                            self.general_text(" to receive the provided signals");
                         }
                         let mut flag_directives = vec![];
 
@@ -3855,12 +3776,12 @@ impl SyscallObject {
                         if flags.contains(SfdFlags::SFD_NONBLOCK) {
                             flag_directives.push("use the file on non blocking mode".yellow());
                         }
-                        directives_handler(flag_directives, &mut self.one_line);
+                        self.directives_handler(flag_directives);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("file descriptor created".green());
                         } else {
                             // TODO! granular
@@ -3872,14 +3793,13 @@ impl SyscallObject {
             Sysno::gettid => {
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("get the thread id of the calling thread".white());
+                        self.general_text("get the thread id of the calling thread");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let thread = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("got the thread id: ".green());
                             self.one_line.push(thread.yellow());
                         } else {
@@ -3892,14 +3812,13 @@ impl SyscallObject {
             Sysno::getpid => {
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("get the process id of the calling process".white());
+                        self.general_text("get the process id of the calling process");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let process_id = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("got the process id: ".green());
                             self.one_line.push(process_id.yellow());
                         } else {
@@ -3912,14 +3831,13 @@ impl SyscallObject {
             Sysno::getppid => {
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("get the process id of the parent process".white());
+                        self.general_text("get the process id of the parent process");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let process_id = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("got the parent process' id: ".green());
                             self.one_line.push(process_id.yellow());
                         } else {
@@ -3933,12 +3851,11 @@ impl SyscallObject {
                 let process_id_num = self.args[0];
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("get the list of the robust futexes for ".white());
+                        self.general_text("get the list of the robust futexes for ");
                         if process_id_num == 0 {
                             self.one_line.push("the calling thread".yellow());
                         } else {
-                            self.one_line.push("thread ".white());
+                            self.general_text("thread ");
                             self.one_line.push(process_id_num.to_string().blue());
                         }
                     }
@@ -3949,7 +3866,7 @@ impl SyscallObject {
                             let length_of_list =
                                 SyscallObject::read_word(self.args[2] as usize, self.process_pid)
                                     .unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line
                                 .push("head of the retrieved list is stored in ".green());
                             self.one_line.push(address.yellow());
@@ -3967,17 +3884,17 @@ impl SyscallObject {
                 let length_of_list = self.pavfol(1);
                 match self.state {
                     Entering => {
-                        self.one_line.push(
-                            "set the calling thread's robust futexes list to the list at ".white(),
+                        self.general_text(
+                            "set the calling thread's robust futexes list to the list at ",
                         );
                         self.one_line.push(address.yellow());
-                        self.one_line.push(" with length ".white());
+                        self.general_text(" with length ");
                         self.one_line.push(length_of_list.to_string().blue());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
@@ -3994,25 +3911,24 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if process_id_num == 0 {
-                            self.one_line.push("set the process group ID of ".white());
+                            self.general_text("set the process group ID of ");
                             self.one_line.push("the calling thread".yellow());
                         } else {
-                            self.one_line
-                                .push("set the process group ID of process: ".white());
+                            self.general_text("set the process group ID of process: ");
                             self.one_line.push(process_id.yellow());
                         }
                         if new_pgid_num == 0 {
-                            self.one_line.push(" to: ".white());
+                            self.general_text(" to: ");
                             self.one_line.push("the calling process' ID".yellow());
                         } else {
-                            self.one_line.push(" to: ".white());
+                            self.general_text(" to: ");
                             self.one_line.push(new_pgid.yellow());
                         }
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
@@ -4027,11 +3943,10 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if process_id_num == 0 {
-                            self.one_line.push("get the process group ID of ".white());
+                            self.general_text("get the process group ID of ");
                             self.one_line.push("the calling thread".yellow());
                         } else {
-                            self.one_line
-                                .push("get the process group ID of process: ".white());
+                            self.general_text("get the process group ID of process: ");
                             self.one_line.push(process_id.yellow());
                         }
                     }
@@ -4039,7 +3954,7 @@ impl SyscallObject {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let pgid = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("got the group id: ".green());
                             self.one_line.push(pgid.yellow());
                         } else {
@@ -4052,14 +3967,13 @@ impl SyscallObject {
             Sysno::getpgrp => {
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("get the process group ID of the calling process".white());
+                        self.general_text("get the process group ID of the calling process");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let pgid = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("got the group id: ".green());
                             self.one_line.push(pgid.yellow());
                         } else {
@@ -4076,12 +3990,12 @@ impl SyscallObject {
                 let bytes = self.pavfol(1);
                 match self.state {
                     Entering => {
-                        self.one_line.push("get ".white());
+                        self.general_text("get ");
                         self.one_line.push(bytes.yellow());
-                        self.one_line.push(" of random bytes from the ".white());
+                        self.general_text(" of random bytes from the ");
                         if random_flags.contains(GetRandomFlags::RANDOM) {
                             self.one_line.push("random source".yellow());
-                            self.one_line.push(" and ".white());
+                            self.general_text(" and ");
                             if random_flags.contains(GetRandomFlags::NONBLOCK) {
                                 self.one_line
                                     .push("do not block if the random source is empty".yellow());
@@ -4091,7 +4005,7 @@ impl SyscallObject {
                             }
                         } else {
                             self.one_line.push("urandom source".yellow());
-                            self.one_line.push(" and ".white());
+                            self.general_text(" and ");
                             if random_flags.contains(GetRandomFlags::NONBLOCK) {
                                 self.one_line.push(
                                     "do not block if the entropy pool is uninitialized".yellow(),
@@ -4107,7 +4021,7 @@ impl SyscallObject {
                         if eph_return.is_ok() {
                             let bytes_retrieved = self.result.0.unwrap();
 
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             if bytes_retrieved == 0 {
                                 self.one_line.push("retrieved ".green());
                                 self.one_line.push(eph_return.unwrap().green());
@@ -4131,15 +4045,14 @@ impl SyscallObject {
                 let resource: Resource = unsafe { std::mem::transmute(self.args[0] as u32) };
                 match self.state {
                     Entering => {
-                        self.one_line.push("set the process's ".white());
+                        self.general_text("set the process's ");
                         resource_matcher(resource, &mut self.one_line);
-                        self.one_line
-                            .push(" to the soft and hard limits provided".white());
+                        self.general_text(" to the soft and hard limits provided");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
@@ -4152,15 +4065,14 @@ impl SyscallObject {
                 let resource: Resource = unsafe { std::mem::transmute(self.args[0] as u32) };
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("get the soft and hard limits for the process's ".white());
+                        self.general_text("get the soft and hard limits for the process's ");
                         resource_matcher(resource, &mut self.one_line);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
@@ -4178,39 +4090,37 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if !set_struct.is_null() {
-                            self.one_line.push("set ".white());
+                            self.general_text("set ");
                             if pid_of_self {
                                 self.one_line.push("the calling process's".yellow());
                             } else {
                                 self.one_line.push("process ".yellow());
                                 self.one_line.push(pid.to_string().yellow());
-                                self.one_line.push("'s".white());
+                                self.general_text("'s");
                             }
-                            self.one_line.push(" ".white());
+                            self.general_text(" ");
                             resource_matcher(resource, &mut self.one_line);
-                            self.one_line
-                                .push(" to the soft and hard limits provided".white());
+                            self.general_text(" to the soft and hard limits provided");
                             if !get_struct.is_null() {
                                 self.one_line.push(", and get the old limits".yellow());
                             }
                         } else if !get_struct.is_null() {
-                            self.one_line
-                                .push("get the soft and hard limits for ".white());
+                            self.general_text("get the soft and hard limits for ");
                             if pid_of_self {
                                 self.one_line.push("the calling process's".yellow());
                             } else {
                                 self.one_line.push("process ".yellow());
                                 self.one_line.push(pid.to_string().yellow());
-                                self.one_line.push("'s".white());
+                                self.general_text("'s");
                             }
-                            self.one_line.push(" ".white());
+                            self.general_text(" ");
                             resource_matcher(resource, &mut self.one_line);
                         }
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             let rlims = SyscallObject::read_bytes_as_struct::<16, rlimit>(
                                 self.args[3] as usize,
                                 self.process_pid as _,
@@ -4404,8 +4314,7 @@ impl SyscallObject {
                 let resource: UsageWho = unsafe { std::mem::transmute(self.args[0] as u32) };
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("get resource usage metrics for ".white());
+                        self.general_text("get resource usage metrics for ");
 
                         match resource {
                             UsageWho::RUSAGE_SELF => {
@@ -4424,7 +4333,7 @@ impl SyscallObject {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
@@ -4436,15 +4345,15 @@ impl SyscallObject {
             Sysno::sysinfo => {
                 match self.state {
                     Entering => {
-                        self.one_line.push(
-                            "get memory and swap usage metrics for the calling process".white(),
+                        self.general_text(
+                            "get memory and swap usage metrics for the calling process",
                         );
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
@@ -4456,15 +4365,15 @@ impl SyscallObject {
             Sysno::times => {
                 match self.state {
                     Entering => {
-                        self.one_line.push(
-                            "get time metrics for the calling process and its children".white(),
+                        self.general_text(
+                            "get time metrics for the calling process and its children",
                         );
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
@@ -4484,14 +4393,14 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if !cpus.is_empty() {
-                            self.one_line.push("only allow ".white());
+                            self.general_text("only allow ");
                             if thread_id == 0 {
                                 self.one_line.push("the calling thread".yellow());
                             } else {
                                 self.one_line.push("thread ".yellow());
                                 self.one_line.push(thread_id.to_string().yellow());
                             }
-                            self.one_line.push(" to run on ".white());
+                            self.general_text(" to run on ");
                             let mut cpu_iter = cpus.into_iter();
                             self.one_line
                                 .push(format!("[CPU {}]", cpu_iter.next().unwrap()).yellow());
@@ -4508,7 +4417,7 @@ impl SyscallObject {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("thread successfully locked".green());
                         } else {
                             // TODO! granular
@@ -4530,22 +4439,22 @@ impl SyscallObject {
                 .unwrap();
                 match self.state {
                     Entering => {
-                        self.one_line.push("find which CPUs ".white());
+                        self.general_text("find which CPUs ");
                         if thread_id == 0 {
                             self.one_line.push("the calling thread".yellow());
                         } else {
                             self.one_line.push("thread ".yellow());
                             self.one_line.push(thread_id.to_string().yellow());
                         }
-                        self.one_line.push(" is allowed to run on".white());
+                        self.general_text(" is allowed to run on");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("CPUs allowed: ".green());
                             if cpus.is_empty() {
-                                self.one_line.push("None".white());
+                                self.general_text("None");
                             } else {
                                 let mut cpu_iter = cpus.into_iter();
                                 self.one_line.push(
@@ -4567,14 +4476,13 @@ impl SyscallObject {
                 let status = self.args[0] as i32;
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("exit the calling process with status: ".white());
+                        self.general_text("exit the calling process with status: ");
                         if status < 0 {
                             self.one_line.push(status.to_string().red());
                         } else {
                             self.one_line.push(status.to_string().yellow());
                         }
-                        self.one_line.push(" |=> ".white());
+                        self.general_text(" |=> ");
                         self.one_line.push("process exited with status ".green());
                         self.one_line.push(status.to_string().blue());
                     }
@@ -4585,14 +4493,13 @@ impl SyscallObject {
                 let status = self.args[0] as i32;
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("exit all threads in the group with status: ".white());
+                        self.general_text("exit all threads in the group with status: ");
                         if status < 0 {
                             self.one_line.push(status.to_string().red());
                         } else {
                             self.one_line.push(status.to_string().yellow());
                         }
-                        self.one_line.push(" |=> ".white());
+                        self.general_text(" |=> ");
                         self.one_line
                             .push("all threads in the group exited with status ".green());
                         self.one_line.push(status.to_string().blue());
@@ -4607,11 +4514,11 @@ impl SyscallObject {
                 match self.state {
                     Entering => match x86_signal_to_string(signal_num) {
                         Some(signal_as_string) => {
-                            self.one_line.push("send ".white());
+                            self.general_text("send ");
                             self.one_line.push(signal_as_string.yellow());
-                            self.one_line.push(" to thread: ".white());
+                            self.general_text(" to thread: ");
                             self.one_line.push(thread.to_string().yellow());
-                            self.one_line.push(" in thread group: ".white());
+                            self.general_text(" in thread group: ");
                             self.one_line.push(thread_group.to_string().yellow());
                         }
                         None => {
@@ -4626,7 +4533,7 @@ impl SyscallObject {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("signal sent".green());
                         } else {
                             // TODO! granular
@@ -4641,9 +4548,9 @@ impl SyscallObject {
                 match self.state {
                     Entering => match x86_signal_to_string(signal_num) {
                         Some(signal_as_string) => {
-                            self.one_line.push("send ".white());
+                            self.general_text("send ");
                             self.one_line.push(signal_as_string.yellow());
-                            self.one_line.push(" to thread: ".white());
+                            self.general_text(" to thread: ");
                             self.one_line.push(thread.to_string().yellow());
                         }
                         None => {
@@ -4658,7 +4565,7 @@ impl SyscallObject {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("signal sent".green());
                         } else {
                             // TODO! granular
@@ -4673,21 +4580,17 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if registering {
-                            self.one_line.push(
-                        "register a per-thread shared data structure between kernel and user-space"
-                            .white(),
+                            self.general_text(                        "register a per-thread shared data structure between kernel and user-space",
                     );
                         } else {
-                            self.one_line.push(
-                        "unregister a previously registered per-thread shared data structure"
-                            .white(),
+                            self.general_text(                        "unregister a previously registered per-thread shared data structure",
                     );
                         }
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             if registering {
                                 self.one_line.push("successfully registered".green());
                             } else {
@@ -4703,14 +4606,13 @@ impl SyscallObject {
             Sysno::uname => {
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("retrieve general system information".white());
+                        self.general_text("retrieve general system information");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("information retrieved".green());
                         } else {
                             // TODO! granular
@@ -4722,14 +4624,13 @@ impl SyscallObject {
             Sysno::getuid => {
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("get the real user ID of the calling process".white());
+                        self.general_text("get the real user ID of the calling process");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let user_id = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("got the real user ID: ".green());
                             self.one_line.push(user_id.yellow());
                         } else {
@@ -4742,14 +4643,13 @@ impl SyscallObject {
             Sysno::geteuid => {
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("get the effective user ID of the calling process".white());
+                        self.general_text("get the effective user ID of the calling process");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let user_id = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("got the effective user ID: ".green());
                             self.one_line.push(user_id.yellow());
                         } else {
@@ -4762,14 +4662,13 @@ impl SyscallObject {
             Sysno::getgid => {
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("get the real group ID of the calling process".white());
+                        self.general_text("get the real group ID of the calling process");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let group_id = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("got the real group ID: ".green());
                             self.one_line.push(group_id.yellow());
                         } else {
@@ -4782,14 +4681,13 @@ impl SyscallObject {
             Sysno::getegid => {
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("get the effective group ID of the calling process".white());
+                        self.general_text("get the effective group ID of the calling process");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let group_id = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("got the effective group ID: ".green());
                             self.one_line.push(group_id.yellow());
                         } else {
@@ -4808,22 +4706,19 @@ impl SyscallObject {
                     Entering => {
                         // SHUT_RD = 0
                         if (shutdown_how_num & 0) == 0 {
-                            self.one_line
-                                .push("stop incoming reception of data into the socket: ".white());
+                            self.general_text("stop incoming reception of data into the socket: ");
                             self.one_line.push(socket.yellow());
                         }
                         // SHUT_WR = 1
                         if (shutdown_how_num & 1) == 1 {
-                            self.one_line.push(
-                                "stop outgoing transmission of data from the socket: ".white(),
+                            self.general_text(
+                                "stop outgoing transmission of data from the socket: ",
                             );
                             self.one_line.push(socket.yellow());
                         }
                         // SHUT_RDWR = 2
                         if (shutdown_how_num & 2) == 2 {
-                            self.one_line.push(
-                        "terminate incoming and outgoing data communication with the socket: "
-                            .white(),
+                            self.general_text(                        "terminate incoming and outgoing data communication with the socket: ",
                     );
                             self.one_line.push(socket.yellow());
                         }
@@ -4832,7 +4727,7 @@ impl SyscallObject {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
@@ -4861,87 +4756,69 @@ impl SyscallObject {
                                 "block and wait for FUTEX_WAKE if comparison succeeds".yellow(),
                             );
                         } else if (futex_ops_num & FUTEX_WAKE) == FUTEX_WAKE {
-                            self.one_line.push("wake a maximum of ".white());
+                            self.general_text("wake a maximum of ");
                             self.one_line.push(val.to_string().yellow());
-                            self.one_line
-                                .push(" waiters waiting on the futex at ".white());
+                            self.general_text(" waiters waiting on the futex at ");
                             self.one_line.push(futex1_addr.yellow());
                         } else if (futex_ops_num & FUTEX_FD) == FUTEX_FD {
-                            self.one_line
-                                .push("create a file descriptor for the futex at ".white());
+                            self.general_text("create a file descriptor for the futex at ");
                             self.one_line.push(futex1_addr.yellow());
-                            self.one_line
-                                .push(" to use with asynchronous syscalls".white());
+                            self.general_text(" to use with asynchronous syscalls");
                         } else if (futex_ops_num & FUTEX_CMP_REQUEUE) == FUTEX_CMP_REQUEUE {
-                            self.one_line
-                                .push("if comparison succeeds wake a maximum of ".white());
+                            self.general_text("if comparison succeeds wake a maximum of ");
                             self.one_line.push(val.to_string().yellow());
-                            self.one_line
-                                .push(" waiters waiting on the futex at ".white());
+                            self.general_text(" waiters waiting on the futex at ");
                             self.one_line.push(futex1_addr.yellow());
-                            self.one_line.push(" and requeue a maximum of ".white());
+                            self.general_text(" and requeue a maximum of ");
                             self.one_line.push(val2.to_string().yellow());
-                            self.one_line
-                                .push(" from the remaining waiters to the futex at ".white());
+                            self.general_text(" from the remaining waiters to the futex at ");
                             self.one_line.push(futex2_addr.yellow());
                         } else if (futex_ops_num & FUTEX_REQUEUE) == FUTEX_REQUEUE {
-                            self.one_line
-                                .push("without comparing wake a maximum of ".white());
+                            self.general_text("without comparing wake a maximum of ");
                             self.one_line.push(val.to_string().yellow());
-                            self.one_line
-                                .push(" waiters waiting on the futex at ".white());
+                            self.general_text(" waiters waiting on the futex at ");
                             self.one_line.push(futex1_addr.yellow());
-                            self.one_line.push(" and requeue a maximum of ".white());
+                            self.general_text(" and requeue a maximum of ");
                             self.one_line.push(val2.to_string().yellow());
-                            self.one_line
-                                .push(" from the remaining waiters to the futex at ".white());
+                            self.general_text(" from the remaining waiters to the futex at ");
                             self.one_line.push(futex2_addr.yellow());
                         } else if (futex_ops_num & FUTEX_WAKE_OP) == FUTEX_WAKE_OP {
-                            self.one_line
-                                .push("operate on 2 futexes at the same time".white());
+                            self.general_text("operate on 2 futexes at the same time");
                         } else if (futex_ops_num & FUTEX_WAIT_BITSET) == FUTEX_WAIT_BITSET {
-                            self.one_line.push("if comparison succeeds block and wait for FUTEX_WAKE and register a bitmask for selective waiting".white());
+                            self.general_text("if comparison succeeds block and wait for FUTEX_WAKE and register a bitmask for selective waiting");
                         } else if (futex_ops_num & FUTEX_WAKE_BITSET) == FUTEX_WAKE_BITSET {
-                            self.one_line.push("wake a maximum of ".white());
+                            self.general_text("wake a maximum of ");
                             self.one_line.push(val.to_string().yellow());
-                            self.one_line
-                                .push(" waiters waiting on the futex at ".white());
+                            self.general_text(" waiters waiting on the futex at ");
                             self.one_line.push(futex1_addr.yellow());
                             self.one_line
                                 .push(" from the provided waiters bitmask".yellow());
                         } else if (futex_ops_num & FUTEX_LOCK_PI) == FUTEX_LOCK_PI {
-                            self.one_line
-                                .push("priority-inheritance futex operation ".white());
+                            self.general_text("priority-inheritance futex operation ");
                             self.one_line
                                 .push("[intentrace: needs granularity]".bright_black());
                         } else if (futex_ops_num & FUTEX_LOCK_PI2) == FUTEX_LOCK_PI2 {
-                            self.one_line
-                                .push("priority-inheritance futex operation ".white());
+                            self.general_text("priority-inheritance futex operation ");
                             self.one_line
                                 .push("[intentrace: needs granularity]".bright_black());
                         } else if (futex_ops_num & FUTEX_TRYLOCK_PI) == FUTEX_TRYLOCK_PI {
-                            self.one_line
-                                .push("priority-inheritance futex operation ".white());
+                            self.general_text("priority-inheritance futex operation ");
                             self.one_line
                                 .push("[intentrace: needs granularity]".bright_black());
                         } else if (futex_ops_num & FUTEX_UNLOCK_PI) == FUTEX_UNLOCK_PI {
-                            self.one_line
-                                .push("priority-inheritance futex operation ".white());
+                            self.general_text("priority-inheritance futex operation ");
                             self.one_line
                                 .push("[intentrace: needs granularity]".bright_black());
                         } else if (futex_ops_num & FUTEX_CMP_REQUEUE_PI) == FUTEX_CMP_REQUEUE_PI {
-                            self.one_line
-                                .push("priority-inheritance futex operation ".white());
-                            self.one_line
-                                .push("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_ops_num & FUTEX_WAIT_REQUEUE_PI) == FUTEX_WAIT_REQUEUE_PI {
-                            self.one_line
-                                .push("priority-inheritance futex operation ".white());
+                            self.general_text("priority-inheritance futex operation ");
                             self.one_line
                                 .push("[intentrace: needs granularity]".bright_black());
                         } else if (futex_ops_num & FUTEX_WAIT_REQUEUE_PI) == FUTEX_WAIT_REQUEUE_PI {
+                            self.general_text("priority-inheritance futex operation ");
                             self.one_line
-                                .push("priority-inheritance futex operation ".white());
+                                .push("[intentrace: needs granularity]".bright_black());
+                        } else if (futex_ops_num & FUTEX_WAIT_REQUEUE_PI) == FUTEX_WAIT_REQUEUE_PI {
+                            self.general_text("priority-inheritance futex operation ");
                             self.one_line
                                 .push("[intentrace: needs granularity]".bright_black());
                         } else {
@@ -4962,23 +4839,23 @@ impl SyscallObject {
                             directives.push("measure timeout using CLOCK_MONOTONIC".yellow());
                         }
                         if !directives.is_empty() {
-                            self.one_line.push(" (".white());
+                            self.general_text(" (");
                             let mut directives_iter = directives.into_iter().peekable();
                             if directives_iter.peek().is_some() {
                                 self.one_line.push(directives_iter.next().unwrap());
                             }
                             for entry in directives_iter {
-                                self.one_line.push(", ".white());
+                                self.general_text(", ");
                                 self.one_line.push(entry);
                             }
-                            self.one_line.push(")".white());
+                            self.general_text(")");
                         }
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
@@ -4992,14 +4869,13 @@ impl SyscallObject {
                     SyscallObject::read_word(self.args[0] as usize, self.process_pid).unwrap();
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("set `clear_child_tid` for the calling thread to ".white());
+                        self.general_text("set `clear_child_tid` for the calling thread to ");
                         self.one_line.push(thread_id.to_string().blue());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line
                                 .push("thread id of the calling thread: ".green());
                             self.one_line.push(eph_return.unwrap().yellow());
@@ -5013,15 +4889,15 @@ impl SyscallObject {
             Sysno::fork => {
                 match self.state {
                     Entering => {
-                        self.one_line.push(
-                            "create a new child process by duplicating the calling process".white(),
+                        self.general_text(
+                            "create a new child process by duplicating the calling process",
                         );
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let child_process = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("child process created: ".green());
                             self.one_line.push(child_process.yellow());
                             self.one_line.push(new_process());
@@ -5035,14 +4911,13 @@ impl SyscallObject {
             Sysno::vfork => {
                 match self.state {
                     Entering => {
-                        self.one_line
-                    .push("create a new child process with copy-on-write memory, and suspend execution until child terminates".white());
+                        self.general_text("create a new child process with copy-on-write memory, and suspend execution until child terminates");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let child_process = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("child process created: ".green());
                             self.one_line.push(child_process.yellow());
                             self.one_line.push(new_process());
@@ -5056,14 +4931,13 @@ impl SyscallObject {
             Sysno::eventfd => {
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("create a file to use for event notifications/waiting".white());
+                        self.general_text("create a file to use for event notifications/waiting");
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let file_descriptor = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("created the eventfd: ".green());
                             self.one_line.push(file_descriptor.yellow());
                         } else {
@@ -5077,8 +4951,7 @@ impl SyscallObject {
                 let flags: eventfd::EfdFlags = unsafe { std::mem::transmute(self.args[1] as u32) };
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("create a file to use for event notifications/waiting".white());
+                        self.general_text("create a file to use for event notifications/waiting");
 
                         let mut directives = vec![];
                         if flags.contains(eventfd::EfdFlags::EFD_CLOEXEC) {
@@ -5092,23 +4965,23 @@ impl SyscallObject {
                                 .push("utilize semaphore-like semantics when reading".yellow());
                         }
                         if !directives.is_empty() {
-                            self.one_line.push(" (".white());
+                            self.general_text(" (");
                             let mut directives_iter = directives.into_iter().peekable();
                             if directives_iter.peek().is_some() {
                                 self.one_line.push(directives_iter.next().unwrap());
                             }
                             for entry in directives_iter {
-                                self.one_line.push(", ".white());
+                                self.general_text(", ");
                                 self.one_line.push(entry);
                             }
-                            self.one_line.push(")".white());
+                            self.general_text(")");
                         }
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let file_descriptor = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("created the eventfd: ".green());
                             self.one_line.push(file_descriptor.yellow());
                         } else {
@@ -5128,25 +5001,24 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if id_type == P_ALL {
-                            self.one_line.push("wait until any child ".white());
+                            self.general_text("wait until any child ");
                         } else if id_type == P_PGID {
                             if id == 0 {
-                                self.one_line.push(
-                                    "wait until any child in the current process group ".white(),
+                                self.general_text(
+                                    "wait until any child in the current process group ",
                                 );
                             } else {
-                                self.one_line
-                                    .push("wait until any child process with PGID ".white());
+                                self.general_text("wait until any child process with PGID ");
                                 self.one_line.push(id.to_string().yellow());
                             }
                         } else if id_type == P_PID {
-                            self.one_line.push("wait until child process ".white());
+                            self.general_text("wait until child process ");
                             self.one_line.push(id.to_string().yellow());
                         } else if id_type == P_PIDFD {
-                            self.one_line.push("wait until child with PIDFD ".white());
+                            self.general_text("wait until child with PIDFD ");
                             self.one_line.push(id.to_string().yellow());
                         }
-                        self.one_line.push(" ".white());
+                        self.general_text(" ");
                         let mut options_ticked = vec![];
 
                         if options.contains(WaitPidFlag::WEXITED) {
@@ -5158,7 +5030,7 @@ impl SyscallObject {
                         if options.contains(WaitPidFlag::WSTOPPED) {
                             options_ticked.push("is stopped by a signal".yellow());
                         }
-                        oring_handler(options_ticked, &mut self.one_line);
+                        self.oring_handler(options_ticked);
 
                         let mut options_directives = vec![];
                         if options.contains(WaitPidFlag::__WNOTHREAD) {
@@ -5184,13 +5056,13 @@ impl SyscallObject {
                         if !rusage.is_null() {
                             options_directives.push("retrieve child resource usage data".yellow());
                         }
-                        directives_handler(options_directives, &mut self.one_line);
+                        self.directives_handler(options_directives);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let file_descriptor = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("Successful".green());
                         } else {
                             // TODO! granular
@@ -5217,41 +5089,36 @@ impl SyscallObject {
                         }
                         if options_ticked.is_empty() {
                             if pid < -1 {
-                                self.one_line.push(
-                                    "wait for state change in any child with process group ID "
-                                        .white(),
+                                self.general_text(
+                                    "wait for state change in any child with process group ID ",
                                 );
                                 self.one_line.push(pid.to_string().blue());
                             } else if pid == -1 {
-                                self.one_line
-                                    .push("wait for state change in any child".white());
+                                self.general_text("wait for state change in any child");
                             } else if pid == 0 {
-                                self.one_line.push(
-                                    "wait for state change in any child with a similar process group ID".white(),
+                                self.general_text(                                    "wait for state change in any child with a similar process group ID",
                                 );
                             } else {
-                                self.one_line
-                                    .push("wait for state change in child process ".white());
+                                self.general_text("wait for state change in child process ");
                                 self.one_line.push(pid.to_string().blue());
                             }
                         } else {
                             if pid < -1 {
-                                self.one_line
-                                    .push("wait until any child with process group ID ".white());
+                                self.general_text("wait until any child with process group ID ");
                                 self.one_line.push(pid.to_string().blue());
                             } else if pid == -1 {
-                                self.one_line.push("wait until any child".white());
+                                self.general_text("wait until any child");
                             } else if pid == 0 {
-                                self.one_line.push(
-                                    "wait until any child with a similar process group ID".white(),
+                                self.general_text(
+                                    "wait until any child with a similar process group ID",
                                 );
                             } else {
-                                self.one_line.push("wait until child process ".white());
+                                self.general_text("wait until child process ");
                                 self.one_line.push(pid.to_string().blue());
                             }
 
-                            self.one_line.push(" ".white());
-                            oring_handler(options_ticked, &mut self.one_line);
+                            self.general_text(" ");
+                            self.oring_handler(options_ticked);
                         }
 
                         let mut directives = vec![];
@@ -5268,7 +5135,7 @@ impl SyscallObject {
                             /// Wait for "clone" children only.
                             directives.push("wait for clone children only".yellow());
                         }
-                        directives_handler(directives, &mut self.one_line);
+                        self.directives_handler(directives);
 
                         let mut retrieves = vec![];
                         if wstatus != 0 {
@@ -5280,17 +5147,17 @@ impl SyscallObject {
                         }
 
                         if !retrieves.is_empty() {
-                            self.one_line.push(" (".white());
-                            self.one_line.push("retrieve the child's ".white());
-                            anding_handler(retrieves, &mut self.one_line);
-                            self.one_line.push(")".white());
+                            self.general_text(" (");
+                            self.general_text("retrieve the child's ");
+                            self.anding_handler(retrieves);
+                            self.general_text(")");
                         }
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             let file_descriptor = eph_return.unwrap();
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             if wstatus == 0 {
                                 self.one_line.push("Successful".green());
                             } else {
@@ -5307,7 +5174,7 @@ impl SyscallObject {
                                     self.one_line.push("process was killed by ".green());
                                     self.one_line.push(signal.to_string().blue());
                                     if nix::libc::WCOREDUMP(wstatus_value as i32) {
-                                        self.one_line.push(" ".white());
+                                        self.general_text(" ");
                                         self.one_line.push("(core dumped)".green());
                                     }
                                 } else if nix::libc::WIFSTOPPED(wstatus_value as i32) {
@@ -5346,7 +5213,7 @@ impl SyscallObject {
                                 //         self.one_line.push("process was killed by ".green());
                                 //         self.one_line.push(signal.to_string().blue());
                                 //         if core_dump {
-                                //             self.one_line.push(" ".white());
+                                //             general_text.push(" ");
                                 //             self.one_line.push("(core dumped)".green());
                                 //         }
                                 //     }
@@ -5372,7 +5239,7 @@ impl SyscallObject {
                                 //     ) => {
                                 //         self.one_line.push("process was stopped by a ".green());
                                 //         self.one_line.push(signal.to_string().blue());
-                                //         self.one_line.push(" signal due to ".white());
+                                //         general_text.push(" signal due to ");
                                 //         let ptrace: nix::sys::ptrace::Event =
                                 //             unsafe { mem::transmute(ptrace_event) };
                                 //         self.one_line.push(format!("{:?}", ptrace).green());
@@ -5392,8 +5259,7 @@ impl SyscallObject {
                                 //     /// `WaitPidFlag::WCONTINUED` was passed. This case matches the C
                                 //     /// macro `WIFCONTINUED(status)`.
                                 //     nix::sys::wait::WaitStatus::Continued(pid) => {
-                                //         self.one_line.push(
-                                //             "process was resumed from a stop state by ".green(),
+                                //         self.one_line.push(                                //             "process was resumed from a stop state by ".green(),
                                 //         );
                                 //         self.one_line.push("SIGCONT".blue());
                                 //     }
@@ -5426,18 +5292,18 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if clone_vm {
-                            self.one_line.push("spawn a new thread with a ".white());
+                            self.general_text("spawn a new thread with a ");
 
                             self.one_line.push(
                                 SyscallObject::style_bytes_page_aligned_ceil(cl_args.stack_size)
                                     .yellow(),
                             );
-                            self.one_line.push(" stack starting at ".white());
+                            self.general_text(" stack starting at ");
                             self.one_line
                                 .push(format!("0x{:x}", cl_args.stack).yellow());
                             // directives.push("run in the same memory space".yellow());
                         } else {
-                            self.one_line.push("spawn a new child process".white());
+                            self.general_text("spawn a new child process");
                             // directives.push("copy the memory space".yellow());
                         }
 
@@ -5484,10 +5350,10 @@ impl SyscallObject {
                         // }
 
                         if !shares.is_empty() {
-                            self.one_line.push(" (".white());
-                            self.one_line.push("share ".white());
-                            anding_handler(shares, &mut self.one_line);
-                            self.one_line.push(")".white());
+                            self.general_text(" (");
+                            self.general_text("share ");
+                            self.anding_handler(shares);
+                            self.general_text(")");
                         }
 
                         // execute in new
@@ -5522,10 +5388,10 @@ impl SyscallObject {
                         }
 
                         if !executes.is_empty() {
-                            self.one_line.push(" (".white());
-                            self.one_line.push("execute in a new ".white());
-                            anding_handler(executes, &mut self.one_line);
-                            self.one_line.push(")".white());
+                            self.general_text(" (");
+                            self.general_text("execute in a new ");
+                            self.anding_handler(executes);
+                            self.general_text(")");
                         }
 
                         let mut directives = vec![];
@@ -5576,12 +5442,12 @@ impl SyscallObject {
                             directives.push("default all inherited signal handlers".yellow());
                         }
 
-                        directives_handler(directives, &mut self.one_line);
+                        self.directives_handler(directives);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("thread id of the child: ".green());
                             self.one_line.push(eph_return.unwrap().yellow());
                             if clone_vm {
@@ -5604,12 +5470,11 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if clone_vm {
-                            self.one_line
-                                .push("spawn a new thread at stack address ".white());
+                            self.general_text("spawn a new thread at stack address ");
                             self.one_line.push(format!("0x{:x}", stack).yellow());
                             // directives.push("run in the same memory space".yellow());
                         } else {
-                            self.one_line.push("spawn a new child process".white());
+                            self.general_text("spawn a new child process");
                             // directives.push("copy the memory space".yellow());
                         }
 
@@ -5656,10 +5521,10 @@ impl SyscallObject {
                         // }
 
                         if !shares.is_empty() {
-                            self.one_line.push(" (".white());
-                            self.one_line.push("share ".white());
-                            anding_handler(shares, &mut self.one_line);
-                            self.one_line.push(")".white());
+                            self.general_text(" (");
+                            self.general_text("share ");
+                            self.anding_handler(shares);
+                            self.general_text(")");
                         }
 
                         // execute in new
@@ -5694,10 +5559,10 @@ impl SyscallObject {
                         }
 
                         if !executes.is_empty() {
-                            self.one_line.push(" (".white());
-                            self.one_line.push("execute in a new ".white());
-                            anding_handler(executes, &mut self.one_line);
-                            self.one_line.push(")".white());
+                            self.general_text(" (");
+                            self.general_text("execute in a new ");
+                            self.anding_handler(executes);
+                            self.general_text(")");
                         }
 
                         let mut directives = vec![];
@@ -5750,12 +5615,12 @@ impl SyscallObject {
                             directives.push("default all inherited signal handlers".yellow());
                         }
 
-                        directives_handler(directives, &mut self.one_line);
+                        self.directives_handler(directives);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("thread id of the child: ".green());
                             self.one_line.push(eph_return.unwrap().yellow());
                             // TODO! fix occasional error (syscall returns -38)
@@ -5776,16 +5641,15 @@ impl SyscallObject {
                 let arguments = self.pavfol(1);
                 match self.state {
                     Entering => {
-                        self.one_line.push(
-                            "replace the current program with the following program and arguments"
-                                .white(),
+                        self.general_text(
+                            "replace the current program with the following program and arguments",
                         );
                         self.one_line.push(program_name.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granular
@@ -5802,17 +5666,16 @@ impl SyscallObject {
                 .unwrap();
                 match self.state {
                     Entering => {
-                        self.one_line.push("suspend execution for ".white());
-                        format_timespec_non_relative(
+                        self.general_text("suspend execution for ");
+                        self.format_timespec_non_relative(
                             timespec.tv_sec,
                             timespec.tv_nsec,
-                            &mut self.one_line,
                         );
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successful".green());
                         } else {
                             // TODO! granularity
@@ -5834,18 +5697,17 @@ impl SyscallObject {
                         // let flags: LandlockCreateFlags =
                         //     unsafe { std::mem::transmute(self.arguments[2] as u32) };
                         if retrieving_abi_version {
-                            self.one_line.push(
-                                "retrieve the highest supported Landlock ABI version".white(),
+                            self.general_text(
+                                "retrieve the highest supported Landlock ABI version",
                             );
                         } else {
-                            self.one_line
-                                .push("create a file descriptor for a landlock ruleset".white());
+                            self.general_text("create a file descriptor for a landlock ruleset");
                         }
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             if retrieving_abi_version {
                                 let abi_version = self.result.0.unwrap() as f64;
                                 self.one_line.push("got the ABI version: ".green());
@@ -5872,7 +5734,7 @@ impl SyscallObject {
                     Entering => {
                         // LANDLOCK_RULE_PATH_BENEATH = 1
                         if (rule_type_num & 1) == 1 {
-                            self.one_line.push("add a new rule for ".white());
+                            self.general_text("add a new rule for ");
                             self.one_line
                                 .push("file system path-beneath access rights".yellow());
                         }
@@ -5880,7 +5742,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("rule added".green());
                         } else {
                             // TODO! granular
@@ -5893,17 +5755,16 @@ impl SyscallObject {
                 let ruleset_fd = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("enforce the landlock ruleset inside: ".white());
-                        self.one_line.push(ruleset_fd.white());
-                        self.one_line.push(" on the calling process".white());
+                        self.general_text("enforce the landlock ruleset inside: ");
+                        self.general_text(&ruleset_fd);
+                        self.general_text(" on the calling process");
                         // TODO! Flags
                         //
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("ruleset is now enforced".green());
                         } else {
                             // TODO! granular
@@ -5929,39 +5790,37 @@ impl SyscallObject {
                             self.one_line.push("allocate ".magenta());
                             self.one_line.push(bytes.yellow());
                             if offset_num == 0 {
-                                self.one_line
-                                    .push(" at the beginning of the file: ".white());
+                                self.general_text(" at the beginning of the file: ");
                             } else {
-                                self.one_line.push(" starting at ".white());
+                                self.general_text(" starting at ");
                                 self.one_line.push(offset.yellow());
-                                self.one_line
-                                    .push(" from the beginning of the file: ".white());
+                                self.general_text(" from the beginning of the file: ");
                             }
                             self.one_line.push(file_descriptor.yellow());
                             if mode.contains(nix::fcntl::FallocateFlags::FALLOC_FL_KEEP_SIZE)
                                 && !mode.contains(nix::fcntl::FallocateFlags::FALLOC_FL_PUNCH_HOLE)
                             {
                                 // this improves performance when appeding (makes appending later faster)
-                                self.one_line.push(" (".white());
-                                self.one_line.push("do not increase the file size if the range is larger, simply zeroize the out of bound bytes)".white());
-                                self.one_line.push(")".white());
+                                self.general_text(" (");
+                                self.general_text("do not increase the file size if the range is larger, simply zeroize the out of bound bytes)");
+                                self.general_text(")");
                             } else if mode
                                 .contains(nix::fcntl::FallocateFlags::FALLOC_FL_UNSHARE_RANGE)
                             {
                                 // this improves performance when appeding (makes appending later faster)
-                                self.one_line.push(" (".white());
+                                self.general_text(" (");
 
                                 self.one_line.push(
                                     "modify any shared file data to private copy-on-write".yellow(),
                                 );
-                                self.one_line.push(")".white());
+                                self.general_text(")");
                             } else {
-                                self.one_line.push(" (".white());
+                                self.general_text(" (");
                                 self.one_line.push(
                                     "increase file size and zeroize if the range is larger"
                                         .yellow(),
                                 );
-                                self.one_line.push(")".white());
+                                self.general_text(")");
                             }
                         } else if mode.contains(nix::fcntl::FallocateFlags::FALLOC_FL_PUNCH_HOLE)
                             && mode.contains(nix::fcntl::FallocateFlags::FALLOC_FL_KEEP_SIZE)
@@ -5969,13 +5828,11 @@ impl SyscallObject {
                             self.one_line.push("deallocate ".magenta());
                             self.one_line.push(bytes.yellow());
                             if offset_num == 0 {
-                                self.one_line
-                                    .push(" at the beginning of the file: ".white());
+                                self.general_text(" at the beginning of the file: ");
                             } else {
-                                self.one_line.push(" starting at ".white());
+                                self.general_text(" starting at ");
                                 self.one_line.push(offset.yellow());
-                                self.one_line
-                                    .push(" from the beginning of the file: ".white());
+                                self.general_text(" from the beginning of the file: ");
                             }
                             self.one_line.push(file_descriptor.yellow());
                         } else if mode
@@ -5984,13 +5841,11 @@ impl SyscallObject {
                             self.one_line.push("remove ".magenta());
                             self.one_line.push(bytes.yellow());
                             if offset_num == 0 {
-                                self.one_line
-                                    .push(" from the beginning of the file: ".white());
+                                self.general_text(" from the beginning of the file: ");
                             } else {
-                                self.one_line.push(" starting at ".white());
+                                self.general_text(" starting at ");
                                 self.one_line.push(offset.yellow());
-                                self.one_line
-                                    .push(" from the beginning of the file: ".white());
+                                self.general_text(" from the beginning of the file: ");
                             }
                             self.one_line.push(file_descriptor.yellow());
                             self.one_line.push(" without leaving a hole".yellow());
@@ -5998,21 +5853,19 @@ impl SyscallObject {
                             self.one_line.push("zeroize ".magenta());
                             self.one_line.push(bytes.yellow());
                             if offset_num == 0 {
-                                self.one_line
-                                    .push(" from the beginning of the file: ".white());
+                                self.general_text(" from the beginning of the file: ");
                             } else {
-                                self.one_line.push(" starting at ".white());
+                                self.general_text(" starting at ");
                                 self.one_line.push(offset.yellow());
-                                self.one_line
-                                    .push(" from the beginning of the file: ".white());
+                                self.general_text(" from the beginning of the file: ");
                             }
                             self.one_line.push(file_descriptor.yellow());
                             if mode.contains(nix::fcntl::FallocateFlags::FALLOC_FL_KEEP_SIZE) {
-                                self.one_line.push(" (".white());
+                                self.general_text(" (");
                                 self.one_line.push(
                                     "do not increase the file size if the range is larger".yellow(),
                                 );
-                                self.one_line.push(")".white());
+                                self.general_text(")");
                             }
                         } else if mode.contains(nix::fcntl::FallocateFlags::FALLOC_FL_ZERO_RANGE) {
                             self.one_line.push("insert ".magenta());
@@ -6020,18 +5873,15 @@ impl SyscallObject {
                             self.one_line.push(" of holes".magenta());
 
                             if offset_num == 0 {
-                                self.one_line
-                                    .push(" at the beginning of the file: ".white());
+                                self.general_text(" at the beginning of the file: ");
                             } else {
-                                self.one_line.push(" starting at ".white());
+                                self.general_text(" starting at ");
                                 self.one_line.push(offset.yellow());
-                                self.one_line
-                                    .push(" from the beginning of the file: ".white());
+                                self.general_text(" from the beginning of the file: ");
                             }
                             self.one_line.push(file_descriptor.yellow());
-                            self.one_line.push(
-                                " without overwriting existing data (displace data instead)"
-                                    .white(),
+                            self.general_text(
+                                " without overwriting existing data (displace data instead)",
                             );
                         }
                     }
@@ -6039,7 +5889,7 @@ impl SyscallObject {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             // TODO! granular
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("operation successful".green());
                         } else {
                             // TODO! granular
@@ -6054,9 +5904,9 @@ impl SyscallObject {
 
                 match self.state {
                     Entering => {
-                        self.one_line.push("get the scheduling priority ".white());
+                        self.general_text("get the scheduling priority ");
                         if (which & PRIO_PROCESS) == PRIO_PROCESS {
-                            self.one_line.push("of ".white());
+                            self.general_text("of ");
                             if target == 0 {
                                 self.one_line.push("the calling process".yellow());
                             } else {
@@ -6064,7 +5914,7 @@ impl SyscallObject {
                                 self.one_line.push(target.to_string().yellow());
                             }
                         } else if (which & PRIO_PGRP) == PRIO_PGRP {
-                            self.one_line.push("of ".white());
+                            self.general_text("of ");
                             if target == 0 {
                                 self.one_line
                                     .push("the process group of calling process".yellow());
@@ -6073,7 +5923,7 @@ impl SyscallObject {
                                 self.one_line.push(target.to_string().yellow());
                             }
                         } else if (which & PRIO_USER) == PRIO_USER {
-                            self.one_line.push("for ".white());
+                            self.general_text("for ");
                             if target == 0 {
                                 self.one_line
                                     .push("the real user id of the calling process".yellow());
@@ -6088,7 +5938,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("got the scheduling priority: ".green());
                             self.one_line.push(eph_return.unwrap().yellow());
                         } else {
@@ -6105,19 +5955,19 @@ impl SyscallObject {
 
                 match self.state {
                     Entering => {
-                        self.one_line.push("set the scheduling priority ".white());
+                        self.general_text("set the scheduling priority ");
                         if (which & PRIO_PROCESS) == PRIO_PROCESS {
-                            self.one_line.push("of ".white());
+                            self.general_text("of ");
                             if target == 0 {
                                 self.one_line.push("the calling process".yellow());
                             } else {
                                 self.one_line.push("process: ".yellow());
                                 self.one_line.push(target.to_string().yellow());
                             }
-                            self.one_line.push(" to ".white());
+                            self.general_text(" to ");
                             self.one_line.push(prio.yellow());
                         } else if (which & PRIO_PGRP) == PRIO_PGRP {
-                            self.one_line.push("of ".white());
+                            self.general_text("of ");
                             if target == 0 {
                                 self.one_line
                                     .push("the process group of calling process".yellow());
@@ -6125,17 +5975,17 @@ impl SyscallObject {
                                 self.one_line.push("process group: ".yellow());
                                 self.one_line.push(target.to_string().yellow());
                             }
-                            self.one_line.push(" to ".white());
+                            self.general_text(" to ");
                             self.one_line.push(prio.yellow());
                         } else if (which & PRIO_USER) == PRIO_USER {
-                            self.one_line.push("for ".white());
+                            self.general_text("for ");
                             if target == 0 {
                                 self.one_line
                                     .push("the real user id of the calling process".yellow());
                             } else {
                                 self.one_line.push("the real user id: ".yellow());
                                 self.one_line.push(target.to_string().yellow());
-                                self.one_line.push(" to ".white());
+                                self.general_text(" to ");
                                 self.one_line.push(prio.yellow());
                             }
                         }
@@ -6145,7 +5995,7 @@ impl SyscallObject {
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line
                                 .push("successfully set the scheduling priority".green());
                         } else {
@@ -6159,14 +6009,13 @@ impl SyscallObject {
                 let directory = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("retrieve the entries inside the directory ".white());
+                        self.general_text("retrieve the entries inside the directory ");
                         self.one_line.push(directory.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successfully retrieved".green());
                         } else {
                             // TODO! granular
@@ -6179,14 +6028,13 @@ impl SyscallObject {
                 let directory = self.pavfol(0);
                 match self.state {
                     Entering => {
-                        self.one_line
-                            .push("retrieve the entries inside the directory ".white());
+                        self.general_text("retrieve the entries inside the directory ");
                         self.one_line.push(directory.yellow());
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
-                            self.one_line.push(" |=> ".white());
+                            self.general_text(" |=> ");
                             self.one_line.push("successfully retrieved".green());
                         } else {
                             // TODO! granular
@@ -6204,96 +6052,222 @@ impl SyscallObject {
     }
 }
 
-pub fn mode_matcher(mode: rustix::fs::Mode, one_line: &mut Vec<ColoredString>) {
-    // USER
-    let mut perms = vec![];
-    if mode.contains(rustix::fs::Mode::RUSR) {
-        perms.push("read".yellow());
-    }
-    if mode.contains(rustix::fs::Mode::WUSR) {
-        perms.push("write".yellow());
-    }
-    if mode.contains(rustix::fs::Mode::XUSR) {
-        perms.push("execute".yellow());
-    }
-    if !perms.is_empty() {
-        one_line.push(" allowing the user to ".white());
-        let mut perms_iter = perms.into_iter().peekable();
-        if perms_iter.peek().is_some() {
-            one_line.push(perms_iter.next().unwrap());
+impl SyscallObject {
+    pub fn oring_handler(&mut self, vector: Vec<ColoredString>) {
+        if !vector.is_empty() {
+            let mut vector_iter = vector.into_iter().peekable();
+            if vector_iter.peek().is_some() {
+                self.one_line.push(vector_iter.next().unwrap());
+            }
+            let mut ender = vec![];
+            if vector_iter.peek().is_some() {
+                colorize_general(&mut ender, ", or ");
+                ender.push(vector_iter.next().unwrap());
+            }
+            for entry in vector_iter {
+                self.general_text(", or ");
+                self.one_line.push(entry);
+            }
+            self.one_line.extend(ender);
         }
-        for entry in perms_iter {
-            one_line.push(", ".white());
-            one_line.push(entry);
-        }
-        one_line.push(", ".white());
     }
 
-    // GROUP
-    let mut perms = vec![];
-    if mode.contains(rustix::fs::Mode::RGRP) {
-        perms.push("read".yellow());
-    }
-    if mode.contains(rustix::fs::Mode::WGRP) {
-        perms.push("write".yellow());
-    }
-    if mode.contains(rustix::fs::Mode::XGRP) {
-        perms.push("execute".yellow());
-    }
-    if !perms.is_empty() {
-        one_line.push(" allowing the group to ".white());
-        let mut perms_iter = perms.into_iter().peekable();
-        if perms_iter.peek().is_some() {
-            one_line.push(perms_iter.next().unwrap());
+    pub fn anding_handler(&mut self, vector: Vec<ColoredString>) {
+        let mut vector_iter = vector.into_iter().peekable();
+        if vector_iter.peek().is_some() {
+            self.one_line.push(vector_iter.next().unwrap());
         }
-        for entry in perms_iter {
-            one_line.push(", ".white());
-            one_line.push(entry);
+        let mut ender = vec![];
+        if vector_iter.peek().is_some() {
+            colorize_general(&mut ender, ", and ");
+            ender.push(vector_iter.next().unwrap());
         }
-        one_line.push(", ".white());
-    }
-    // OTHER
-    let mut perms = vec![];
-    if mode.contains(rustix::fs::Mode::ROTH) {
-        perms.push("read".yellow());
-    }
-    if mode.contains(rustix::fs::Mode::WOTH) {
-        perms.push("write".yellow());
-    }
-    if mode.contains(rustix::fs::Mode::XOTH) {
-        perms.push("execute".yellow());
-    }
-    if !perms.is_empty() {
-        one_line.push(" allowing others to ".white());
-        let mut perms_iter = perms.into_iter().peekable();
-        if perms_iter.peek().is_some() {
-            one_line.push(perms_iter.next().unwrap());
+        for entry in vector_iter {
+            self.general_text(", ");
+            self.one_line.push(entry);
         }
-        for entry in perms_iter {
-            one_line.push(", ".white());
-            one_line.push(entry);
+        self.one_line.extend(ender);
+    }
+    pub fn directives_handler(&mut self, vector: Vec<ColoredString>) {
+        if !vector.is_empty() {
+            self.general_text(" (");
+            let mut vector_iter = vector.into_iter().peekable();
+            if vector_iter.peek().is_some() {
+                self.one_line.push(vector_iter.next().unwrap());
+            }
+            for entry in vector_iter {
+                self.general_text(", ");
+                self.one_line.push(entry);
+            }
+            self.general_text(")");
         }
-        one_line.push(", ".white());
     }
 
-    // SETS
-    let mut sets = vec![];
-    if mode.contains(rustix::fs::Mode::SUID) {
-        sets.push("set-uid".yellow());
-    } else if mode.contains(rustix::fs::Mode::SGID) {
-        sets.push("set-gid".yellow());
-    } else if mode.contains(rustix::fs::Mode::SVTX) {
-        sets.push("sticky-bit".yellow());
-    }
-    if !sets.is_empty() {
-        one_line.push(" and set ".white());
-        let mut sets_iter = sets.into_iter().peekable();
-        if sets_iter.peek().is_some() {
-            one_line.push(sets_iter.next().unwrap());
+    pub fn vanilla_commas_handler(&mut self, vector: Vec<ColoredString>) {
+        let mut vector_iter = vector.into_iter().peekable();
+        if vector_iter.peek().is_some() {
+            self.one_line.push(vector_iter.next().unwrap());
         }
-        for entry in sets_iter {
-            one_line.push(", ".white());
-            one_line.push(entry);
+        for entry in vector_iter {
+            self.general_text(", ");
+            self.one_line.push(entry);
+        }
+    }
+
+    pub fn mode_matcher(&mut self, mode: rustix::fs::Mode) {
+        // USER
+        let mut perms = vec![];
+        if mode.contains(rustix::fs::Mode::RUSR) {
+            perms.push("read".yellow());
+        }
+        if mode.contains(rustix::fs::Mode::WUSR) {
+            perms.push("write".yellow());
+        }
+        if mode.contains(rustix::fs::Mode::XUSR) {
+            perms.push("execute".yellow());
+        }
+        if !perms.is_empty() {
+            self.general_text(" allowing the user to ");
+            let mut perms_iter = perms.into_iter().peekable();
+            if perms_iter.peek().is_some() {
+                self.one_line.push(perms_iter.next().unwrap());
+            }
+            for entry in perms_iter {
+                self.general_text(", ");
+                self.one_line.push(entry);
+            }
+            self.general_text(", ");
+        }
+
+        // GROUP
+        let mut perms = vec![];
+        if mode.contains(rustix::fs::Mode::RGRP) {
+            perms.push("read".yellow());
+        }
+        if mode.contains(rustix::fs::Mode::WGRP) {
+            perms.push("write".yellow());
+        }
+        if mode.contains(rustix::fs::Mode::XGRP) {
+            perms.push("execute".yellow());
+        }
+        if !perms.is_empty() {
+            self.general_text(" allowing the group to ");
+            let mut perms_iter = perms.into_iter().peekable();
+            if perms_iter.peek().is_some() {
+                self.one_line.push(perms_iter.next().unwrap());
+            }
+            for entry in perms_iter {
+                self.general_text(", ");
+                self.one_line.push(entry);
+            }
+            self.general_text(", ");
+        }
+        // OTHER
+        let mut perms = vec![];
+        if mode.contains(rustix::fs::Mode::ROTH) {
+            perms.push("read".yellow());
+        }
+        if mode.contains(rustix::fs::Mode::WOTH) {
+            perms.push("write".yellow());
+        }
+        if mode.contains(rustix::fs::Mode::XOTH) {
+            perms.push("execute".yellow());
+        }
+        if !perms.is_empty() {
+            self.general_text(" allowing others to ");
+            let mut perms_iter = perms.into_iter().peekable();
+            if perms_iter.peek().is_some() {
+                self.one_line.push(perms_iter.next().unwrap());
+            }
+            for entry in perms_iter {
+                self.general_text(", ");
+                self.one_line.push(entry);
+            }
+            self.general_text(", ");
+        }
+
+        // SETS
+        let mut sets = vec![];
+        if mode.contains(rustix::fs::Mode::SUID) {
+            sets.push("set-uid".yellow());
+        } else if mode.contains(rustix::fs::Mode::SGID) {
+            sets.push("set-gid".yellow());
+        } else if mode.contains(rustix::fs::Mode::SVTX) {
+            sets.push("sticky-bit".yellow());
+        }
+        if !sets.is_empty() {
+            self.general_text(" and set ");
+            let mut sets_iter = sets.into_iter().peekable();
+            if sets_iter.peek().is_some() {
+                self.one_line.push(sets_iter.next().unwrap());
+            }
+            for entry in sets_iter {
+                self.general_text(", ");
+                self.one_line.push(entry);
+            }
+        }
+    }
+    pub fn format_timespec(&mut self, seconds: i64, nanoseconds: i64) {
+        if seconds == 0 {
+            if nanoseconds == 0 {
+                self.one_line.push("immediately".yellow());
+            } else {
+                self.one_line.push("after ".yellow());
+                self.one_line.push(nanoseconds.to_string().yellow());
+                self.one_line.push(" nanoseconds".yellow());
+            }
+        } else {
+            self.one_line.push("after ".yellow());
+            self.one_line.push(seconds.to_string().yellow());
+            self.one_line.push(" seconds".yellow());
+            if nanoseconds != 0 {
+                self.general_text(", ");
+                self.one_line.push(nanoseconds.to_string().yellow());
+                self.one_line.push(" nanoseconds".yellow());
+            }
+        }
+    }
+    pub fn format_timespec_non_relative(&mut self, 
+        seconds: i64,
+        nanoseconds: i64,
+    ) {
+        if seconds == 0 {
+            if nanoseconds == 0 {
+                self.one_line.push("0".blue());
+                self.one_line.push(" nano-seconds".yellow());
+            } else {
+                self.one_line.push(nanoseconds.to_string().blue());
+                self.one_line.push(" nano-seconds".yellow());
+            }
+        } else {
+            self.one_line.push(seconds.to_string().blue());
+            self.one_line.push(" seconds".yellow());
+            if nanoseconds != 0 {
+                self.general_text(" and ");
+                self.one_line.push(nanoseconds.to_string().yellow());
+                self.one_line.push(" nanoseconds".yellow());
+            }
+        }
+    }
+
+    pub fn format_timeval(&mut self, seconds: i64, microseconds: i64) {
+        if seconds == 0 {
+            if microseconds == 0 {
+                self.one_line.push("immediately".yellow());
+            } else {
+                self.one_line.push("after ".yellow());
+                self.one_line.push(microseconds.to_string().yellow());
+                self.one_line.push(" microseconds".yellow());
+            }
+        } else {
+            self.one_line.push("after ".yellow());
+            self.one_line.push(seconds.to_string().yellow());
+            self.one_line.push(" seconds".yellow());
+            if microseconds != 0 {
+                self.general_text(", ");
+                self.one_line.push(microseconds.to_string().yellow());
+                self.one_line.push(" microseconds".yellow());
+            }
         }
     }
 }
@@ -6355,144 +6329,14 @@ pub fn resource_matcher(resource: Resource, one_line: &mut Vec<ColoredString>) {
     }
 }
 
-pub fn format_timespec(seconds: i64, nanoseconds: i64, one_line: &mut Vec<ColoredString>) {
-    if seconds == 0 {
-        if nanoseconds == 0 {
-            one_line.push("immediately".yellow());
-        } else {
-            one_line.push("after ".yellow());
-            one_line.push(nanoseconds.to_string().yellow());
-            one_line.push(" nanoseconds".yellow());
-        }
-    } else {
-        one_line.push("after ".yellow());
-        one_line.push(seconds.to_string().yellow());
-        one_line.push(" seconds".yellow());
-        if nanoseconds != 0 {
-            one_line.push(", ".white());
-            one_line.push(nanoseconds.to_string().yellow());
-            one_line.push(" nanoseconds".yellow());
-        }
-    }
-}
-pub fn format_timespec_non_relative(
-    seconds: i64,
-    nanoseconds: i64,
-    one_line: &mut Vec<ColoredString>,
-) {
-    if seconds == 0 {
-        if nanoseconds == 0 {
-            one_line.push("0".blue());
-            one_line.push(" nano-seconds".yellow());
-        } else {
-            one_line.push(nanoseconds.to_string().blue());
-            one_line.push(" nano-seconds".yellow());
-        }
-    } else {
-        one_line.push(seconds.to_string().blue());
-        one_line.push(" seconds".yellow());
-        if nanoseconds != 0 {
-            one_line.push(" and ".white());
-            one_line.push(nanoseconds.to_string().yellow());
-            one_line.push(" nanoseconds".yellow());
-        }
-    }
-}
-
-pub fn format_timeval(seconds: i64, microseconds: i64, one_line: &mut Vec<ColoredString>) {
-    if seconds == 0 {
-        if microseconds == 0 {
-            one_line.push("immediately".yellow());
-        } else {
-            one_line.push("after ".yellow());
-            one_line.push(microseconds.to_string().yellow());
-            one_line.push(" microseconds".yellow());
-        }
-    } else {
-        one_line.push("after ".yellow());
-        one_line.push(seconds.to_string().yellow());
-        one_line.push(" seconds".yellow());
-        if microseconds != 0 {
-            one_line.push(", ".white());
-            one_line.push(microseconds.to_string().yellow());
-            one_line.push(" microseconds".yellow());
-        }
-    }
-}
-
-pub fn oring_handler(vector: Vec<ColoredString>, one_line: &mut Vec<ColoredString>) {
-    if !vector.is_empty() {
-        let mut vector_iter = vector.into_iter().peekable();
-        if vector_iter.peek().is_some() {
-            one_line.push(vector_iter.next().unwrap());
-        }
-        let mut ender = vec![];
-        if vector_iter.peek().is_some() {
-            ender.push(", or ".white());
-            ender.push(vector_iter.next().unwrap());
-        }
-        for entry in vector_iter {
-            one_line.push(", or ".white());
-            one_line.push(entry);
-        }
-        one_line.extend(ender);
-    }
-}
-
-pub fn anding_handler(vector: Vec<ColoredString>, one_line: &mut Vec<ColoredString>) {
-    let mut vector_iter = vector.into_iter().peekable();
-    if vector_iter.peek().is_some() {
-        one_line.push(vector_iter.next().unwrap());
-    }
-    let mut ender = vec![];
-    if vector_iter.peek().is_some() {
-        ender.push(", and ".white());
-        ender.push(vector_iter.next().unwrap());
-    }
-    // else {
-    //     ender.push(" ".white());
-    // }
-    for entry in vector_iter {
-        one_line.push(", ".white());
-        one_line.push(entry);
-    }
-    one_line.extend(ender);
-}
-
-pub fn directives_handler(vector: Vec<ColoredString>, one_line: &mut Vec<ColoredString>) {
-    if !vector.is_empty() {
-        one_line.push(" (".white());
-        let mut vector_iter = vector.into_iter().peekable();
-        if vector_iter.peek().is_some() {
-            one_line.push(vector_iter.next().unwrap());
-        }
-        for entry in vector_iter {
-            one_line.push(", ".white());
-            one_line.push(entry);
-        }
-        one_line.push(")".white());
-    }
-}
-
-pub fn vanilla_commas_handler(vector: Vec<ColoredString>, one_line: &mut Vec<ColoredString>) {
-    let mut vector_iter = vector.into_iter().peekable();
-    if vector_iter.peek().is_some() {
-        one_line.push(vector_iter.next().unwrap());
-    }
-    for entry in vector_iter {
-        one_line.push(", ".white());
-        one_line.push(entry);
-    }
-}
-
 pub fn new_process() -> ColoredString {
     "
 
-  ╭──────────────╮
-  │              │
-  │ NEW PROCESS  │   		
-  │              │
-  ╰──────────────╯	
+  ╭────────────────╮
+  │                │
+  │  NEW PROCESS   │   		
+  │                │
+  ╰────────────────╯	
 "
     .red()
 }
@@ -6500,11 +6344,11 @@ pub fn new_process() -> ColoredString {
 pub fn new_thread() -> ColoredString {
     "
 
-  ╭──────────────╮
-  │              │
-  │  NEW THREAD  │   		
-  │              │
-  ╰──────────────╯	
+  ╭────────────────╮
+  │                │
+  │   NEW THREAD   │   		
+  │                │
+  ╰────────────────╯	
 "
     .green()
 }

@@ -60,8 +60,7 @@ use std::{
 };
 use syscalls::Sysno;
 use utilities::{
-    display_unsupported, errno_check, parse_args, set_memory_break, ATTACH, FAILED_ONLY,
-    FOLLOW_FORKS, HALT_FORK_FOLLOW, OUTPUT, OUTPUT_FOLLOW_FORKS, QUIET, SUMMARY,
+    display_unsupported, errno_check, parse_args, set_memory_break, terminal_setup, ATTACH, FAILED_ONLY, FOLLOW_FORKS, HALT_FORK_FOLLOW, OUTPUT, OUTPUT_FOLLOW_FORKS, QUIET, SUMMARY
 };
 
 mod syscall_annotations_map;
@@ -83,9 +82,11 @@ fn main() {
         std::process::exit(0);
     })
     .unwrap();
+    terminal_setup();
     let cl = parse_args();
     runner(cl);
 }
+
 
 fn runner(command_line: Vec<String>) {
     if FOLLOW_FORKS.load(Ordering::SeqCst) {
