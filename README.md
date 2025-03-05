@@ -4,7 +4,7 @@
 
 # About
 
-intentrace is a strace for everyone, intentrace works similarly to strace in that it intercepts and records the system calls which are called by a process, it then reasons through these syscalls by consulting an enormous backlog of handwritten syscall deductions.
+intentrace is a strace for everyone, intentrace works similarly to strace in that it intercepts and records the system calls that a process issues, it then reasons through these syscalls by consulting an enormous backlog of syscall deductions.
 Due to the fact that linux syscalls almost always have dual usage that's obfuscated by libraries, seeing what a syscall is exactly asking for is immensely useful when e.g. a programmer is debugging a crashing binary.
 <p align="center">
   <img src="./intentrace-example.png" alt="Intentrace Example">
@@ -26,7 +26,7 @@ Intentrace follows a similar working methodology to the one employed by the [Uni
 
 `intentrace -q ls`
 
-#### to include the child processes of multi-threaded programs add `-f` 
+#### to include the child processes of multi-threaded programs add `-f`
 
 `intentrace -f docker run alpine`
 
@@ -68,7 +68,7 @@ cargo install intentrace
 ```
 
 
-### Package Manager Availability 
+### Package Manager Availability
 
 [![Packaging status](https://repology.org/badge/vertical-allrepos/intentrace.svg)](https://repology.org/project/intentrace/versions)
 
@@ -97,4 +97,3 @@ Issues and PRs can contain and involve:
 - suggestions for granularity.
 - suggestions for fixes.
 - etc.. there are no rules, feel free to contribute as you see fit.
-
