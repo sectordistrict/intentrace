@@ -134,32 +134,32 @@ pub fn initialize_syscall_skeleton_map() -> HashMap<Sysno, Syscall_Shape> {
                 syscall_return: Length_Of_Bytes_Specific_Or_Errno,
             },
         ),
-        (
-            Sysno::preadv2,
-            Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    Array_Of_Struct,
-                    Unsigned_Numeric,
-                    Length_Of_Bytes_Specific,
-                    General_Flag(P_RW_V2_Flags),
-                ],
-                syscall_return: Length_Of_Bytes_Specific_Or_Errno,
-            },
-        ),
-        (
-            Sysno::pwritev2,
-            Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    Array_Of_Struct,
-                    Unsigned_Numeric,
-                    Length_Of_Bytes_Specific,
-                    General_Flag(P_RW_V2_Flags),
-                ],
-                syscall_return: Length_Of_Bytes_Specific_Or_Errno,
-            },
-        ),
+        // (
+        //     Sysno::preadv2,
+        //     Syscall_Shape {
+        //         types: &[
+        //             File_Descriptor(""),
+        //             Array_Of_Struct,
+        //             Unsigned_Numeric,
+        //             Length_Of_Bytes_Specific,
+        //             General_Flag(P_RW_V2_Flags),
+        //         ],
+        //         syscall_return: Length_Of_Bytes_Specific_Or_Errno,
+        //     },
+        // ),
+        // (
+        //     Sysno::pwritev2,
+        //     Syscall_Shape {
+        //         types: &[
+        //             File_Descriptor(""),
+        //             Array_Of_Struct,
+        //             Unsigned_Numeric,
+        //             Length_Of_Bytes_Specific,
+        //             General_Flag(P_RW_V2_Flags),
+        //         ],
+        //         syscall_return: Length_Of_Bytes_Specific_Or_Errno,
+        //     },
+        // ),
         (
             Sysno::pipe,
             Syscall_Shape {
@@ -272,26 +272,26 @@ pub fn initialize_syscall_skeleton_map() -> HashMap<Sysno, Syscall_Shape> {
         ),
         // an extension of openat(2) and provides a superset of its functionality.
         // operaes with the same logic as openat()
-        (
-            Sysno::openat2,
-            Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    Pointer_To_Text(""),
-                    Pointer_To_Struct,
-                    Length_Of_Bytes,
-                ],
-                syscall_return: File_Descriptor_Or_Errno(""),
-            },
-        ),
+        // (
+        //     Sysno::openat2,
+        //     Syscall_Shape {
+        //         types: &[
+        //             File_Descriptor(""),
+        //             Pointer_To_Text(""),
+        //             Pointer_To_Struct,
+        //             Length_Of_Bytes,
+        //         ],
+        //         syscall_return: File_Descriptor_Or_Errno(""),
+        //     },
+        // ),
         // calling creat() is equivalent to calling open() with flags equal to O_CREAT|O_WRONLY|O_TRUNC
-        (
-            Sysno::creat,
-            Syscall_Shape {
-                types: &[Pointer_To_Text(""), General_Flag(FileMode)],
-                syscall_return: File_Descriptor_Or_Errno(""),
-            },
-        ),
+        // (
+        //     Sysno::creat,
+        //     Syscall_Shape {
+        //         types: &[Pointer_To_Text(""), General_Flag(FileMode)],
+        //         syscall_return: File_Descriptor_Or_Errno(""),
+        //     },
+        // ),
         (
             Sysno::getcwd,
             Syscall_Shape {
@@ -299,20 +299,20 @@ pub fn initialize_syscall_skeleton_map() -> HashMap<Sysno, Syscall_Shape> {
                 syscall_return: Address_Or_Errno_getcwd(""),
             },
         ),
-        (
-            Sysno::chdir,
-            Syscall_Shape {
-                types: &[Pointer_To_Text("")],
-                syscall_return: Numeric_Or_Errno,
-            },
-        ),
-        (
-            Sysno::fchdir,
-            Syscall_Shape {
-                types: &[File_Descriptor("")],
-                syscall_return: Numeric_Or_Errno,
-            },
-        ),
+        // (
+        //     Sysno::chdir,
+        //     Syscall_Shape {
+        //         types: &[Pointer_To_Text("")],
+        //         syscall_return: Numeric_Or_Errno,
+        //     },
+        // ),
+        // (
+        //     Sysno::fchdir,
+        //     Syscall_Shape {
+        //         types: &[File_Descriptor("")],
+        //         syscall_return: Numeric_Or_Errno,
+        //     },
+        // ),
         (
             Sysno::rename,
             Syscall_Shape {
@@ -363,38 +363,38 @@ pub fn initialize_syscall_skeleton_map() -> HashMap<Sysno, Syscall_Shape> {
                 syscall_return: Numeric_Or_Errno,
             },
         ),
-        (
-            Sysno::link,
-            Syscall_Shape {
-                // after hard linking it is impossible to tell which file was the original
-                // because they both point to the same inode now
-                //
-                // The link() system call can be used to detect and trace malicious or suspicious file modification.
-                // For example, if a malicious user is trying to modify or delete files in a system,
-                // creating/deleting a hard link to the file is one way to do this.
-                // Tracking the link() system call will notify if any files are modified in this way.
-                types: &[
-                    Pointer_To_Text(""),
-                    // if existing, will not be overwritten
-                    Pointer_To_Text(""),
-                ],
-                syscall_return: Numeric_Or_Errno,
-            },
-        ),
-        (
-            Sysno::linkat,
-            Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    Pointer_To_Text(""),
-                    File_Descriptor(""),
-                    // if existing, will not be overwritten
-                    Pointer_To_Text(""),
-                    General_Flag(FileAtFlags),
-                ],
-                syscall_return: Numeric_Or_Errno,
-            },
-        ),
+        // (
+        //     Sysno::link,
+        //     Syscall_Shape {
+        //         // after hard linking it is impossible to tell which file was the original
+        //         // because they both point to the same inode now
+        //         //
+        //         // The link() system call can be used to detect and trace malicious or suspicious file modification.
+        //         // For example, if a malicious user is trying to modify or delete files in a system,
+        //         // creating/deleting a hard link to the file is one way to do this.
+        //         // Tracking the link() system call will notify if any files are modified in this way.
+        //         types: &[
+        //             Pointer_To_Text(""),
+        //             // if existing, will not be overwritten
+        //             Pointer_To_Text(""),
+        //         ],
+        //         syscall_return: Numeric_Or_Errno,
+        //     },
+        // ),
+        // (
+        //     Sysno::linkat,
+        //     Syscall_Shape {
+        //         types: &[
+        //             File_Descriptor(""),
+        //             Pointer_To_Text(""),
+        //             File_Descriptor(""),
+        //             // if existing, will not be overwritten
+        //             Pointer_To_Text(""),
+        //             General_Flag(FileAtFlags),
+        //         ],
+        //         syscall_return: Numeric_Or_Errno,
+        //     },
+        // ),
         (
             Sysno::unlink,
             Syscall_Shape {
@@ -415,13 +415,13 @@ pub fn initialize_syscall_skeleton_map() -> HashMap<Sysno, Syscall_Shape> {
                 syscall_return: Numeric_Or_Errno,
             },
         ),
-        (
-            Sysno::rmdir,
-            Syscall_Shape {
-                types: &[Pointer_To_Text("")],
-                syscall_return: Numeric_Or_Errno,
-            },
-        ),
+        // (
+        //     Sysno::rmdir,
+        //     Syscall_Shape {
+        //         types: &[Pointer_To_Text("")],
+        //         syscall_return: Numeric_Or_Errno,
+        //     },
+        // ),
         (
             // A symbolic link (also known as a soft link) may becomoe dangling
             // (point to a nonexistent file);
@@ -692,29 +692,29 @@ pub fn initialize_syscall_skeleton_map() -> HashMap<Sysno, Syscall_Shape> {
                 syscall_return: Numeric_Or_Errno,
             },
         ),
-        (
-            // deprecated syscall
-            Sysno::ustat,
-            Syscall_Shape {
-                types: &[Unsigned_Numeric, Pointer_To_Struct],
-                syscall_return: Numeric_Or_Errno,
-            },
-        ),
-        (
-            Sysno::cachestat,
-            Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    // pages ceil
-                    Pointer_To_Struct,
-                    Pointer_To_Struct,
-                    // Some unknown flag argument
-                    General_Flag(ReservedForFutureUse),
-                ],
-                // unknown for now error value
-                syscall_return: Numeric_Or_Errno,
-            },
-        ),
+        // (
+        //     // deprecated syscall
+        //     Sysno::ustat,
+        //     Syscall_Shape {
+        //         types: &[Unsigned_Numeric, Pointer_To_Struct],
+        //         syscall_return: Numeric_Or_Errno,
+        //     },
+        // ),
+        // (
+        //     Sysno::cachestat,
+        //     Syscall_Shape {
+        //         types: &[
+        //             File_Descriptor(""),
+        //             // pages ceil
+        //             Pointer_To_Struct,
+        //             Pointer_To_Struct,
+        //             // Some unknown flag argument
+        //             General_Flag(ReservedForFutureUse),
+        //         ],
+        //         // unknown for now error value
+        //         syscall_return: Numeric_Or_Errno,
+        //     },
+        // ),
         // (
         //     Sysno::statmount,
         // ),
@@ -1053,228 +1053,228 @@ pub fn initialize_syscall_skeleton_map() -> HashMap<Sysno, Syscall_Shape> {
                 syscall_return: Numeric_Or_Errno,
             },
         ),
-        (
-            Sysno::socket,
-            Syscall_Shape {
-                types: &[
-                    General_Flag(SocketFamily),
-                    General_Flag(SocketType),
-                    General_Flag(SocketProtocol),
-                ],
-                syscall_return: File_Descriptor_Or_Errno(""),
-            },
-        ),
-        (
-            Sysno::bind,
-            Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    Pointer_To_Struct,
-                    Length_Of_Bytes_Specific,
-                ],
-                syscall_return: Numeric_Or_Errno,
-            },
-        ),
-        (
-            Sysno::getsockname,
-            Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    // The returned information is truncated if the buffer provided is too small (addrlen small)
-                    Pointer_To_Struct,
-                    // upon return this pointer gets updated with the length of bytes written in the buffer
-                    // but in this case of truncation
-                    // it will return a value greater
-                    // than was supplied to the call.
-                    Pointer_To_Length_Of_Bytes_Specific,
-                ],
-                syscall_return: Numeric_Or_Errno,
-            },
-        ),
-        (
-            Sysno::getpeername,
-            Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    // The returned information is truncated
-                    // if the buffer provided is too small (addrlen small);
-                    Pointer_To_Struct,
-                    // upon return this pointer gets updated with the length of bytes written in the buffer
-                    // but in this case of truncation
-                    // it will return a value greater
-                    // than was supplied to the call.
-                    Pointer_To_Length_Of_Bytes_Specific,
-                ],
-                syscall_return: Numeric_Or_Errno,
-            },
-        ),
-        (
-            Sysno::socketpair,
-            Syscall_Shape {
-                types: &[
-                    General_Flag(SocketFamily),
-                    General_Flag(SocketType),
-                    General_Flag(SocketProtocol),
-                    // (ValueReturn(Pointer_To_File_Descriptor_Array(["", ""],syscall_return: Pointer_To_File_Descriptor_Array(["", ""]))
-                    Pointer_To_File_Descriptor_Array(["", ""]),
-                ],
-                // on error sv is left unchanged
-                syscall_return: Numeric_Or_Errno,
-            },
-        ),
-        (
-            Sysno::setsockopt,
-            Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    General_Flag(SocketLevel),
-                    General_Flag(SocketOption),
-                    // the argument should be
-                    // nonzero to enable a boolean option,
-                    // or zero if the option is to be disabled.
-                    Pointer_To_Struct,
-                    Pointer_To_Length_Of_Bytes_Specific,
-                ],
-                syscall_return: Numeric_Or_Errno,
-            },
-        ),
-        (
-            Sysno::getsockopt,
-            Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    General_Flag(SocketLevel),
-                    General_Flag(SocketOption),
-                    Pointer_To_Struct,
-                    //    optlen is a value-result argument
-                    //     initially containing the size of optval buffer
-                    //     and on return modified to the actual size of the value returned
-                    //     can be NULL If no option value is to be supplied or returned,
-                    Pointer_To_Length_Of_Bytes_Specific,
-                ],
-                syscall_return: Numeric_Or_Errno,
-            },
-        ),
-        (
-            Sysno::listen,
-            Syscall_Shape {
-                types: &[File_Descriptor(""), Numeric],
-                syscall_return: Numeric_Or_Errno,
-            },
-        ),
-        (
-            Sysno::accept,
-            Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    // nullable, and when nullable it is not filled
-                    Pointer_To_Struct,
-                    // addrlen is a value-result argument
-                    // initially containing the size of optval buffer
-                    // and on return modified to the actual size of the value returned
-                    // can be NULL If no option value is to be supplied or returned,
-                    Pointer_To_Struct,
-                ],
-                // -1 on error, errno modified
-                syscall_return: File_Descriptor_Or_Errno(""),
-            },
-        ),
-        (
-            // identical to accept
-            // except that it has flag arguments which save from doing extra calls to fcntl(2)
-            // the flags are to: 1- set socket as non-blocking, 2- set socket as close-on-exec
-            Sysno::accept4,
-            Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    // nullable, and when nullable it is not filled
-                    Pointer_To_Struct,
-                    // addrlen is a value-result argument
-                    // initially containing the size of optval buffer
-                    // and on return modified to the actual size of the value returned
-                    // can be NULL If no option value is to be supplied or returned,
-                    Pointer_To_Struct,
-                    // if this flag is 0 then accept4 is identical to accept
-                    General_Flag(SocketFlag),
-                ],
-                // -1 on error, errno modified
-                syscall_return: File_Descriptor_Or_Errno(""),
-            },
-        ),
-        (
-            Sysno::connect,
-            Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    Pointer_To_Struct,
-                    Length_Of_Bytes_Specific,
-                ],
-                syscall_return: Numeric_Or_Errno,
-            },
-        ),
-        (
-            Sysno::sendto,
-            Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    Pointer_To_Text(""),
-                    Length_Of_Bytes_Specific,
-                    General_Flag(SocketMessageFlag),
-                    // WILL BE USED if connection-less (like UDP)
-                    // WILL BE IGNORED if connection-mode (like TCP, or SEQ) and must be null or 0
-                    Pointer_To_Struct,
-                    // IGNORED if connection-mode (like TCP, or SEQ) (UDP IS CONNECTIONLESS) and must be null or 0
-                    Length_Of_Bytes_Specific,
-                ],
-                syscall_return: Length_Of_Bytes_Specific_Or_Errno,
-            },
-        ),
-        (
-            Sysno::sendmsg,
-            Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    Pointer_To_Struct,
-                    General_Flag(SocketMessageFlag),
-                ],
-                syscall_return: Length_Of_Bytes_Specific_Or_Errno,
-            },
-        ),
-        (
-            Sysno::recvfrom,
-            Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    // If a message is too long to fit in the supplied buffer,
-                    // excess bytes may be discarded depending
-                    // on the type of socket the message is received from.
-                    Pointer_To_Text(""),
-                    Length_Of_Bytes_Specific,
-                    General_Flag(SocketMessageReceiveFlag),
-                    // if src_addr and addrlen are NULL
-                    // it means we do not care or want src_addr details
-                    // otherwise addrlen is value-result argument
-                    Pointer_To_Struct,
-                    // value-result argument, will become the length of the buffer, and truncation rules apply
-                    Pointer_To_Struct,
-                ],
-                syscall_return: Length_Of_Bytes_Specific_Or_Errno,
-            },
-        ),
-        (
-            Sysno::recvmsg,
-            Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    // If a message is too long to fit in the supplied buffer,
-                    // excess bytes may be discarded depending
-                    // on the type of socket the message is received from.
-                    Pointer_To_Struct,
-                    General_Flag(SocketMessageFlag),
-                ],
-                syscall_return: Length_Of_Bytes_Specific_Or_Errno,
-            },
-        ),
+        // (
+        //     Sysno::socket,
+        //     Syscall_Shape {
+        //         types: &[
+        //             General_Flag(SocketFamily),
+        //             General_Flag(SocketType),
+        //             General_Flag(SocketProtocol),
+        //         ],
+        //         syscall_return: File_Descriptor_Or_Errno(""),
+        //     },
+        // ),
+        // (
+        //     Sysno::bind,
+        //     Syscall_Shape {
+        //         types: &[
+        //             File_Descriptor(""),
+        //             Pointer_To_Struct,
+        //             Length_Of_Bytes_Specific,
+        //         ],
+        //         syscall_return: Numeric_Or_Errno,
+        //     },
+        // ),
+        // (
+        //     Sysno::getsockname,
+        //     Syscall_Shape {
+        //         types: &[
+        //             File_Descriptor(""),
+        //             // The returned information is truncated if the buffer provided is too small (addrlen small)
+        //             Pointer_To_Struct,
+        //             // upon return this pointer gets updated with the length of bytes written in the buffer
+        //             // but in this case of truncation
+        //             // it will return a value greater
+        //             // than was supplied to the call.
+        //             Pointer_To_Length_Of_Bytes_Specific,
+        //         ],
+        //         syscall_return: Numeric_Or_Errno,
+        //     },
+        // ),
+        // (
+        //     Sysno::getpeername,
+        //     Syscall_Shape {
+        //         types: &[
+        //             File_Descriptor(""),
+        //             // The returned information is truncated
+        //             // if the buffer provided is too small (addrlen small);
+        //             Pointer_To_Struct,
+        //             // upon return this pointer gets updated with the length of bytes written in the buffer
+        //             // but in this case of truncation
+        //             // it will return a value greater
+        //             // than was supplied to the call.
+        //             Pointer_To_Length_Of_Bytes_Specific,
+        //         ],
+        //         syscall_return: Numeric_Or_Errno,
+        //     },
+        // ),
+        // (
+        //     Sysno::socketpair,
+        //     Syscall_Shape {
+        //         types: &[
+        //             General_Flag(SocketFamily),
+        //             General_Flag(SocketType),
+        //             General_Flag(SocketProtocol),
+        //             // (ValueReturn(Pointer_To_File_Descriptor_Array(["", ""],syscall_return: Pointer_To_File_Descriptor_Array(["", ""]))
+        //             Pointer_To_File_Descriptor_Array(["", ""]),
+        //         ],
+        //         // on error sv is left unchanged
+        //         syscall_return: Numeric_Or_Errno,
+        //     },
+        // ),
+        // (
+        //     Sysno::setsockopt,
+        //     Syscall_Shape {
+        //         types: &[
+        //             File_Descriptor(""),
+        //             General_Flag(SocketLevel),
+        //             General_Flag(SocketOption),
+        //             // the argument should be
+        //             // nonzero to enable a boolean option,
+        //             // or zero if the option is to be disabled.
+        //             Pointer_To_Struct,
+        //             Pointer_To_Length_Of_Bytes_Specific,
+        //         ],
+        //         syscall_return: Numeric_Or_Errno,
+        //     },
+        // ),
+        // (
+        //     Sysno::getsockopt,
+        //     Syscall_Shape {
+        //         types: &[
+        //             File_Descriptor(""),
+        //             General_Flag(SocketLevel),
+        //             General_Flag(SocketOption),
+        //             Pointer_To_Struct,
+        //             //    optlen is a value-result argument
+        //             //     initially containing the size of optval buffer
+        //             //     and on return modified to the actual size of the value returned
+        //             //     can be NULL If no option value is to be supplied or returned,
+        //             Pointer_To_Length_Of_Bytes_Specific,
+        //         ],
+        //         syscall_return: Numeric_Or_Errno,
+        //     },
+        // ),
+        // (
+        //     Sysno::listen,
+        //     Syscall_Shape {
+        //         types: &[File_Descriptor(""), Numeric],
+        //         syscall_return: Numeric_Or_Errno,
+        //     },
+        // ),
+        // (
+        //     Sysno::accept,
+        //     Syscall_Shape {
+        //         types: &[
+        //             File_Descriptor(""),
+        //             // nullable, and when nullable it is not filled
+        //             Pointer_To_Struct,
+        //             // addrlen is a value-result argument
+        //             // initially containing the size of optval buffer
+        //             // and on return modified to the actual size of the value returned
+        //             // can be NULL If no option value is to be supplied or returned,
+        //             Pointer_To_Struct,
+        //         ],
+        //         // -1 on error, errno modified
+        //         syscall_return: File_Descriptor_Or_Errno(""),
+        //     },
+        // ),
+        // (
+        //     // identical to accept
+        //     // except that it has flag arguments which save from doing extra calls to fcntl(2)
+        //     // the flags are to: 1- set socket as non-blocking, 2- set socket as close-on-exec
+        //     Sysno::accept4,
+        //     Syscall_Shape {
+        //         types: &[
+        //             File_Descriptor(""),
+        //             // nullable, and when nullable it is not filled
+        //             Pointer_To_Struct,
+        //             // addrlen is a value-result argument
+        //             // initially containing the size of optval buffer
+        //             // and on return modified to the actual size of the value returned
+        //             // can be NULL If no option value is to be supplied or returned,
+        //             Pointer_To_Struct,
+        //             // if this flag is 0 then accept4 is identical to accept
+        //             General_Flag(SocketFlag),
+        //         ],
+        //         // -1 on error, errno modified
+        //         syscall_return: File_Descriptor_Or_Errno(""),
+        //     },
+        // ),
+        // (
+        //     Sysno::connect,
+        //     Syscall_Shape {
+        //         types: &[
+        //             File_Descriptor(""),
+        //             Pointer_To_Struct,
+        //             Length_Of_Bytes_Specific,
+        //         ],
+        //         syscall_return: Numeric_Or_Errno,
+        //     },
+        // ),
+        // (
+        //     Sysno::sendto,
+        //     Syscall_Shape {
+        //         types: &[
+        //             File_Descriptor(""),
+        //             Pointer_To_Text(""),
+        //             Length_Of_Bytes_Specific,
+        //             General_Flag(SocketMessageFlag),
+        //             // WILL BE USED if connection-less (like UDP)
+        //             // WILL BE IGNORED if connection-mode (like TCP, or SEQ) and must be null or 0
+        //             Pointer_To_Struct,
+        //             // IGNORED if connection-mode (like TCP, or SEQ) (UDP IS CONNECTIONLESS) and must be null or 0
+        //             Length_Of_Bytes_Specific,
+        //         ],
+        //         syscall_return: Length_Of_Bytes_Specific_Or_Errno,
+        //     },
+        // ),
+        // (
+        //     Sysno::sendmsg,
+        //     Syscall_Shape {
+        //         types: &[
+        //             File_Descriptor(""),
+        //             Pointer_To_Struct,
+        //             General_Flag(SocketMessageFlag),
+        //         ],
+        //         syscall_return: Length_Of_Bytes_Specific_Or_Errno,
+        //     },
+        // ),
+        // (
+        //     Sysno::recvfrom,
+        //     Syscall_Shape {
+        //         types: &[
+        //             File_Descriptor(""),
+        //             // If a message is too long to fit in the supplied buffer,
+        //             // excess bytes may be discarded depending
+        //             // on the type of socket the message is received from.
+        //             Pointer_To_Text(""),
+        //             Length_Of_Bytes_Specific,
+        //             General_Flag(SocketMessageReceiveFlag),
+        //             // if src_addr and addrlen are NULL
+        //             // it means we do not care or want src_addr details
+        //             // otherwise addrlen is value-result argument
+        //             Pointer_To_Struct,
+        //             // value-result argument, will become the length of the buffer, and truncation rules apply
+        //             Pointer_To_Struct,
+        //         ],
+        //         syscall_return: Length_Of_Bytes_Specific_Or_Errno,
+        //     },
+        // ),
+        // (
+        //     Sysno::recvmsg,
+        //     Syscall_Shape {
+        //         types: &[
+        //             File_Descriptor(""),
+        //             // If a message is too long to fit in the supplied buffer,
+        //             // excess bytes may be discarded depending
+        //             // on the type of socket the message is received from.
+        //             Pointer_To_Struct,
+        //             General_Flag(SocketMessageFlag),
+        //         ],
+        //         syscall_return: Length_Of_Bytes_Specific_Or_Errno,
+        //     },
+        // ),
         (
             Sysno::shutdown,
             Syscall_Shape {
@@ -1715,25 +1715,25 @@ pub fn initialize_syscall_skeleton_map() -> HashMap<Sysno, Syscall_Shape> {
                 syscall_return: Always_Successful_User_Group,
             },
         ),
-        (
-            // If the calling process is privileged (the process has the CAP_SETUID capability),
-            // then the real UID and saved set-user-ID are also set.
-            Sysno::setuid,
-            Syscall_Shape {
-                types: &[User_Group],
-                // The user ID specified in uid is not valid in this user namespace.
-                syscall_return: Numeric_Or_Errno,
-            }, // The  user  is  not  privileged (does not have the CAP_SETUID capability)
-               // and uid does not match the real UID or saved set-user-ID of the calling process.
-        ),
-        (
-            Sysno::setgid,
-            Syscall_Shape {
-                types: &[User_Group],
-                // The calling process is not privileged (does not have the CAP_SETGID),
-                syscall_return: Numeric_Or_Errno,
-            }, // and gid does not match the real group ID or saved set-group-ID of the calling process.
-        ),
+        // (
+        //     // If the calling process is privileged (the process has the CAP_SETUID capability),
+        //     // then the real UID and saved set-user-ID are also set.
+        //     Sysno::setuid,
+        //     Syscall_Shape {
+        //         types: &[User_Group],
+        //         // The user ID specified in uid is not valid in this user namespace.
+        //         syscall_return: Numeric_Or_Errno,
+        //     }, // The  user  is  not  privileged (does not have the CAP_SETUID capability)
+        //        // and uid does not match the real UID or saved set-user-ID of the calling process.
+        // ),
+        // (
+        //     Sysno::setgid,
+        //     Syscall_Shape {
+        //         types: &[User_Group],
+        //         // The calling process is not privileged (does not have the CAP_SETGID),
+        //         syscall_return: Numeric_Or_Errno,
+        //     }, // and gid does not match the real group ID or saved set-group-ID of the calling process.
+        // ),
         (
             // Before the introduction of futexes, system calls were required for locking and unlocking shared resources
             // (for example semop).

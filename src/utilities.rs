@@ -12,6 +12,8 @@ use std::{
     borrow::BorrowMut,
     cell::{Cell, RefCell},
     collections::HashMap,
+    io::{stdout, BufWriter, Stdout, Write},
+    mem::MaybeUninit,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -29,20 +31,93 @@ thread_local! {
     pub static QUIET: Cell<bool> = Cell::new(false);
     pub static ANNOT: Cell<bool> = Cell::new(false);
     pub static GENERAL_TEXT_COLOR: Cell<CustomColor> = Cell::new(CustomColor {
-        r: 255,
-        g: 255,
-        b: 255,
+        r: 160,
+        g: 160,
+        b: 160,
     });
+    pub static PID_BACKGROUND_COLOR: Cell<CustomColor> = Cell::new(CustomColor {
+        r: 0,
+        g: 0,
+        b: 0,
+    });
+    pub static PID_NUMBER_COLOR: Cell<CustomColor> = Cell::new(CustomColor {
+        r: 0,
+        g: 173,
+        b: 216,
+    });
+    pub static EXITED_BACKGROUND_COLOR: Cell<CustomColor> = Cell::new(CustomColor {
+        r: 100,
+        g: 0,
+        b: 0,
+    });
+    pub static OUR_YELLOW: Cell<CustomColor> = Cell::new(CustomColor {
+        r: 187,
+        g: 142,
+        b: 35,
+    });
+    pub static CONTINUED_COLOR: Cell<CustomColor> = Cell::new(CustomColor {
+        r: 17,
+        g: 38,
+        b: 21,
+    });
+    pub static STOPPED_COLOR: Cell<CustomColor> = Cell::new(CustomColor {
+        r: 47,
+        g: 86,
+        b: 54,
+    });
+    pub static PAGES_COLOR : Cell<CustomColor> = Cell::new(CustomColor {
+        r: 30,
+        g: 63,
+        b: 102,
+    });
+
     pub static ATTACH: Cell<Option<usize>> = Cell::new(None);
     // TODO! Time blocks feature
     // pub static TIME_BLOCKS: Cell<bool> = Cell::new(false);
 }
+
+pub fn buffered_write(data: ColoredString) {
+    let mut writer = WRITER_LAZY.lock().unwrap();
+    write!(writer, "{}", data).unwrap();
+    // write!(a, "{}", "come on".yellow()).unwrap();
+}
+pub fn flush_buffer() {
+    let mut writer = WRITER_LAZY.lock().unwrap();
+    writer.flush().unwrap();
+}
+#[inline(always)]
+pub fn colorize_general_text(arg: &str) {
+    let text = arg.custom_color(GENERAL_TEXT_COLOR.get());
+    buffered_write(text);
+}
+pub fn colorize_diverse(arg: &str, color: CustomColor) {
+    let text = arg.custom_color(color);
+    buffered_write(text);
+}
+pub fn static_handle_path_file(filename: String, vector: &mut Vec<ColoredString>) {
+    let mut pathname = String::new();
+
+    let mut file_start = 0;
+    for (index, chara) in filename.chars().rev().enumerate() {
+        if chara == '/' && index != 0 {
+            file_start = filename.len() - index;
+            break;
+        }
+    }
+    vector.push(filename[0..file_start].yellow());
+    vector.push(filename[file_start..].custom_color(PAGES_COLOR.get()));
+}
+
 lazy_static! {
+    static ref WRITER_LAZY: Mutex<BufWriter<Stdout>> = {
+        let stdout = stdout();
+        Mutex::new(BufWriter::new(stdout))
+    };
     pub static ref HALT_FORK_FOLLOW: AtomicBool = AtomicBool::new(false);
     pub static ref FOLLOW_FORKS: AtomicBool = AtomicBool::new(false);
     pub static ref SUMMARY: AtomicBool = AtomicBool::new(false);
-    pub static ref OUTPUT: Mutex<HashMap<Sysno, (usize, Duration)>> = Mutex::new(HashMap::new());
-    pub static ref OUTPUT_FOLLOW_FORKS: Mutex<HashMap<Sysno, usize>> = Mutex::new(HashMap::new());
+    pub static ref TABLE: Mutex<HashMap<Sysno, (usize, Duration)>> = Mutex::new(HashMap::new());
+    pub static ref TABLE_FOLLOW_FORKS: Mutex<HashMap<Sysno, usize>> = Mutex::new(HashMap::new());
     pub static ref SYSANNOT_MAP: HashMap<Sysno, SysAnnotations> =
         initialize_syscall_annotations_map();
     pub static ref SYSKELETON_MAP: HashMap<Sysno, Syscall_Shape> =
@@ -157,7 +232,7 @@ Options:
   -c, --summary                      provide a summary table at the end of tracing
   -p, --attach <pid>                 attach to an already running proceess
   -f, --follow-forks                 trace child processes when traced programs create them
-  -z, --failed-only                  only print failed syscalls	
+  -z, --failed-only                  only print failed syscalls
   -q, --mute-stdout                  mute the traced program's std output
   -a, --annotations                  print the classic strace feed with argument annotations
   -h, --help                         print help
@@ -189,6 +264,32 @@ pub fn terminal_setup() {
                     g: 64,
                     b: 64,
                 });
+                PID_BACKGROUND_COLOR.set(CustomColor {
+                    r: 146,
+                    g: 146,
+                    b: 168,
+                });
+                PID_NUMBER_COLOR.set(CustomColor { r: 0, g: 0, b: 140 });
+                EXITED_BACKGROUND_COLOR.set(CustomColor {
+                    r: 250,
+                    g: 160,
+                    b: 160,
+                });
+                OUR_YELLOW.set(CustomColor {
+                    r: 112,
+                    g: 127,
+                    b: 35,
+                });
+                CONTINUED_COLOR.set(CustomColor {
+                    r: 188,
+                    g: 210,
+                    b: 230,
+                });
+               STOPPED_COLOR.set(CustomColor {
+                   r: 82,
+                   g: 138,
+                   b: 174,
+                });
             }
             termbg::Theme::Dark => {}
         }
@@ -204,11 +305,6 @@ pub fn lose_relativity_on_path(string: std::borrow::Cow<'_, str>) -> String {
         break;
     }
     chars.collect()
-}
-
-#[inline(always)]
-pub fn colorize_general(vector: &mut Vec<ColoredString>, arg: &str) {
-    vector.push(arg.custom_color(GENERAL_TEXT_COLOR.get()))
 }
 
 pub fn get_mem_difference_from_previous(post_call_brk: usize) -> isize {

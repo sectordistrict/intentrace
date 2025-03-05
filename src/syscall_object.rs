@@ -1,16 +1,14 @@
 #![allow(unused_variables)]
 use crate::{
-    one_line_formatter::handle_path_file,
-    syscall_object_annotations::SyscallObject_Annotations,
     types::{
-        mlock2, Annotation, Bytes, BytesPagesRelevant, Category, Flag, LandlockCreateFlags,
+        mlock2, Bytes, BytesPagesRelevant, Category, Flag, LandlockCreateFlags,
         LandlockRuleTypeFlags, SysArg, SysReturn, Syscall_Shape,
     },
     utilities::{
-        colorize_general, lose_relativity_on_path, FOLLOW_FORKS, GENERAL_TEXT_COLOR, SYSANNOT_MAP,
-        SYSCALL_CATEGORIES, SYSKELETON_MAP, UNSUPPORTED,
+        buffered_write, lose_relativity_on_path, static_handle_path_file, SYSCALL_CATEGORIES, SYSKELETON_MAP
     },
 };
+use crate::utilities::colorize_general_text;
 
 use colored::{ColoredString, Colorize};
 use core::slice;
@@ -69,7 +67,6 @@ pub struct SyscallObject {
     pub errno: Option<Errno>,
     pub state: SyscallState,
     pub paused: bool,
-    pub one_line: Vec<ColoredString>,
 }
 
 impl Default for SyscallObject {
@@ -84,7 +81,6 @@ impl Default for SyscallObject {
             errno: unsafe { mem::zeroed() },
             state: SyscallState::Entering,
             paused: false,
-            one_line: vec![],
         }
     }
 }
@@ -92,12 +88,13 @@ impl Default for SyscallObject {
 impl SyscallObject {
     pub fn format(&mut self) {
         let sysno = self.sysno;
+
         if let Ok(_) = self.one_line_formatter() {
-            let mut string = String::new();
-            for string_portion in &mut self.one_line {
-                string.push_str(&format!("{}", string_portion));
-            }
-            print!("{}", string)
+            // let mut string = String::new();
+            // for string_portion in &mut self.one_line {
+            //     string.push_str(&format!("{}", string_portion));
+            // }
+            // print!("{}", string)
         } else {
             // disabled for now
             // switch to syscallobject_annotation formatting
@@ -111,8 +108,13 @@ impl SyscallObject {
     }
     #[inline(always)]
     pub(crate) fn general_text(&mut self, arg: &str) {
-        colorize_general(&mut self.one_line, arg);
+        colorize_general_text(arg);
     }
+
+    pub(crate) fn write_text(&self, text: ColoredString) {
+        buffered_write(text);
+    }
+
 }
 
 impl SyscallObject {
@@ -120,7 +122,7 @@ impl SyscallObject {
         // println!("{:?}", registers.orig_rax as i32);
         Sysno::from(orig_rax)
     }
-    pub(crate) fn build(registers: &user_regs_struct, child: Pid) -> Self {
+    pub(crate) fn build(registers: &user_regs_struct, child: Pid) -> Option<Self> {
         let sysno = Sysno::from(registers.orig_rax as i32);
         let syscall = match SYSKELETON_MAP.get(&sysno) {
             Some(&Syscall_Shape {
@@ -128,7 +130,7 @@ impl SyscallObject {
                 syscall_return,
             }) => {
                 let category = *SYSCALL_CATEGORIES.get(&sysno).unwrap();
-                return match types.len() {
+                return Some(match types.len() {
                     0 => SyscallObject {
                         sysno,
                         category: category,
@@ -212,23 +214,24 @@ impl SyscallObject {
                         errno: None,
                         ..Default::default()
                     },
-                };
+                });
             }
             None => {
-                // unsafe {
-                //     if !UNSUPPORTED.contains(&sysno.name()) {
-                //         UNSUPPORTED.push(sysno.name());
-                //     }
+                return None
+                // // unsafe {
+                // //     if !UNSUPPORTED.contains(&sysno.name()) {
+                // //         UNSUPPORTED.push(sysno.name());
+                // //     }
+                // // }
+                // SyscallObject {
+                //     sysno,
+                //     category: Category::Process,
+                //     args: vec![],
+                //     result: (None, SysReturn::File_Descriptor_Or_Errno("")),
+                //     process_pid: child,
+                //     errno: None,
+                //     ..Default::default()
                 // }
-                SyscallObject {
-                    sysno,
-                    category: Category::Process,
-                    args: vec![],
-                    result: (None, SysReturn::File_Descriptor_Or_Errno("")),
-                    process_pid: child,
-                    errno: None,
-                    ..Default::default()
-                }
             }
         };
         syscall
@@ -694,7 +697,7 @@ impl SyscallObject {
                     procfs::process::FDTarget::Path(path) => {
                         string.push(format!("{} -> ", file.fd).bright_blue());
                         let mut formatted_path = vec![];
-                        handle_path_file(path.to_string_lossy().into_owned(), &mut formatted_path);
+                        static_handle_path_file(path.to_string_lossy().into_owned(), &mut formatted_path);
                         for path_part in formatted_path {
                             string.push(path_part);
                         }
@@ -817,80 +820,6 @@ impl SyscallObject {
             bytes = Bytes::kilo(bytes_amount as f64 / 1_000.0)
         }
         bytes.to_string()
-    }
-
-    pub(crate) fn possible_dirfd_file(&mut self, dirfd: i32, filename: String) {
-        let file_path_buf = PathBuf::from(filename);
-        if file_path_buf.is_relative() {
-            if dirfd == AT_FDCWD {
-                let cwd = procfs::process::Process::new(self.process_pid.into())
-                    .unwrap()
-                    .cwd()
-                    .unwrap();
-                self.one_line.push(cwd.as_path().to_string_lossy().yellow());
-                self.one_line.push("/".yellow());
-                let path_without_leading_relativeness =
-                    lose_relativity_on_path(file_path_buf.as_path().to_string_lossy().to_owned());
-                self.one_line.push(path_without_leading_relativeness.blue());
-            } else {
-                let file_info =
-                    procfs::process::FDInfo::from_raw_fd(self.process_pid.into(), dirfd).unwrap();
-                match file_info.target {
-                    procfs::process::FDTarget::Path(path) => {
-                        self.one_line
-                            .push(path.as_path().to_string_lossy().yellow());
-                        if !path.is_absolute() || path.len() != 1 {
-                            self.one_line.push("/".yellow());
-                        }
-                        let path_without_leading_relativeness = lose_relativity_on_path(
-                            file_path_buf.as_path().to_string_lossy().to_owned(),
-                        );
-                        self.one_line.push(path_without_leading_relativeness.blue());
-                    }
-                    _ => unreachable!(),
-                }
-            }
-        } else {
-            handle_path_file(
-                file_path_buf.as_path().to_string_lossy().into_owned(),
-                &mut self.one_line,
-            );
-        }
-    }
-
-    pub(crate) fn possible_dirfd_file_output(&mut self, dirfd: i32, filename: String) -> String {
-        let mut string = String::new();
-        let file_path_buf = PathBuf::from(filename);
-        if file_path_buf.is_relative() {
-            if dirfd == AT_FDCWD {
-                let cwd = procfs::process::Process::new(10).unwrap().cwd().unwrap();
-                string.push_str(&cwd.as_path().to_string_lossy());
-                string.push_str("/");
-                let path_without_leading_relativeness =
-                    lose_relativity_on_path(file_path_buf.as_path().to_string_lossy().to_owned());
-                string.push_str(&path_without_leading_relativeness);
-            } else {
-                let file_info =
-                    procfs::process::FDInfo::from_raw_fd(self.process_pid.into(), dirfd).unwrap();
-                match file_info.target {
-                    procfs::process::FDTarget::Path(path) => {
-                        self.one_line
-                            .push(path.as_path().to_string_lossy().yellow());
-                        if !path.is_absolute() || path.len() != 1 {
-                            self.one_line.push("/".yellow());
-                        }
-                        let path_without_leading_relativeness = lose_relativity_on_path(
-                            file_path_buf.as_path().to_string_lossy().to_owned(),
-                        );
-                        self.one_line.push(path_without_leading_relativeness.blue());
-                    }
-                    _ => unreachable!(),
-                }
-            }
-        } else {
-            string.push_str(&file_path_buf.as_path().to_string_lossy().to_owned());
-        }
-        string
     }
 
     // Use process_vm_readv(2)

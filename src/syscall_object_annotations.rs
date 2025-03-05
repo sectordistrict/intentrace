@@ -1,13 +1,12 @@
 #![allow(unused_variables)]
 use crate::{
-    one_line_formatter::handle_path_file,
     syscall_object::SyscallObject,
     types::{
         mlock2, Annotation, Bytes, BytesPagesRelevant, Category, Flag, LandlockCreateFlags,
         LandlockRuleTypeFlags, SysArg, SysReturn, Syscall_Shape,
     },
     utilities::{
-        lose_relativity_on_path, FOLLOW_FORKS, SYSANNOT_MAP, SYSCALL_CATEGORIES, SYSKELETON_MAP,
+        lose_relativity_on_path, static_handle_path_file, FOLLOW_FORKS, PAGES_COLOR, SYSANNOT_MAP, SYSCALL_CATEGORIES, SYSKELETON_MAP
     },
 };
 
@@ -97,7 +96,6 @@ impl From<&mut SyscallObject> for SyscallObject_Annotations {
             errno,
             state,
             paused,
-            one_line,
         }: &mut SyscallObject,
     ) -> Self {
         if let Some(&(description, annotations_arg_containers, return_annotation)) =
@@ -624,19 +622,19 @@ impl SyscallObject_Annotations {
         if fd < 0 {
             return None;
         } else if fd == 0 {
-            string.push("0 -> StdIn".bright_blue());
+            string.push("0 -> StdIn".custom_color(PAGES_COLOR.get()));
         } else if fd == 1 {
-            string.push("1 -> StdOut".bright_blue());
+            string.push("1 -> StdOut".custom_color(PAGES_COLOR.get()));
         } else if fd == 2 {
-            string.push("2 -> StdErr".bright_blue());
+            string.push("2 -> StdErr".custom_color(PAGES_COLOR.get()));
         } else {
             let file_info = procfs::process::FDInfo::from_raw_fd(child.into(), fd);
             match file_info {
                 Ok(file) => match file.target {
                     procfs::process::FDTarget::Path(path) => {
-                        string.push(format!("{} -> ", file.fd).bright_blue());
+                        string.push(format!("{} -> ", file.fd).custom_color(PAGES_COLOR.get()));
                         let mut formatted_path = vec![];
-                        handle_path_file(path.to_string_lossy().into_owned(), &mut formatted_path);
+                        static_handle_path_file(path.to_string_lossy().into_owned(), &mut formatted_path);
                         for path_part in formatted_path {
                             string.push(path_part);
                         }
@@ -658,7 +656,7 @@ impl SyscallObject_Annotations {
                                                 file.fd,
                                                 entry.remote_address.port()
                                             )
-                                            .bright_blue(),
+                                            .custom_color(PAGES_COLOR.get()),
                                         );
                                     } else {
                                         string.push(
@@ -668,7 +666,7 @@ impl SyscallObject_Annotations {
                                                 entry.remote_address.ip(),
                                                 entry.remote_address.port()
                                             )
-                                            .bright_blue(),
+                                            .custom_color(PAGES_COLOR.get()),
                                         );
                                     }
                                     break 'lookup;
@@ -683,7 +681,7 @@ impl SyscallObject_Annotations {
                             for entry in &unix {
                                 if entry.inode == socket_number {
                                     string.push(
-                                        format!("{} -> Unix Domain Socket", file.fd).bright_blue(),
+                                        format!("{} -> Unix Domain Socket", file.fd).custom_color(PAGES_COLOR.get()),
                                     );
                                     break 'lookup;
                                 }
@@ -695,7 +693,7 @@ impl SyscallObject_Annotations {
                         string.push(format!("NET").bright_magenta())
                     }
                     procfs::process::FDTarget::Pipe(pipe) => {
-                        string.push(format!("{} -> Unix Pipe", file.fd).bright_blue());
+                        string.push(format!("{} -> Unix Pipe", file.fd).custom_color(PAGES_COLOR.get()));
                     }
                     procfs::process::FDTarget::AnonInode(anon_inode) => {
                         // anon_inode is basically a file that has no corresponding inode
@@ -713,13 +711,13 @@ impl SyscallObject_Annotations {
                         //          unlink( "/tmp/file" );
                         // Note that the descriptor fd now points to an inode that has no filesystem entry; you
                         // can still write to it, fstat() it, etc. but you can't find it in the filesystem.
-                        string.push(format!("{} -> Anonymous Inode", file.fd).bright_blue());
+                        string.push(format!("{} -> Anonymous Inode", file.fd).custom_color(PAGES_COLOR.get()));
                     }
                     procfs::process::FDTarget::MemFD(mem_fd) => {
-                        string.push(format!("{} -> MemFD", file.fd).bright_blue());
+                        string.push(format!("{} -> MemFD", file.fd).custom_color(PAGES_COLOR.get()));
                     }
                     procfs::process::FDTarget::Other(first, second) => {
-                        string.push(format!("{} -> Other", file.fd).bright_blue());
+                        string.push(format!("{} -> Other", file.fd).custom_color(PAGES_COLOR.get()));
                     }
                 },
                 Err(_) => {}
