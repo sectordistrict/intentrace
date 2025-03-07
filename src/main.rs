@@ -30,11 +30,12 @@ macro_rules! ppp {
 }
 
 use ::errno::{errno, set_errno};
+use clap::Parser;
 use colored::{ColoredString, Colorize};
 use errno::Errno as LibErrno;
 use nix::{
     errno::Errno,
-    libc::user_regs_struct,
+    libc::{user_regs_struct, ESRCH},
     sys::{
         ptrace::{self},
         signal::{kill, Signal},
@@ -59,11 +60,12 @@ use std::{
     time::Duration,
 };
 use syscalls::Sysno;
+
 use utilities::{
-    buffered_write, colorize_diverse, display_unsupported, errno_check, flush_buffer, parse_args,
-    set_memory_break, terminal_setup, ATTACH, EXITED_BACKGROUND_COLOR, FAILED_ONLY, FOLLOW_FORKS,
-    GENERAL_TEXT_COLOR, HALT_FORK_FOLLOW, PID_BACKGROUND_COLOR, QUIET, STOPPED_COLOR, SUMMARY,
-    TABLE, TABLE_FOLLOW_FORKS,
+    buffered_write, colorize_diverse, display_unsupported, errno_check, flush_buffer,
+    set_memory_break, setup, terminal_setup, IntentraceArgs, ATTACH_PID, EXITED_BACKGROUND_COLOR,
+    FAILED_ONLY, FOLLOW_FORKS, GENERAL_TEXT_COLOR, HALT_FORK_FOLLOW, PID_BACKGROUND_COLOR, QUIET,
+    STOPPED_COLOR, SUMMARY, TABLE, TABLE_FOLLOW_FORKS,
 };
 
 mod syscall_annotations_map;
@@ -77,7 +79,9 @@ mod one_line_formatter;
 mod utilities;
 
 fn main() {
+    let args = IntentraceArgs::parse();
     ctrlc::set_handler(|| {
+        flush_buffer();
         HALT_FORK_FOLLOW.store(true, Ordering::SeqCst);
         if SUMMARY.load(Ordering::SeqCst) {
             print_table();
@@ -86,18 +90,18 @@ fn main() {
     })
     .unwrap();
     terminal_setup();
-    let cl = parse_args();
+    let cl = setup(args);
     runner(cl);
 }
 
 fn runner(command_line: Vec<String>) {
     if FOLLOW_FORKS.load(Ordering::SeqCst) {
-        match ATTACH.get() {
+        match ATTACH_PID.get() {
             Some(_) => follow_forks(None),
             None => follow_forks(Some(command_line)),
         }
     } else {
-        if ATTACH.get().is_some() {
+        if ATTACH_PID.get().is_some() {
             parent(None);
         } else {
             match unsafe { fork() }.expect("Error: Fork Failed") {
@@ -109,6 +113,9 @@ fn runner(command_line: Vec<String>) {
                 }
             }
         }
+    }
+    if !FAILED_ONLY.get() {
+        flush_buffer();
     }
     if SUMMARY.load(Ordering::SeqCst) {
         print_table();
@@ -151,13 +158,13 @@ fn follow_forks(command_to_run: Option<Vec<String>>) {
         }
         // ATTACHING TO PID
         None => {
-            if ATTACH.get().is_some() {
+            if ATTACH_PID.get().is_some() {
                 let mut ptracer = Ptracer::new();
                 *ptracer.poll_delay_mut() = Duration::from_nanos(1);
                 let child = ptracer
-                    .attach(pete::Pid::from_raw(ATTACH.get().unwrap() as i32))
+                    .attach(pete::Pid::from_raw(ATTACH_PID.get().unwrap() as i32))
                     .unwrap();
-                ptrace_ptracer(ptracer, Pid::from_raw(ATTACH.get().unwrap() as i32));
+                ptrace_ptracer(ptracer, Pid::from_raw(ATTACH_PID.get().unwrap() as i32));
             } else {
                 eprintln!("Usage: invalid arguments\n");
             }
@@ -169,7 +176,7 @@ fn parent(child_or_attach: Option<Pid>) {
     let child = if child_or_attach.is_some() {
         child_or_attach.unwrap()
     } else {
-        let child = Pid::from_raw(ATTACH.get().unwrap() as i32);
+        let child = Pid::from_raw(ATTACH_PID.get().unwrap() as i32);
         let _ = ptrace::attach(child).unwrap();
         child
     };
@@ -196,7 +203,12 @@ fn parent(child_or_attach: Option<Pid>) {
                                     }
                                 }
                             }
-                            Err(errno) => {}
+                            Err(errno) => {
+                                if errno == Errno::ESRCH {
+                                    print_exiting(child);
+                                    break 'main_loop;
+                                }
+                            }
                         }
                         syscall_entering = false;
                         start = Some(std::time::Instant::now());
@@ -223,12 +235,12 @@ fn parent(child_or_attach: Option<Pid>) {
                                 syscall_returned(&mut syscall, &registers)
                             }
                             Err(errno) => {
-                                handle_getting_registers_error(errno, "exit", syscall.sysno);
-                                break 'main_loop;
+                                if errno == Errno::ESRCH {
+                                    print_exiting(child);
+                                    break 'main_loop;
+                                }
                             }
                         }
-
-                        buffered_write("\n".white());
                         syscall_entering = true;
                     }
                 }
@@ -255,7 +267,9 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
         }
         let syscall_pid = Pid::from_raw(tracee.pid.as_raw());
         match tracee.stop {
-            Stop::SyscallEnter => 'for_exiting: {
+            Stop::SyscallEnter =>
+            /*'for_exiting:*/
+            {
                 match nix::sys::ptrace::getregs(syscall_pid) {
                     Ok(registers) => {
                         check_syscall_switch(last_pid, syscall_pid, &mut pid_syscall_map);
@@ -294,7 +308,6 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
                     }
                     Err(errno) => handle_getting_registers_error(errno, "exit", last_sysno),
                 }
-                buffered_write("\n".white());
                 last_pid = syscall_pid;
             }
             _ => {
@@ -303,6 +316,63 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
         }
         ptracer.restart(tracee, Restart::Syscall).unwrap();
     }
+}
+
+fn syscall_will_run(syscall: &mut SyscallObject) {
+    // GET PRECALL DATA (some data will be lost if not saved in this time frame)
+    syscall.get_precall_data();
+
+    // handle program break point
+    if syscall.is_mem_alloc_dealloc() {
+        set_memory_break(syscall.process_pid);
+    }
+    if FOLLOW_FORKS.load(Ordering::SeqCst) || syscall.is_exiting() {
+        syscall.format();
+        if syscall.is_exiting() {
+            print_exiting(syscall.process_pid);
+        }
+    }
+}
+
+fn print_exiting(process_pid: Pid) {
+    let exited = " EXITED ".on_custom_color(EXITED_BACKGROUND_COLOR.get());
+    let pid = format!(" {} ", process_pid).on_custom_color(PID_BACKGROUND_COLOR.get());
+    buffered_write("\n\n ".white());
+    buffered_write(pid);
+    buffered_write(exited);
+    buffered_write("\n\n".white());
+}
+
+fn syscall_returned(syscall: &mut SyscallObject, registers: &user_regs_struct) {
+    // STORE SYSCALL RETURN VALUE
+    syscall.result.0 = Some(registers.rax);
+
+    // manual calculation of errno for now
+    // TODO! make this cleaner
+    syscall.errno = errno_check(registers.rax);
+
+    // GET POSTCALL DATA (some data will be lost if not saved in this time frame)
+    syscall.get_postcall_data();
+
+    if !FOLLOW_FORKS.load(Ordering::SeqCst) {
+        if FAILED_ONLY.get() && !syscall.parse_return_value_one_line().is_err() {
+            return;
+        }
+
+        syscall.state = SyscallState::Entering;
+        syscall.format();
+        syscall.state = SyscallState::Exiting;
+        syscall.format();
+        // this line was moved from the main loops to after this check ^
+        // it was previously not aware of FAILED_ONLY being its edge-case
+        // this resulted in long streaks of newlines in the output
+        // this is also more correct
+        buffered_write("\n".white());
+    } else {
+        syscall.format();
+        buffered_write("\n".white());
+    }
+    flush_buffer();
 }
 
 fn check_syscall_switch(
@@ -322,53 +392,6 @@ fn check_syscall_switch(
     }
 }
 
-fn syscall_will_run(syscall: &mut SyscallObject) {
-    // GET PRECALL DATA (some data will be lost if not saved in this time frame)
-    syscall.get_precall_data();
-
-    // handle program break point
-    if syscall.is_mem_alloc_dealloc() {
-        set_memory_break(syscall.process_pid);
-    }
-    if FOLLOW_FORKS.load(Ordering::SeqCst) || syscall.is_exiting() {
-        syscall.format();
-        if syscall.is_exiting() {
-            let exited = " EXITED ".on_custom_color(EXITED_BACKGROUND_COLOR.get());
-            let pid =
-                format!(" {} ", syscall.process_pid).on_custom_color(PID_BACKGROUND_COLOR.get());
-            buffered_write("\n\n ".white());
-            buffered_write(pid);
-            buffered_write(exited);
-            buffered_write("\n\n".white());
-        }
-    }
-}
-
-fn syscall_returned(syscall: &mut SyscallObject, registers: &user_regs_struct) {
-    // STORE SYSCALL RETURN VALUE
-    syscall.result.0 = Some(registers.rax);
-
-    // manual calculation of errno for now
-    // TODO! make this cleaner
-    syscall.errno = errno_check(registers.rax);
-
-    // GET POSTCALL DATA (some data will be lost if not saved in this time frame)
-    syscall.get_postcall_data();
-
-    if !FOLLOW_FORKS.load(Ordering::SeqCst) {
-        if FAILED_ONLY.get() && !syscall.parse_return_value_one_line().is_err() {
-            return;
-        }
-        syscall.state = SyscallState::Entering;
-        syscall.format();
-        syscall.state = SyscallState::Exiting;
-    }
-
-    syscall.format();
-    flush_buffer();
-    // handle program exiting
-}
-
 fn handle_getting_registers_error(errno: Errno, syscall_enter_or_exit: &str, sysno: Sysno) {
     if sysno == Sysno::exit || sysno == Sysno::exit_group {
         println!("\n\nSuccessfully exited\n");
@@ -380,7 +403,7 @@ fn handle_getting_registers_error(errno: Errno, syscall_enter_or_exit: &str, sys
             );
                 exit(0);
             }
-            _ => println!("can some error while getting registers"),
+            _ => println!("Encountered error while retrieving registers"),
         }
     }
 }

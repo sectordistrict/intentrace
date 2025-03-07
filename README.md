@@ -4,7 +4,7 @@
 
 # About
 
-intentrace is a strace for everyone, intentrace works similarly to strace in that it intercepts and records the system calls that a process issues, it then reasons through these syscalls by consulting an enormous backlog of syscall deductions.
+intentrace is a strace for everyone, intentrace works similarly to strace in that it intercepts and records system calls when a process issues them, it then reasons through these syscalls by consulting an enormous backlog of syscall deduction heuristics.
 Due to the fact that linux syscalls almost always have dual usage that's obfuscated by libraries, seeing what a syscall is exactly asking for is immensely useful when e.g. a programmer is debugging a crashing binary.
 <p align="center">
   <img src="./intentrace-example.png" alt="Intentrace Example">
@@ -80,7 +80,7 @@ cargo install intentrace
 
 intentrace is currently in beta, currently multi-threaded programs are a hit and miss.
 
-intentrace was originally intended to be a 2 window TUI, where a top panel shows a normal stream of syscalls, and a bottom panel containing metadata and explanation, however this was abandoned in favor of the current scheme.
+intentrace was originally intended to be a 2 window TUI, where a top panel shows a normal stream of syscalls, and a bottom panel contains metadata and clarifications, but this was abandoned in favor of the current scheme.
 
 #### Supported architecture
 
@@ -91,9 +91,8 @@ intentrace currently only supports `x86-64`, given that the program is currently
 
 Support intentrace by contributing issues and PRs, don't feel discouraged from filing issues or creating PRs. Reading the source is a great way to learn how linux works.
 
-Feel free to file issues and open Pull Requests.
-Issues and PRs can contain and involve:
-- better wording.
+Feel free to file Issues and open Pull Requests that tackle any of:
+- providing more optimal phrasing/wording.
 - suggestions for granularity.
 - suggestions for fixes.
 - etc.. there are no rules, feel free to contribute as you see fit.

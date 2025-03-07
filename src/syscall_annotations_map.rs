@@ -84,8 +84,8 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             // The readv() function behave the same as read( ), except that multiple buffers are read to.
             // this is used when memory to read from is scattered around (not contiguous)
-            // this avoids multiple read syscalls that would otherwise be needed 
-            // 
+            // this avoids multiple read syscalls that would otherwise be needed
+            //
             // readv: read vectored
             // you use it when you know that you have multiple fixed size blocks of data
             // to read into non-contiguous memory locations
@@ -173,7 +173,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::pipe,
             (
-               
+
                 "create a unidirectional pipe for process communication",
                 &[
                     ["pipefd", "pointer to array containing the read and write file descriptors"],
@@ -182,9 +182,9 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             )
         ),
         (
-            Sysno::pipe2, 
+            Sysno::pipe2,
             (
-               
+
                 "create a unidirectional pipe for process communication, in additiona to flags for file opening behaviour",
                 &[
                     ["pipefd", "pointer to array containing the read and write file descriptors"],
@@ -206,7 +206,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
                 ["return value", "-1 on error, errno modified"],
             )
         ),
-        // same as dup, but uses newfd for the fd 
+        // same as dup, but uses newfd for the fd
         // it overrwrites the newfd if its used
         // If newfd was previously open, it is closed before being reused
         (
@@ -220,7 +220,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
                 ["return value", "-1 on error, errno modified"],
             )
         ),
-        // same as dup2 but the caller can force the close-on-exec flag to be set for the new file descriptor by specifying O_CLOEXEC in flags. 
+        // same as dup2 but the caller can force the close-on-exec flag to be set for the new file descriptor by specifying O_CLOEXEC in flags.
         (
             Sysno::dup3,
             (
@@ -394,7 +394,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
                     ["oldpath", "old path of the file"],
                     ["newdirfd", "file descriptor of a path to use as anchor if newpath is relative"],
                     ["newpath", "new path of the file"],
-                    
+
                     ["flags", "renaming and replacement behaviour falgs"],
                 ],
                 ["return value", "0 success. -1 for error and errno modified"],
@@ -832,7 +832,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // deprecated syscall
             Sysno::ustat,
             (
-              
+
                 "",
                 &[
                     ["dev", "number of the device where a filesystem is mounted"],
@@ -922,7 +922,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
                 &[
                     ["address", "new program break address"],
                 ],
-                // However, the actual Linux system call returns the new program break on success.  
+                // However, the actual Linux system call returns the new program break on success.
                 // On failure, the system call returns the current break.
                 // to know if an error occured you have to store the previous program break point somewhere to compare
                 ["return value", "new program break pointer on success, -1 on error and errno ENOMEM only"],
@@ -1022,7 +1022,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
                 ["numeric return", "0 on success, -1 on error, errno modified"],
             )
         ),
-        // returns a vector that represent whether pages of the calling process's virtual memory 
+        // returns a vector that represent whether pages of the calling process's virtual memory
         // are resident in core (RAM), and so will not cause a disk access (page fault) if referenced
         (
             // memory in core
@@ -1055,7 +1055,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::select,
             (
-               
+
                 "block while watching file descriptor sets for readiness to read, write, in addition to exceptional conditions",
                 &[
                     ["nfds", "the number of the highest file descriptor in the three sets + 1, used by the kernel to loop each set"],
@@ -1076,7 +1076,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::pselect6,
             (
-               
+
                 "block while watching file descriptor sets for readiness to read, write, in addition to exceptional conditions, and watch for new signals",
                 &[
                     ["nfds", "the number of the highest file descriptor in the three sets + 1, used by the kernel to loop each set"],
@@ -1103,7 +1103,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::poll,
             (
-               
+
                 "block until specific events occur on the provided file descriptors",
                 &[
                     ["fds", "array of file descriptor-event pairs for poll to monitor"],
@@ -1117,7 +1117,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::ppoll,
             (
-               
+
                 "block until specific events occur on the provided file descriptors or until some signals are caught",
                 &[
                     ["fds", "array of file descriptor-event pairs for poll to monitor"],
@@ -1127,7 +1127,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
                     ["sigmask", "signal mask containing the signals to watch for"],
                     ["sigsetsize", "the size in bytes of the signal mask"],
                 ],
-                // It doesn’t tell you which elements (you still have to scan for that), 
+                // It doesn’t tell you which elements (you still have to scan for that),
                 // it only tell you how many,
                 ["return value", "number of elements in nfds for which events have occurred, -1 on error, errno modified"],
             )
@@ -1137,7 +1137,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // the file descriptor returned by epoll_create() should be closed by using close(2)
             Sysno::epoll_create,
             (
-               
+
                 "creates a new epoll instance and return a file descriptor for it",
                 &[
                     // in the past this size parameter told the kernel how many fds the caller expects to add
@@ -1155,7 +1155,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // epoll_create but with a bahviour customizing flag
             Sysno::epoll_create1,
             (
-               
+
                 "creates a new epoll instance and return a file descriptor for it, in addition to customizing behaviour with a flag",
                 &[
                     // if this argument is zero, this syscall is identical to epoll_create
@@ -1171,7 +1171,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             //     • the timeout expires.
             Sysno::epoll_wait,
             (
-               
+
                 "block and wait for events on an epoll instance, equivalent to fetching from the ready list",
                 &[
                     ["epfd", "file descriptor of the epoll instance to be waited on"],
@@ -1190,7 +1190,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // similar to epoll_wait but in addition to waiting on specific signals
             Sysno::epoll_pwait,
             (
-               
+
                 "block and wait until either an event on the epoll instance or a signal, equivalent to fetching from the ready list or waiting for a signal",
                 &[
                     ["epfd", "file descriptor of the epoll instance to be waited on"],
@@ -1212,7 +1212,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // similar to epoll_pwait but has nanosend resolution
             Sysno::epoll_pwait2,
             (
-               
+
                 "block and wait until either an event on the epoll instance or a signal, equivalent to fetching from the ready list or waiting for a signal",
                 &[
                     ["epfd", "file descriptor of the epoll instance to be waited on"],
@@ -1233,7 +1233,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::epoll_ctl,
             (
-               
+
                 "add, modify, or remove entries in the interest list of the epoll instance",
                 &[
                     ["epfd", "file descriptor of the epoll instance"],
@@ -1247,7 +1247,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::socket,
             (
-              
+
                 "create a socket file descriptor",
                 &[
                     ["family", "communication domain (Internet/IPV4, IPV6, Bluetooth, Amateur radio, XDP ..etc)"],
@@ -1260,7 +1260,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::bind,
             (
-              
+
                 "assign an address to a socket file descriptor",
                 &[
                     ["sockfd", "file descriptor of the socket to be assigned"],
@@ -1273,7 +1273,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::getsockname,
             (
-              
+
                 "get the address a specific socket is bound to",
                 &[
                     ["sockfd", "file descriptor of the socket we're getting the address of"],
@@ -1291,7 +1291,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::getpeername,
             (
-              
+
                 "get the address of the peer connected to a specific socket",
                 &[
                     ["sockfd", "file descriptor of the socket we're getting peer information of"],
@@ -1310,7 +1310,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::socketpair,
             (
-              
+
                 "create a pair of connected sockets",
                 &[
                     ["family", "communication domain (Internet/IPV4, IPV6, Bluetooth, Amateur radio, XDP ..etc)"],
@@ -1326,7 +1326,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::setsockopt,
             (
-              
+
                 "set the options of a socket descriptor",
                 &[
                     ["sockfd", "socket descriptor whose options will be manipulated"],
@@ -1344,7 +1344,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::getsockopt,
             (
-              
+
                 "retrieve the options of a socket descriptor",
                 &[
                     ["sockfd", "socket descriptor whose options will be manipulated"],
@@ -1363,7 +1363,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::listen,
             (
-              
+
                 "create a backlog queue, and mark the socket descriptor as passive (ready to accept connections)",
                 &[
                     ["sockfd", "file descriptor of the socket to mark"],
@@ -1375,7 +1375,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::accept,
             (
-              
+
                 "extract the first connection from the backlog queue",
                 &[
                     ["sockfd", "file descriptor of the socket listening for connections"],
@@ -1397,7 +1397,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // the flags are to: 1- set socket as non-blocking, 2- set socket as close-on-exec
             Sysno::accept4,
             (
-              
+
                 "extract the first connection from the connection queue in addition to specifying behaviour flag such as non-block and close-on-exec",
                 &[
                     ["sockfd", "file descriptor of the socket listening for connections"],
@@ -1418,7 +1418,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::connect,
             (
-              
+
                 "connect a socket file descriptor to an address",
                 &[
                     ["sockfd", "file descriptor of the socket to be connected"],
@@ -1431,7 +1431,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::sendto,
             (
-              
+
                 "send a message to another socket",
                 &[
                     ["sockfd", "file descriptor of the sending socket"],
@@ -1450,7 +1450,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::sendmsg,
             (
-              
+
                 "send a message to another socket",
                 &[
                     ["sockfd", "file descriptor of the sending socket"],
@@ -1463,7 +1463,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::recvfrom,
             (
-              
+
                 "receive a message from a socket",
                 &[
                     ["sockfd", "file descriptor of the socket to receive data from"],
@@ -1486,7 +1486,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::recvmsg,
             (
-              
+
                 "receive a message from a socket",
                 &[
                     ["sockfd", "file descriptor of the socket to receive data from"],
@@ -1502,7 +1502,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::shutdown,
             (
-               
+
                 "shut down a socket connection full or partially",
                 &[
                     ["sockfd", "file descriptor of the affected socket"],
@@ -1517,7 +1517,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::fcntl,
             (
-               
+
                "perform a file operation on a file",
                 &[
                     ["fd", "the file descriptor to be operated on"],
@@ -1530,7 +1530,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::ioctl,
             (
-              
+
                 "carry out a specific operation/request on a device",
                 &[
                     ["fd", "file descriptor of the device"],
@@ -1550,23 +1550,23 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::arch_prctl,
             (
-               
+
                 "set architecture-specific process/thread state",
                 &[
                     ["op", "specific operation to perform"],
-                    // TODO! this argument is a number for set operations and a pointer to a number for get operations 
+                    // TODO! this argument is a number for set operations and a pointer to a number for get operations
                     // Pointer_To_Numeric_Or_Numeric is a special case for arch_prctl, because it depends on the op union
                     ["addr", "can be either an unsigned long for set operations, or a pointer to unsigned long for get operations"],
                 ],
                 ["return value", "0 on success, -1 on error, errno modified"],
             )
         ),
-        // causes the calling thread to relinquish the CPU.  
+        // causes the calling thread to relinquish the CPU.
         // The thread is moved to the end of the queue for its static priority and a new thread gets to run.
         (
             Sysno::sched_yield,
             (
-               
+
                 "relinquish the CPU, and move to the end of the queue",
                 &[],
                 ["numeric return", "0 on success, -1 on error, errno modified"],
@@ -1575,7 +1575,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::rt_sigaction,
             (
-               
+
                 "change action for a specific signal",
                 &[
                     // can be any valid signal except SIGKILL and SIGSTOP.
@@ -1591,7 +1591,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::rt_sigprocmask,
             (
-               
+
                 "modify or get the signal mask (signals blocked from delivery) of the calling thread",
                 &[
                     ["how", "specific signal for which the action should be changed"],
@@ -1611,7 +1611,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // (its like what ptrace TRACE_ME does)
             Sysno::rt_sigsuspend,
             (
-               
+
                 "temporarily alter the signal mask of the and suspend execution until the delivery of a signal that has a handler or one that terminates the thread",
                 &[
                     // SIGKILL or SIGSTOP can not be blocked
@@ -1629,7 +1629,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // It should be fairly large, to avoid any danger that it will overflow
             Sysno::sigaltstack,
             (
-               
+
                 "define an alternative signal stack or retrieve the state of the current one",
                 &[
                     // can be null if dont want this part of the operation
@@ -1644,7 +1644,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // created to immediately run after signal handlers, to clean up and correct stack pointer/program counter
             Sysno::rt_sigreturn,
             (
-               
+
                 "return from signal handler and cleanup stack frame",
                 &[],
                 ["", ""],
@@ -1653,7 +1653,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::rt_sigpending,
             (
-               
+
                 "return the set of signals pending for delivery for the calling thread",
                 &[
                     ["set", "pointer to struct set where the signals will be stored"],
@@ -1665,7 +1665,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::rt_sigtimedwait,
             (
-               
+
                 "suspends execution of the process until one of the signals provided is pending, or a given timeout is exceeded",
                 &[
                     ["set", "pointer to struct containing the set of signals to check for"],
@@ -1682,7 +1682,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // sends the data to an arbitrary thread with the thread group
             Sysno::rt_sigqueueinfo,
             (
-               
+
                 "send a signal plus data to a process/thread group",
                 &[
                     ["tgid", "id of the thread group where the signal will be sent"],
@@ -1697,7 +1697,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // sends the data to a specific thread withing the thread group
             Sysno::rt_tgsigqueueinfo,
             (
-               
+
                 "send a signal plus data to a specific thread within a process/thread group",
                 &[
                     ["tgid", "id of the thread group where the signal will be sent"],
@@ -1711,7 +1711,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::signalfd,
             (
-               
+
                 "create a new file for accepting signals",
                 &[
                     // fd of a file, or -1, let the kernel create a new file descriptor
@@ -1726,7 +1726,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::signalfd4,
             (
-               
+
                 "create a file descriptor for accepting in addition to file customization flags",
                 &[
                     // fd of a file, or -1, let the kernel create a new file descriptor
@@ -1739,14 +1739,14 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
                 ["return value", "-1 on error, errno modified"],
             )
         ),
-        // The pidfd_open syscall allows users to obtain a file descriptor referring to the PID of the specified process. 
-        // This syscall is useful in situations where one process needs access to the PID of another process in order to send 
-        // retrieve information about the or similar operations. 
+        // The pidfd_open syscall allows users to obtain a file descriptor referring to the PID of the specified process.
+        // This syscall is useful in situations where one process needs access to the PID of another process in order to send
+        // retrieve information about the or similar operations.
         // It can also be used to monitor the lifetime of the since the file descriptor is closed when the process terminates.
         (
             Sysno::pidfd_send_signal,
             (
-               
+
                 "send a signal to a process specified by a file descriptor",
                 &[
                     ["pidfd", "file descriptor of the process of where the siganl is to be sent"],
@@ -1764,7 +1764,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // always successful
             Sysno::gettid,
             (
-              
+
                 "get the thread id of the calling thread",
                 &[],
                 ["return value", "thread id of the calling thread"],
@@ -1775,7 +1775,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // always successful
             Sysno::getpid,
             (
-              
+
                 "get the process id of the calling process",
                 &[],
                 ["return value", "process id of the calling process"],
@@ -1785,7 +1785,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // always successful
             Sysno::getppid,
             (
-              
+
                 "get the process id of the parent process",
                 &[],
                 ["return value", "process id of the parent of the calling process"],
@@ -1795,7 +1795,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::getrandom,
             (
-              
+
                 "fill a specified buffer with random bytes",
                 &[
                     ["buf", "pointer to a buffer where the random bytes will be stored"],
@@ -1808,7 +1808,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::setrlimit,
             (
-               
+
                 "set the soft and hard resource limits of a process",
                 &[
                     ["resource", "specific resource type to limit"],
@@ -1820,7 +1820,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::getrlimit,
             (
-               
+
                 "get the soft and hard resource limits of a process",
                 &[
                     ["resource", "specific resource type to retrieve"],
@@ -1834,7 +1834,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // NULL when you dont want either
             Sysno::prlimit64,
             (
-               
+
                 "get or set the soft and hard limits of a specific resource for a process",
                 &[
                     // if zero then operate on the calling process
@@ -1867,7 +1867,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             /* involuntary context switches */
             Sysno::getrusage,
             (
-               
+
                 "get resource usage metrics for a specific process domain",
                 &[
                     ["who", "which domain of the process to measure"],
@@ -1879,7 +1879,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::sysinfo,
             (
-               
+
                 "get memory and swap usage metrics",
                 &[
                     ["info", "pointer to a struct where the the system info will get stored"],
@@ -1890,7 +1890,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::times,
             (
-               
+
                 "get time metrics for the calling process and its children",
                 &[
                     ["buf", "pointer to a struct where various timing metrics for the process will get stored"],
@@ -1901,7 +1901,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::sched_setaffinity,
             (
-              
+
                 "set specific CPUs for this thread to run on",
                 &[
                     // if zero then the calling thread is the thread referred to
@@ -1915,7 +1915,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::sched_getaffinity,
             (
-              
+
                 "find which CPUs this thread is allowed to run on",
                 &[
                     // if zero then the calling thread is the thread referred to
@@ -1933,7 +1933,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // The process's parent is sent a SIGCHLD signal.
             Sysno::exit,
             (
-               
+
                 "exit the calling process",
                 &[
                     ["status", "status of the process on exit"],
@@ -1944,7 +1944,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::exit_group,
             (
-               
+
                 "exit all threads in this process's thread group",
                 &[
                     ["status", "status of the process on exit"],
@@ -1958,7 +1958,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // similar to rt_tgsigqueueinfo
             Sysno::tgkill,
             (
-              
+
                 "send a signal to a specific thread in a specific thread",
                 &[
                     // If tgid is specified as -1, tgkill() is equivalent to tkill().
@@ -1973,7 +1973,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // similar to rt_sigqueueinfo
             Sysno::tkill,
             (
-              
+
                 "send a signal to a specific thread in a specific thread",
                 &[
                     ["tid", "id of the specific thread to which the signal will be sent"],
@@ -1985,7 +1985,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::rseq,
             (
-              
+
                 "register a per-thread data structure shared between kernel and user-space",
                 &[
                     // Only one rseq can be registered per thread,
@@ -2006,7 +2006,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::uname,
             (
-             
+
                 "get system information",
                 &[
                     ["mask", "pointer to struct where the system information will be stored"],
@@ -2018,7 +2018,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // always successful
             Sysno::getuid,
             (
-               
+
                 "get the real user ID of the calling process",
                 &[],
                 ["return value", "the real user ID of the calling process"],
@@ -2028,7 +2028,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // always successful
             Sysno::geteuid,
             (
-               
+
                 "get the effective user ID of the calling process",
                 &[],
                 ["return value", "the effective user ID of the calling process"],
@@ -2038,7 +2038,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // always successful
             Sysno::getgid,
             (
-               
+
                 "get the real group ID of the calling process",
                 &[],
                 ["return value", "the real group ID of the calling process"],
@@ -2048,7 +2048,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // always successful
             Sysno::getegid,
             (
-               
+
                 "get the effective group ID of the calling process",
                 &[],
                 ["return value", "the effective group ID of the calling process"],
@@ -2059,7 +2059,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // then the real UID and saved set-user-ID are also set.
             Sysno::setuid,
             (
-               
+
                 "set the effective user ID of the calling process",
                 &[
                     ["uid", "id of the thread group where the signal will be sent"],
@@ -2073,7 +2073,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::setgid,
             (
-               
+
                 "set the effective user ID of the calling process",
                 &[
                     ["gid", "id of the thread group where the signal will be sent"],
@@ -2088,7 +2088,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // (for example semop).
             Sysno::futex,
             (
-               
+
                 "set the effective user ID of the calling process",
                 &[
                     ["uaddr", "pointer to the futex-word"],
@@ -2104,15 +2104,15 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             // always successful
             // When set_child_tid is set, the very first thing the new thread does is to write its thread ID at this address.
-            // When a thread whose clear_child_tid is not NULL terminates, then, 
+            // When a thread whose clear_child_tid is not NULL terminates, then,
             // if the thread is sharing memory with other threads, then 0 is written at the address specified in
             // clear_child_tid and the kernel performs the following operation:
             // futex(clear_child_tid, FUTEX_WAKE, 1, NULL, NULL, 0);
-            // The effect of this operation is to wake a single thread that is performing a futex wait on the memory location.  
+            // The effect of this operation is to wake a single thread that is performing a futex wait on the memory location.
             // Errors from the futex wake operation are ignored.
             Sysno::set_tid_address,
             (
-              
+
                 "set the `clear_child_tid` value for the calling thread to the id provided",
                 &[
                     ["tidptr", "pointer to the thread id to use for `clear_child_tid`"],
@@ -2121,7 +2121,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             )
         ),
         (
-            Sysno::eventfd, 
+            Sysno::eventfd,
             (
                 "create a file to use for event notifications/waiting",
                 &[
@@ -2131,7 +2131,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             )
         ),
         (
-            Sysno::eventfd2, 
+            Sysno::eventfd2,
             (
                 "create a file to use for event notifications/waiting with custom file behaviour",
                 &[
@@ -2144,7 +2144,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::wait4,
             (
-               
+
                 "wait for a process to change state",
                 &[
                     // < -1  wait for any child process whose process group ID is equal to the absolute value of pid.
@@ -2152,8 +2152,8 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
                     // 0     wait for any child process whose process group ID is equal to that of the calling process at the time of the call to waitpid().
                     // > 0   wait for the child whose process ID is equal to the value of pid.
                     ["pid", "number representing which process to wait on"],
-                    // If wstatus is not NULL, wait4() stores status information in the int to which it points.  
-                    // This integer can be inspected with the following macros  
+                    // If wstatus is not NULL, wait4() stores status information in the int to which it points.
+                    // This integer can be inspected with the following macros
                     // (which take the integer itself as an argument, not a pointer to it (as is done in syscall))
                     ["wstatus", "pointer to int representing the status of the process"],
                     ["options", "specific state changes to wait for"],
@@ -2167,7 +2167,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::waitid,
             (
-               
+
                 "wait until a specific event occurs for a specific child process",
                 &[
                     ["idtype", "categoty of process identifier to use for specifying the process"],
@@ -2181,24 +2181,24 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
                     ],
                 // returns 0 on success or if WNOHANG was specified and no child(ren) specified by id has yet changed state
                 ["numeric return", "0 on success, -1 on error, errno modified"],
-            ) 
+            )
         ),
-        // 
+        //
         // (
         //     Sysno::eventfd2,
         // ),
-        // 
+        //
         (
-            // in linux every thread can have a list of "robust futexes" 
+            // in linux every thread can have a list of "robust futexes"
             // threads in programs use this list as a contingency plan in the case that they die unexpectedly
-            // given that they are in user-space, the kernel can't do anything in case a thread dies while holding the lock, 
+            // given that they are in user-space, the kernel can't do anything in case a thread dies while holding the lock,
             // in that case the only way for waiting threads to be stopped is by rebooting!
             // to fix this, in linux, whever a thread exits (any thread) the kernel checks if it has a robust futex list
-            // if it does, then the kernel walks the list of futexes 
-            // and for every futex it cleans up and wakes any other waiter  
+            // if it does, then the kernel walks the list of futexes
+            // and for every futex it cleans up and wakes any other waiter
             Sysno::set_robust_list,
             (
-               
+
                 "modify the robust futexes list of the calling thread",
                 &[
                     ["head_ptr", "location of the head of the robust futex list"],
@@ -2208,16 +2208,16 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             )
         ),
         (
-            // in linux every thread can have a list of "robust futexes" 
+            // in linux every thread can have a list of "robust futexes"
             // threads in programs use this list as a contingency plan in the case that they die unexpectedly
-            // given that they are in user-space, the kernel can't do anything in case a thread dies while holding the lock, 
+            // given that they are in user-space, the kernel can't do anything in case a thread dies while holding the lock,
             // in that case the only way for waiting threads to be stopped is by rebooting!
             // to fix this, in linux, whever a thread exits (any thread) the kernel checks if it has a robust futex list
-            // if it does, then the kernel walks the list of futexes 
-            // and for every futex it cleans up and wakes any other waiter  
+            // if it does, then the kernel walks the list of futexes
+            // and for every futex it cleans up and wakes any other waiter
             Sysno::get_robust_list,
             (
-               
+
                 "retrieve the list of robust futexes for a specific thread",
                 &[
                     ["pid", "id of the process to be modified"],
@@ -2230,7 +2230,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::setpgid,
             (
-               
+
                 "set the process group ID of a specific process",
                 &[
                     ["pid", "id of the process to be modified"],
@@ -2242,7 +2242,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::getpgid,
             (
-               
+
                 "get the process group ID of a specific process",
                 &[
                     ["pid", "id of the process to operate on"],
@@ -2253,7 +2253,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::getpgrp,
             (
-               
+
                 "get the process group ID of the calling process",
                 &[],
                 ["return value", "process group id on success, -1 on error, errno modified"],
@@ -2264,77 +2264,77 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // At the time of fork() both memory spaces have the  same  content.
             // Memory  writes,  file  mappings, unmappings, performed by one of the processes do not affect the other.
             // The child process is an exact duplicate of the parent process except for the following points:
-            // •  The child has its own unique process ID, 
-     
-            // •  The child's and parent have the same parent process ID 
-     
+            // •  The child has its own unique process ID,
+
+            // •  The child's and parent have the same parent process ID
+
             // •  The child does not inherit memory locks (mlock(2), mlockall(2)).
-     
+
             // •  Process resource utilizations (getrusage(2)) and CPU time counters (times(2)) are reset to zero in the child.
-     
+
             // •  The child's set of pending signals is initially empty (sigpending(2)).
-     
+
             // •  The child does not inherit semaphore adjustments from its parent (semop(2)).
-     
+
             // •  The  child  does  not  inherit  process-associated record locks from its parent (fcntl(2)).  (On the other hand, it does inherit fcntl(2) open file description locks and
             //    flock(2) locks from its parent.)
-     
+
             // •  The child does not inherit timers from its parent (setitimer(2), alarm(2), timer_create(2)).
-     
+
             // •  The child does not inherit outstanding (unresolved) asynchronous I/O operations from its parent (aio_read(3), aio_write(3)), nor does it inherit any asynchronous  I/O  contexts  from
             //    its parent (see io_setup(2)).
-     
+
             // The  process  attributes  in the preceding list are all specified in POSIX.1.  The parent and child also differ with respect to the following Linux-specific process attributes:
-     
-            // •  The child does not inherit directory change notifications (dnotify) from its parent 
-     
+
+            // •  The child does not inherit directory change notifications (dnotify) from its parent
+
             // •  The prctl(2) PR_SET_PDEATHSIG setting is reset so that the child does not receive a signal when its parent terminates.
-            // •  The default timer slack value is set to the parent's current timer slack value.  
-            // •  madvise(2)  MADV_DONTFORK marked Memory mappings flag are not inherited 
+            // •  The default timer slack value is set to the parent's current timer slack value.
+            // •  madvise(2)  MADV_DONTFORK marked Memory mappings flag are not inherited
             // •  madvise(2)  MADV_WIPEONFORK marked Memory mappings are wiped
-     
+
             // •  The termination signal of the child is always SIGCHLD (see clone(2)).
-     
+
             // •  The port access permission bits set by ioperm(2) are not inherited by the child; the child must turn on any bits that it requires using ioperm(2).
-     
+
             // Note the following further points:
-     
+
             // •  The  child  process is created with a single thread—the one that called fork().  The entire virtual address space of the parent is replicated in the child, including the
             //    states of mutexes, condition variables, and other pthreads objects; the use of pthread_atfork(3) may be helpful for dealing with problems that this can cause.
-     
+
             // •  After a fork() in a multithreaded program, the child can safely call only async-signal-safe functions (see signal-safety(7)) until such time as it calls execve(2).
-     
+
             // •  The child inherits copies of the parent's set of open file descriptors.  Each file descriptor in the child refers to the same open file description (see open(2)) as  the
             //    corresponding  file  descriptor in the parent.  This means that the two file descriptors share open file status flags, file offset, and signal-driven I/O attributes (see
             //    the description of F_SETOWN and F_SETSIG in fcntl(2)).
-     
+
             // •  The child inherits copies of the parent's set of open message queue descriptors (see mq_overview(7)).  Each file descriptor in the child refers to the same open  message
             //    queue description as the corresponding file descriptor in the parent.  This means that the two file descriptors share the same flags (mq_flags).
-     
+
             // •  The  child inherits copies of the parent's set of open directory streams (see opendir(3)).  POSIX.1 says that the corresponding directory streams in the parent and child
             //    may share the directory stream positioning; on Linux/glibc they do not.
-     
+
             Sysno::fork,
             (
-               
+
                 "creates a new child process by duplicating the calling process",
                 &[],
                 ["return value", "0 returned to the child and the new process id of the child returned to the calling -1 on error, errno modified"],
             )
         ),
         (
-            // 1- simpler version of the fork() system call. 
-            //      This is because executing the fork() system call, 
-            //      (before the copy-on-write mechanism was created) 
-            //      involved copying everything from the parent including address space, 
+            // 1- simpler version of the fork() system call.
+            //      This is because executing the fork() system call,
+            //      (before the copy-on-write mechanism was created)
+            //      involved copying everything from the parent including address space,
             //      which was very inefficient.
-            // 
+            //
             // 2- the calling thread is suspended until the child terminates or makes a call to execve
-            //      This is because both processes use the same address space, 
+            //      This is because both processes use the same address space,
             //      which contains the stack, stack pointer, and instruction pointer.
             Sysno::vfork,
             (
-               
+
                 "creates a new child and suspend the calling process until child termination",
                 &[],
                 ["return value", "0 returned to the child and the new process id of the child returned to the calling -1 on error, errno modified"],
@@ -2343,7 +2343,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::clone3,
             (
-               
+
                 "Create a new child thread",
                 &[
                     ["cl_args", "pointer to a struct containing the parameters for the new thread"],
@@ -2355,7 +2355,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::clone,
             (
-               
+
                 "Create a new child thread",
                 &[
                     ["flags", "cloning customization flags"],
@@ -2409,7 +2409,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::execve,
             (
-               
+
                 "execute a program using a pathname and replace the current program",
                 &[
                     ["pathname", "path of the file of the program to be executed"],
@@ -2426,7 +2426,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         (
             Sysno::nanosleep,
             (
-               
+
                 "suspend execution of the calling thread until the specified timeout, or ocurrence of siganl handling",
                 &[
                     // The value of the nanoseconds field must be in the range [0, 999999999].
@@ -2531,18 +2531,18 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
         //     Sysno::syslog,
         // )
         (
-        // landlocking is mostly a situation where a piece of software 
+        // landlocking is mostly a situation where a piece of software
         // is protecting the user from the software itself, in the case that it is exploited
         // think kubernetes/docker protecting you in case they were compromised
         // for now its only file system related
-        // 
+        //
         // landlock is an access control system available to non-priviliged processes
         // using these 3 linux syscalls
         // it enables built-in sandboxing
-        // 
+        //
         // landlock is security sandboxing
         // namespaces/containers are not considered security sandboxes
-        // they are resources "virtualization" tools 
+        // they are resources "virtualization" tools
             Sysno::landlock_create_ruleset,
             (
                 "create a file descriptor for a landlock ruleset",
@@ -2587,14 +2587,14 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             )
         ),
         (
-            // A sparse file is a file that is mostly empty, 
+            // A sparse file is a file that is mostly empty,
             // i.e. it contains large blocks of bytes whose value is 0 (zero).
-            // On the disk, the content of a file is stored in blocks of fixed size (usually 4 KiB or more). 
-            // 
-            // When all the bytes contained in such a block are 0, 
-            // a file system that supports sparse files will not store the block on disk, 
+            // On the disk, the content of a file is stored in blocks of fixed size (usually 4 KiB or more).
+            //
+            // When all the bytes contained in such a block are 0,
+            // a file system that supports sparse files will not store the block on disk,
             // instead it keeps the information somewhere in the file meta-data.
-            // 
+            //
             // offset and len must be a multiple of the filesystem logical block size,
             Sysno::fallocate,
             (
@@ -2612,7 +2612,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // this is what runs behind the nice command
             Sysno::getpriority,
             (
-               
+
                 "get a processes' or user's scheduling priority",
                 &[
                     ["which", "type of the target (process/process group/user)"],
@@ -2625,7 +2625,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
             // this is what runs behind the nice command
             Sysno::setpriority,
             (
-               
+
                 "increase or decrease processes' or user's scheduling priority",
                 &[
                     ["which", "type of the target (process/process group/user)"],
@@ -3082,7 +3082,7 @@ pub fn initialize_syscall_annotations_map() -> HashMap<Sysno, SysAnnotations> {
     // (
     //     Sysno::pkey_free
     // )
-    
+
     ];
     array.into_iter().collect()
 }

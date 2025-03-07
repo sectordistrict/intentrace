@@ -70,42 +70,9 @@ thread_local! {
         g: 63,
         b: 102,
     });
-
-    pub static ATTACH: Cell<Option<usize>> = Cell::new(None);
+    pub static ATTACH_PID: Cell<Option<usize>> = Cell::new(None);
     // TODO! Time blocks feature
     // pub static TIME_BLOCKS: Cell<bool> = Cell::new(false);
-}
-
-pub fn buffered_write(data: ColoredString) {
-    let mut writer = WRITER_LAZY.lock().unwrap();
-    write!(writer, "{}", data).unwrap();
-    // write!(a, "{}", "come on".yellow()).unwrap();
-}
-pub fn flush_buffer() {
-    let mut writer = WRITER_LAZY.lock().unwrap();
-    writer.flush().unwrap();
-}
-#[inline(always)]
-pub fn colorize_general_text(arg: &str) {
-    let text = arg.custom_color(GENERAL_TEXT_COLOR.get());
-    buffered_write(text);
-}
-pub fn colorize_diverse(arg: &str, color: CustomColor) {
-    let text = arg.custom_color(color);
-    buffered_write(text);
-}
-pub fn static_handle_path_file(filename: String, vector: &mut Vec<ColoredString>) {
-    let mut pathname = String::new();
-
-    let mut file_start = 0;
-    for (index, chara) in filename.chars().rev().enumerate() {
-        if chara == '/' && index != 0 {
-            file_start = filename.len() - index;
-            break;
-        }
-    }
-    vector.push(filename[0..file_start].yellow());
-    vector.push(filename[file_start..].custom_color(PAGES_COLOR.get()));
 }
 
 lazy_static! {
@@ -125,134 +92,71 @@ lazy_static! {
     pub static ref SYSCALL_CATEGORIES: HashMap<Sysno, Category> = initialize_syscall_category_map();
     pub static ref PAGE_SIZE: usize = page_size::get();
 }
+use clap::{Parser, Subcommand};
 
-pub fn parse_args() -> Vec<String> {
-    let arg_vector = std::env::args().collect::<Vec<String>>();
-    if arg_vector.len() < 2 {
-        eprintln!("Usage: {} prog args\n", arg_vector[0]);
-        std::process::exit(1)
+#[derive(Parser)]
+#[command(
+    about = "intentrace is a strace for everyone.",
+    version,
+    allow_external_subcommands = true
+)]
+pub struct IntentraceArgs {
+    /// provide a summary table at the end of tracing
+    #[arg(short = 'c', long)]
+    pub summary: bool,
+
+    /// attach to an already running proceess
+    #[arg(short = 'p', long = "attach")]
+    pub pid: Option<usize>,
+
+    /// trace child processes when traced programs create them
+    #[arg(
+        short = 'f',
+        long = "follow-forks",
+        conflicts_with = "pid",
+        conflicts_with = "failed_only"
+    )]
+    pub follow_forks: bool,
+
+    /// only print failed syscalls
+    #[arg(short = 'z', long = "failed-only")]
+    pub failed_only: bool,
+
+    /// mute the traced program's std output
+    #[arg(short = 'q', long = "mute-stdout")]
+    pub mute_stdout: bool,
+
+    #[command(subcommand)]
+    pub binary: Option<Binary>,
+}
+
+#[derive(Subcommand, Debug, PartialEq)]
+pub enum Binary {
+    #[command(external_subcommand)]
+    Command(Vec<String>),
+}
+
+pub fn setup(args: IntentraceArgs) -> Vec<String> {
+    if args.summary {
+        SUMMARY.store(true, Ordering::SeqCst);
     }
-    let mut args = arg_vector.into_iter().peekable();
-    let _ = args.next().unwrap();
-
-    while let Some(arg) = args.peek() {
-        match arg.as_str() {
-            "-c" | "--summary" => {
-                let _ = args.next().unwrap();
-                // if FOLLOW_FORKS.get() {
-                //     eprintln!(
-                //         "Usage: summary retrieval and fork following are mutually exclusive\n"
-                //     );
-                //     std::process::exit(100);
-                // }
-                SUMMARY.store(true, Ordering::SeqCst);
-            }
-            "-p" | "--attach" => {
-                let _ = args.next().unwrap();
-                if FOLLOW_FORKS.load(Ordering::SeqCst) {
-                    eprintln!(
-                        "Usage: attaching to a running process and fork following are mutually exclusive\n"
-                    );
-                    std::process::exit(100);
-                }
-                let pid = match args.next() {
-                    Some(pid_str) => match pid_str.parse::<usize>() {
-                        Ok(pid) => {
-                            ATTACH.set(Some(pid));
-                        }
-                        Err(_) => {
-                            eprintln!("Usage: pid is not valid\n");
-                            std::process::exit(100);
-                        }
-                    },
-                    None => {
-                        eprintln!("Usage: pid is not valid\n");
-                        std::process::exit(100);
-                    }
-                };
-            }
-            "-f" | "--follow-forks" => {
-                let _ = args.next().unwrap();
-                if ATTACH.get().is_some() {
-                    eprintln!(
-                        "Usage: attaching to a running process and fork following are mutually exclusive\n"
-                    );
-                    std::process::exit(100);
-                }
-                // if SUMMARY.get() {
-                //     eprintln!(
-                //         "Usage: summary retrieval and fork following are mutually exclusive\n"
-                //     );
-                //     std::process::exit(100);
-                // }
-                FOLLOW_FORKS.store(true, Ordering::SeqCst);
-            }
-            "-z" | "--failed-only" => {
-                let _ = args.next().unwrap();
-                if FOLLOW_FORKS.load(Ordering::SeqCst) {
-                    eprintln!(
-                        "Usage: failed only retrieval and fork following are mutually exclusive\n"
-                    );
-                    std::process::exit(100);
-                }
-                FAILED_ONLY.set(true);
-            }
-            // time blocks in stdout between and during syscalls (e.g. a box is printed every 10 ms)
-            // "-t" | "--time-blocks" => {
-            //     let _ = args.next().unwrap();
-            //     if FOLLOW_FORKS.get() {
-            //         eprintln!("Usage: time blocks and fork following are mutually exclusive\n");
-            //         std::process::exit(100);
-            //     }
-            //     TIME_BLOCKS.set(true);
-            // }
-            "-q" | "--mute-stdout" => {
-                let _ = args.next().unwrap();
-                QUIET.set(true);
-            }
-            "-a" | "--annotations" => {
-                let _ = args.next().unwrap();
-                if FOLLOW_FORKS.load(Ordering::SeqCst) {
-                    eprintln!(
-                        "Usage: printing annotations and fork following are mutually exclusive\n"
-                    );
-                    std::process::exit(100);
-                }
-                ANNOT.set(true);
-            }
-            "-h" | "--help" => {
-                // TODO!
-                // PENDING SWITCH TO CLAP
-                println!(
-                    "intentrace is a strace for everyone.
-
-Usage: intentrace [OPTIONS] [-- <TRAILING_ARGUMENTS>...]
-
-Options:
-  -c, --summary                      provide a summary table at the end of tracing
-  -p, --attach <pid>                 attach to an already running proceess
-  -f, --follow-forks                 trace child processes when traced programs create them
-  -z, --failed-only                  only print failed syscalls
-  -q, --mute-stdout                  mute the traced program's std output
-  -a, --annotations                  print the classic strace feed with argument annotations
-  -h, --help                         print help
-  -v, --version                      print version
-                "
-                );
-                std::process::exit(0)
-            }
-            "-v" | "--version" => {
-                // TODO!
-                // PENDING SWITCH TO CLAP
-                println!("intentrace {}", env!("CARGO_PKG_VERSION"));
-                std::process::exit(0)
-            }
-
-            _ => break,
-        }
+    if args.follow_forks {
+        FOLLOW_FORKS.store(true, Ordering::SeqCst);
     }
-
-    args.collect::<Vec<String>>()
+    if args.mute_stdout {
+        QUIET.set(true);
+    }
+    if args.pid.is_some() {
+        ATTACH_PID.set(args.pid);
+    }
+    if args.failed_only {
+        FAILED_ONLY.set(true);
+    }
+    if let Some(Binary::Command(binary_and_args)) = args.binary {
+        binary_and_args
+    } else {
+        vec![]
+    }
 }
 
 pub fn terminal_setup() {
@@ -285,16 +189,52 @@ pub fn terminal_setup() {
                     g: 210,
                     b: 230,
                 });
-               STOPPED_COLOR.set(CustomColor {
-                   r: 82,
-                   g: 138,
-                   b: 174,
+                STOPPED_COLOR.set(CustomColor {
+                    r: 82,
+                    g: 138,
+                    b: 174,
                 });
             }
             termbg::Theme::Dark => {}
         }
     }
 }
+
+pub fn buffered_write(data: ColoredString) {
+    let mut writer = WRITER_LAZY.lock().unwrap();
+    write!(writer, "{}", data).unwrap();
+    // write!(a, "{}", "come on".yellow()).unwrap();
+}
+
+pub fn flush_buffer() {
+    let mut writer = WRITER_LAZY.lock().unwrap();
+    writer.flush().unwrap();
+}
+#[inline(always)]
+pub fn colorize_general_text(arg: &str) {
+    let text = arg.custom_color(GENERAL_TEXT_COLOR.get());
+    buffered_write(text);
+}
+
+pub fn colorize_diverse(arg: &str, color: CustomColor) {
+    let text = arg.custom_color(color);
+    buffered_write(text);
+}
+
+pub fn static_handle_path_file(filename: String, vector: &mut Vec<ColoredString>) {
+    let mut pathname = String::new();
+
+    let mut file_start = 0;
+    for (index, chara) in filename.chars().rev().enumerate() {
+        if chara == '/' && index != 0 {
+            file_start = filename.len() - index;
+            break;
+        }
+    }
+    vector.push(filename[0..file_start].yellow());
+    vector.push(filename[file_start..].custom_color(PAGES_COLOR.get()));
+}
+
 pub fn lose_relativity_on_path(string: std::borrow::Cow<'_, str>) -> String {
     let mut chars = string.chars().peekable();
     while let Some(&chara) = chars.peek() {
@@ -408,6 +348,7 @@ pub fn x86_signal_to_string(signum: u64) -> Option<&'static str> {
         _ => Some("SIGSYS/SIGUNUSED"),
     }
 }
+
 pub fn errno_to_string(errno: Errno) -> &'static str {
     match errno {
         Errno::EPERM => "Operation not permitted",
