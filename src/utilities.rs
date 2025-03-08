@@ -66,9 +66,9 @@ thread_local! {
         b: 54,
     });
     pub static PAGES_COLOR : Cell<CustomColor> = Cell::new(CustomColor {
-        r: 30,
-        g: 63,
-        b: 102,
+        r: 0,
+        g: 169,
+        b: 223,
     });
     pub static ATTACH_PID: Cell<Option<usize>> = Cell::new(None);
     // TODO! Time blocks feature
@@ -231,7 +231,7 @@ pub fn static_handle_path_file(filename: String, vector: &mut Vec<ColoredString>
             break;
         }
     }
-    vector.push(filename[0..file_start].yellow());
+    vector.push(filename[0..file_start].custom_color(OUR_YELLOW.get()));
     vector.push(filename[file_start..].custom_color(PAGES_COLOR.get()));
 }
 

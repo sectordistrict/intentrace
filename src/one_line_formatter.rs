@@ -13,7 +13,8 @@ use crate::{
     utilities::{
         buffered_write, colorize_general_text, errno_to_string, get_child_memory_break,
         get_mem_difference_from_previous, lose_relativity_on_path, where_in_childs_memory,
-        x86_signal_to_string, CONTINUED_COLOR, FOLLOW_FORKS, OUR_YELLOW, PID_NUMBER_COLOR,
+        x86_signal_to_string, CONTINUED_COLOR, FOLLOW_FORKS, OUR_YELLOW, PAGES_COLOR,
+        PID_NUMBER_COLOR,
     },
 };
 use colored::{Color, ColoredString, Colorize};
@@ -233,7 +234,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("close the file: ");
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -411,7 +412,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("get the stats of the file: ");
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -469,7 +470,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("get stats for the filesystem that contains the file: ");
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -560,12 +561,10 @@ impl SyscallObject {
                         // statx logic for when the pathname is empty
                         if pathname.is_empty() && (flags_num & AT_EMPTY_PATH) > 0 {
                             // if pathname is empty and AT_EMPTY_PATH is given, dirfd is used
-                            let dirfd_parsed = self.pavfol(0);
-                            self.write_text(dirfd_parsed.custom_color(OUR_YELLOW.get()));
+                            self.possible_dirfd_file(dirfd, pathname);
                         } else {
                             self.write_path_file(pathname);
                         }
-
                         let mut flag_directive = vec![];
                         if (flags_num & AT_NO_AUTOMOUNT) > 0 {
                             flag_directive.push("don't automount the basename of the path if its an automount directory".custom_color(OUR_YELLOW.get()));
@@ -679,7 +678,7 @@ impl SyscallObject {
                             let owner = name.as_str().unwrap();
 
                             self.general_text("change the owner of the file: ");
-                            self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                            self.write_path_file(filename);
                             self.general_text(" to ");
                             self.write_text(owner.green());
                             if group_given != -1 {
@@ -695,7 +694,7 @@ impl SyscallObject {
                                 let user = get_user_by_uid.unwrap();
                                 let group = user.name().to_str().unwrap();
                                 self.general_text("change the owner of the file: ");
-                                self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                                self.write_path_file(filename);
 
                                 self.general_text("to ");
                                 self.write_text(group.green());
@@ -996,26 +995,26 @@ impl SyscallObject {
                 //
                 //
                 //
-                let mapping_flags_num = self.args[3] as i32;
+                let flags_num = self.args[3] as i32;
 
-                let shared = (mapping_flags_num & MAP_SHARED) == MAP_SHARED;
-                let private = (mapping_flags_num & MAP_PRIVATE) == MAP_PRIVATE;
+                let shared = (flags_num & MAP_SHARED) == MAP_SHARED;
+                let private = (flags_num & MAP_PRIVATE) == MAP_PRIVATE;
 
-                let shared_validate = (mapping_flags_num as i32 & MAP_SHARED_VALIDATE) > 0;
+                let shared_validate = (flags_num as i32 & MAP_SHARED_VALIDATE) > 0;
 
-                let anonymous = ((mapping_flags_num & MAP_ANON) == MAP_ANON)
-                    || ((mapping_flags_num & MAP_ANONYMOUS) == MAP_ANONYMOUS);
+                let anonymous = ((flags_num & MAP_ANON) == MAP_ANON)
+                    || ((flags_num & MAP_ANONYMOUS) == MAP_ANONYMOUS);
 
-                let huge_pages_used = (mapping_flags_num & MAP_HUGETLB) == MAP_HUGETLB;
-                let populate = (mapping_flags_num & MAP_POPULATE) == MAP_POPULATE;
-                let lock = (mapping_flags_num & MAP_LOCKED) == MAP_LOCKED;
+                let huge_pages_used = (flags_num & MAP_HUGETLB) == MAP_HUGETLB;
+                let populate = (flags_num & MAP_POPULATE) == MAP_POPULATE;
+                let lock = (flags_num & MAP_LOCKED) == MAP_LOCKED;
 
-                let fixed = (mapping_flags_num & MAP_FIXED) == MAP_FIXED;
-                let non_blocking = (mapping_flags_num & MAP_NONBLOCK) == MAP_NONBLOCK;
-                let no_reserve = (mapping_flags_num & MAP_NORESERVE) == MAP_NORESERVE;
-                let stack = (mapping_flags_num & MAP_STACK) == MAP_STACK;
+                let fixed = (flags_num & MAP_FIXED) == MAP_FIXED;
+                let non_blocking = (flags_num & MAP_NONBLOCK) == MAP_NONBLOCK;
+                let no_reserve = (flags_num & MAP_NORESERVE) == MAP_NORESERVE;
+                let stack = (flags_num & MAP_STACK) == MAP_STACK;
 
-                let sync = (mapping_flags_num as i32 & MAP_SYNC) > 0;
+                let sync = (flags_num as i32 & MAP_SYNC) > 0;
 
                 let prot_flags: ProtFlags = unsafe { std::mem::transmute(self.args[2] as u32) };
                 let bytes = self.pavfol(1);
@@ -1043,7 +1042,7 @@ impl SyscallObject {
                         if !anonymous {
                             self.general_text(" of the file: ");
                             let filename = self.pavfol(4);
-                            self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                            self.write_path_file(filename);
                             if offset_num > 0 {
                                 self.general_text(" at an offset of ");
                                 self.write_text(offset.to_string().custom_color(OUR_YELLOW.get()));
@@ -1056,9 +1055,7 @@ impl SyscallObject {
                         //
                         //
                         // check shared_validate first because its 0x3 (shared and private are 0x1, and 0x2)
-                        if shared_validate {
-                            self.write_text("shared memory".custom_color(OUR_YELLOW.get()));
-                        } else if shared {
+                        if shared_validate || shared {
                             self.write_text("shared memory".custom_color(OUR_YELLOW.get()));
                         // no need to check MAP_PRIVATE,
                         // its the last option at this point
@@ -1075,29 +1072,29 @@ impl SyscallObject {
                         //
                         if huge_pages_used {
                             self.general_text(" using ");
-                            if (mapping_flags_num & MAP_HUGE_64KB) == MAP_HUGE_64KB {
+                            if (flags_num & MAP_HUGE_64KB) == MAP_HUGE_64KB {
                                 self.write_text("64 KB ".custom_color(OUR_YELLOW.get()));
-                            } else if (mapping_flags_num & MAP_HUGE_512KB) == MAP_HUGE_512KB {
+                            } else if (flags_num & MAP_HUGE_512KB) == MAP_HUGE_512KB {
                                 self.write_text("512 KB ".custom_color(OUR_YELLOW.get()));
-                            } else if (mapping_flags_num & MAP_HUGE_1MB) == MAP_HUGE_1MB {
+                            } else if (flags_num & MAP_HUGE_1MB) == MAP_HUGE_1MB {
                                 self.write_text("1 MB ".custom_color(OUR_YELLOW.get()));
-                            } else if (mapping_flags_num & MAP_HUGE_2MB) == MAP_HUGE_2MB {
+                            } else if (flags_num & MAP_HUGE_2MB) == MAP_HUGE_2MB {
                                 self.write_text("2 MB ".custom_color(OUR_YELLOW.get()));
-                            } else if (mapping_flags_num & MAP_HUGE_8MB) == MAP_HUGE_8MB {
+                            } else if (flags_num & MAP_HUGE_8MB) == MAP_HUGE_8MB {
                                 self.write_text("8 MB ".custom_color(OUR_YELLOW.get()));
-                            } else if (mapping_flags_num & MAP_HUGE_16MB) == MAP_HUGE_16MB {
+                            } else if (flags_num & MAP_HUGE_16MB) == MAP_HUGE_16MB {
                                 self.write_text("16 MB ".custom_color(OUR_YELLOW.get()));
-                            } else if (mapping_flags_num & MAP_HUGE_32MB) == MAP_HUGE_32MB {
+                            } else if (flags_num & MAP_HUGE_32MB) == MAP_HUGE_32MB {
                                 self.write_text("32 MB ".custom_color(OUR_YELLOW.get()));
-                            } else if (mapping_flags_num & MAP_HUGE_256MB) == MAP_HUGE_256MB {
+                            } else if (flags_num & MAP_HUGE_256MB) == MAP_HUGE_256MB {
                                 self.write_text("256 MB ".custom_color(OUR_YELLOW.get()));
-                            } else if (mapping_flags_num & MAP_HUGE_512MB) == MAP_HUGE_512MB {
+                            } else if (flags_num & MAP_HUGE_512MB) == MAP_HUGE_512MB {
                                 self.write_text("512 MB ".custom_color(OUR_YELLOW.get()));
-                            } else if (mapping_flags_num & MAP_HUGE_1GB) == MAP_HUGE_1GB {
+                            } else if (flags_num & MAP_HUGE_1GB) == MAP_HUGE_1GB {
                                 self.write_text("1 GB ".custom_color(OUR_YELLOW.get()));
-                            } else if (mapping_flags_num & MAP_HUGE_2GB) == MAP_HUGE_2GB {
+                            } else if (flags_num & MAP_HUGE_2GB) == MAP_HUGE_2GB {
                                 self.write_text("2 GB ".custom_color(OUR_YELLOW.get()));
-                            } else if (mapping_flags_num & MAP_HUGE_16GB) == MAP_HUGE_16GB {
+                            } else if (flags_num & MAP_HUGE_16GB) == MAP_HUGE_16GB {
                                 self.write_text("16 GB ".custom_color(OUR_YELLOW.get()));
                             }
                             self.write_text("hugepages".custom_color(OUR_YELLOW.get()));
@@ -1154,11 +1151,11 @@ impl SyscallObject {
                                 "an appropiate kernel chosen address"
                                     .custom_color(OUR_YELLOW.get()),
                             );
-                        } else if (mapping_flags_num & MAP_FIXED) == MAP_FIXED {
+                        } else if (flags_num & MAP_FIXED) == MAP_FIXED {
                             self.general_text(" starting ");
                             self.write_text("exactly at ".custom_color(OUR_YELLOW.get()));
                             self.write_text(address.custom_color(OUR_YELLOW.get()));
-                        } else if (mapping_flags_num & MAP_FIXED_NOREPLACE) == MAP_FIXED_NOREPLACE {
+                        } else if (flags_num & MAP_FIXED_NOREPLACE) == MAP_FIXED_NOREPLACE {
                             self.general_text(" starting ");
                             self.write_text("exactly at ".custom_color(OUR_YELLOW.get()));
                             self.write_text(address.custom_color(OUR_YELLOW.get()));
@@ -1176,7 +1173,7 @@ impl SyscallObject {
                         //
                         //
                         //
-                        if (mapping_flags_num & MAP_GROWSDOWN) == MAP_GROWSDOWN {
+                        if (flags_num & MAP_GROWSDOWN) == MAP_GROWSDOWN {
                             self.write_text(" growing down,".custom_color(OUR_YELLOW.get()));
                         }
 
@@ -1419,7 +1416,7 @@ impl SyscallObject {
                             Whence::SeekSet => {
                                 if offset_num == 0 {
                                     self.general_text("move the file pointer of the file: ");
-                                    self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                                    self.write_path_file(filename);
                                     self.general_text(" to ");
                                     self.write_text(
                                         "the beginning of the file".custom_color(OUR_YELLOW.get()),
@@ -1434,7 +1431,7 @@ impl SyscallObject {
                             }
                             Whence::SeekCur => {
                                 self.general_text("move the file pointer of the file: ");
-                                self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                                self.write_path_file(filename);
                                 self.general_text(" ");
                                 if offset_num == 0 {
                                     // self.general_text.push("[intentrace: redundant syscall (won't do anything)]");
@@ -1453,7 +1450,7 @@ impl SyscallObject {
                             }
                             Whence::SeekEnd => {
                                 self.general_text("move the file pointer of the file: ");
-                                self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                                self.write_path_file(filename);
                                 self.general_text(" ");
 
                                 if offset_num == 0 {
@@ -1477,7 +1474,7 @@ impl SyscallObject {
                             }
                             Whence::SeekData => {
                                 self.general_text("move the file pointer of the file: ");
-                                self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                                self.write_path_file(filename);
                                 self.general_text(" to ");
                                 self.write_text(
                                     "the nearest data block".custom_color(OUR_YELLOW.get()),
@@ -1502,7 +1499,7 @@ impl SyscallObject {
                             }
                             Whence::SeekHole => {
                                 self.general_text("move the file pointer of the file: ");
-                                self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                                self.write_path_file(filename);
                                 self.general_text(" to ");
                                 self.write_text(
                                     "the nearest data hole".custom_color(OUR_YELLOW.get()),
@@ -1800,7 +1797,7 @@ impl SyscallObject {
                         self.general_text("read ");
                         self.write_text(bytes.custom_color(OUR_YELLOW.get()));
                         self.general_text(" from the file: ");
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -1842,7 +1839,7 @@ impl SyscallObject {
                             self.write_text(self.pavfol(2).custom_color(OUR_YELLOW.get()));
                         }
                         self.general_text(" into the file: ");
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -1878,7 +1875,7 @@ impl SyscallObject {
                         self.general_text("read ");
                         self.write_text(bytes.custom_color(OUR_YELLOW.get()));
                         self.general_text(" from the file: ");
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                         self.general_text(" at an offset of ");
                         self.write_text(offset.custom_color(OUR_YELLOW.get()));
                     }
@@ -1925,7 +1922,7 @@ impl SyscallObject {
                             self.write_text(self.pavfol(2).custom_color(OUR_YELLOW.get()));
                         }
                         self.general_text(" into the file: ");
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                         self.general_text(" at an offset of ");
                         self.write_text(offset.custom_color(OUR_YELLOW.get()));
                     }
@@ -1967,7 +1964,7 @@ impl SyscallObject {
                         } else {
                             self.general_text(" scattered regions of memory from the file: ");
                         }
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -1998,7 +1995,7 @@ impl SyscallObject {
                         } else {
                             self.general_text(" scattered regions of memory of the file: ");
                         }
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -2029,7 +2026,7 @@ impl SyscallObject {
                         } else {
                             self.general_text(" scattered regions of memory from the file: ");
                         }
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                         self.general_text(" at an offset of ");
                         self.write_text(offset.custom_color(OUR_YELLOW.get()));
                     }
@@ -2063,7 +2060,7 @@ impl SyscallObject {
                         } else {
                             self.general_text(" scattered regions of memory of the file: ");
                         }
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                         self.general_text(" at an offset of ");
                         self.write_text(offset.custom_color(OUR_YELLOW.get()));
                     }
@@ -2107,9 +2104,9 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("move the file: ");
-                        self.write_text(old_path.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(old_path);
                         self.general_text(" to: ");
-                        self.write_text(new_path.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(new_path);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -2325,7 +2322,7 @@ impl SyscallObject {
                         self.general_text("create the symlink: ");
                         self.possible_dirfd_file(dirfd, symlink);
                         self.general_text(" and link it with: ");
-                        self.write_text(target.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(target);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -2600,7 +2597,7 @@ impl SyscallObject {
                             self.general_text(" |=> ");
                             self.write_text("target retrieved: ".green());
                             let target = self.pavfol(1);
-                            self.write_text(target.custom_color(OUR_YELLOW.get()));
+                            self.write_path_file(target);
                         } else {
                             // TODO! granular
                             self.one_line_error();
@@ -2621,8 +2618,8 @@ impl SyscallObject {
                         if eph_return.is_ok() {
                             self.general_text(" |=> ");
                             self.write_text("target retrieved: ".green());
-                            let target = self.pavfol(1);
-                            self.write_text(target.custom_color(OUR_YELLOW.get()));
+                            let target = self.pavfol(2);
+                            self.write_path_file(target);
                         } else {
                             // TODO! granular
                             self.one_line_error();
@@ -2657,7 +2654,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("change the mode of the file: ");
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                         self.mode_matcher(mode);
                     }
                     Exiting => {
@@ -2712,7 +2709,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("flush all pending filesystem data and metadata writes for the filesystem that contains the file: ");
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -2771,14 +2768,14 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("duplicate the file descriptor: ");
-                        self.write_text(file_descriptor.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(file_descriptor);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.general_text(" |=> ");
                             self.write_text("created a new duplicate file descriptor: ".green());
-                            self.write_text(eph_return.unwrap().custom_color(OUR_YELLOW.get()));
+                            self.write_path_file(eph_return.unwrap());
                         } else {
                             // TODO! granular
                             self.one_line_error();
@@ -2787,14 +2784,14 @@ impl SyscallObject {
                 }
             }
             Sysno::dup2 => {
-                let to_be_duplicated = self.pavfol(0);
-                let duplicate = self.pavfol(1);
+                let file_to_be_duplicated = self.pavfol(0);
+                let file_duplicate = self.pavfol(1);
                 match self.state {
                     Entering => {
                         self.general_text("duplicate the file descriptor: ");
-                        self.write_text(to_be_duplicated.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(file_to_be_duplicated);
                         self.general_text(" using the descriptor: ");
-                        self.write_text(duplicate.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(file_duplicate);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -2809,15 +2806,15 @@ impl SyscallObject {
                 }
             }
             Sysno::dup3 => {
-                let to_be_duplicated = self.pavfol(0);
-                let duplicate = self.pavfol(1);
+                let file_to_be_duplicated = self.pavfol(0);
+                let file_duplicate = self.pavfol(1);
                 let dup_flag_num = self.args[2] as i32;
                 match self.state {
                     Entering => {
                         self.general_text("duplicate the file descriptor: ");
-                        self.write_text(to_be_duplicated.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(file_to_be_duplicated);
                         self.general_text(" using the descriptor: ");
-                        self.write_text(duplicate.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(file_duplicate);
                         if (dup_flag_num & O_CLOEXEC) == O_CLOEXEC {
                             self.write_text(
                                 " and close the file on the next exec syscall"
@@ -2844,7 +2841,7 @@ impl SyscallObject {
                         self.general_text(
                             "flush all pending data and metadata writes for the file: ",
                         );
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -2863,7 +2860,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("flush all pending data and critical metadata writes (ignore non-critical metadata) for the file: ");
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -2883,7 +2880,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("change the size of the file: ");
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                         self.general_text(" to precisely ");
                         self.write_text(length.custom_color(OUR_YELLOW.get()));
                     }
@@ -2905,7 +2902,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("change the size of the file: ");
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                         self.general_text(" to precisely ");
                         self.write_text(length.custom_color(OUR_YELLOW.get()));
                     }
@@ -2932,7 +2929,7 @@ impl SyscallObject {
                         self.general_text("block all ");
                         let mut blockers = vec![];
                         if readfds != 0 {
-                            blockers.push("read waiting".custom_color(OUR_YELLOW.get()));
+                            blockers.push("read-waiting".custom_color(OUR_YELLOW.get()));
 
                             // TODO! possible granularity, likely not useful
                             // let reads =
@@ -2946,10 +2943,10 @@ impl SyscallObject {
                             // }
                         }
                         if writefds != 0 {
-                            blockers.push("write waiting".custom_color(OUR_YELLOW.get()));
+                            blockers.push("write-waiting".custom_color(OUR_YELLOW.get()));
                         }
                         if exceptfds != 0 {
-                            blockers.push("error waiting".custom_color(OUR_YELLOW.get()));
+                            blockers.push("error-waiting".custom_color(OUR_YELLOW.get()));
                         }
                         self.anding_handler(blockers);
                         self.general_text(" file descriptors lower than ");
@@ -2998,7 +2995,7 @@ impl SyscallObject {
                         self.general_text("block for events on all ");
                         let mut blockers = vec![];
                         if readfds != 0 {
-                            blockers.push("read waiting".custom_color(OUR_YELLOW.get()));
+                            blockers.push("read-waiting".custom_color(OUR_YELLOW.get()));
 
                             // TODO! possible granularity, likely not useful
                             // let reads =
@@ -3012,10 +3009,10 @@ impl SyscallObject {
                             // }
                         }
                         if writefds != 0 {
-                            blockers.push("write waiting".custom_color(OUR_YELLOW.get()));
+                            blockers.push("write-waiting".custom_color(OUR_YELLOW.get()));
                         }
                         if exceptfds != 0 {
-                            blockers.push("error waiting".custom_color(OUR_YELLOW.get()));
+                            blockers.push("error-waiting".custom_color(OUR_YELLOW.get()));
                         }
                         self.anding_handler(blockers);
                         self.general_text(" file descriptors lower than ");
@@ -3352,7 +3349,7 @@ impl SyscallObject {
                             format!("#{}", self.args[1].to_string()).custom_color(OUR_YELLOW.get()),
                         );
                         self.general_text(" on the device: ");
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -3375,7 +3372,7 @@ impl SyscallObject {
                             format!("#{}", self.args[1].to_string()).custom_color(OUR_YELLOW.get()),
                         );
                         self.general_text(" on the file: ");
-                        self.write_text(filename.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(filename);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -3711,7 +3708,7 @@ impl SyscallObject {
                             self.general_text("retrieve the current signal stack");
                         }
                         (false, false) => {
-                            self.general_text(                            "retrieve the current signal stack and then replace it with a new one,",
+                            self.general_text("retrieve the current signal stack and then replace it with a new one,",
                         );
                         }
                     },
@@ -3907,12 +3904,12 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if fd == -1 {
-                            self.general_text(                        "create a new file descriptor for receiving the set of specified signals",
+                            self.general_text("create a new file descriptor for receiving the set of specified signals",
                     );
                         } else {
                             let fd_file = self.pavfol(0);
                             self.general_text("use the file: ");
-                            self.write_text(fd_file.custom_color(OUR_YELLOW.get()));
+                            self.write_path_file(fd_file);
                             self.general_text(" to receive the provided signals");
                         }
                     }
@@ -3934,12 +3931,12 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if fd == -1 {
-                            self.general_text(                                "create a file descriptor to use for receiving the provided signals",
+                            self.general_text("create a file descriptor to use for receiving the provided signals",
                             );
                         } else {
                             let fd_file = self.pavfol(0);
                             self.general_text("use the file: ");
-                            self.write_text(fd_file.custom_color(OUR_YELLOW.get()));
+                            self.write_path_file(fd_file);
                             self.general_text(" to receive the provided signals");
                         }
                         let mut flag_directives = vec![];
@@ -4767,10 +4764,10 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if registering {
-                            self.general_text(                        "register a per-thread shared data structure between kernel and user-space",
+                            self.general_text("register a per-thread shared data structure between kernel and user-space",
                     );
                         } else {
-                            self.general_text(                        "unregister a previously registered per-thread shared data structure",
+                            self.general_text("unregister a previously registered per-thread shared data structure",
                     );
                         }
                     }
@@ -5123,7 +5120,7 @@ impl SyscallObject {
                             let file_descriptor = eph_return.unwrap();
                             self.general_text(" |=> ");
                             self.write_text("created the eventfd: ".green());
-                            self.write_text(file_descriptor.custom_color(OUR_YELLOW.get()));
+                            self.write_path_file(file_descriptor);
                         } else {
                             // TODO! granular
                             self.one_line_error();
@@ -5136,7 +5133,6 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("create a file to use for event notifications/waiting");
-
                         let mut directives = vec![];
                         if flags.contains(eventfd::EfdFlags::EFD_CLOEXEC) {
                             directives.push(
@@ -5155,18 +5151,7 @@ impl SyscallObject {
                                     .custom_color(OUR_YELLOW.get()),
                             );
                         }
-                        if !directives.is_empty() {
-                            self.general_text(" (");
-                            let mut directives_iter = directives.into_iter().peekable();
-                            if directives_iter.peek().is_some() {
-                                self.write_text(directives_iter.next().unwrap());
-                            }
-                            for entry in directives_iter {
-                                self.general_text(", ");
-                                self.write_text(entry);
-                            }
-                            self.general_text(")");
-                        }
+                        self.directives_handler(directives);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -5174,7 +5159,7 @@ impl SyscallObject {
                             let file_descriptor = eph_return.unwrap();
                             self.general_text(" |=> ");
                             self.write_text("created the eventfd: ".green());
-                            self.write_text(file_descriptor.custom_color(OUR_YELLOW.get()));
+                            self.write_path_file(file_descriptor);
                         } else {
                             // TODO! granular
                             self.one_line_error();
@@ -5304,7 +5289,7 @@ impl SyscallObject {
                             } else if pid == -1 {
                                 self.general_text("wait for state change in any child");
                             } else if pid == 0 {
-                                self.general_text(                                    "wait for state change in any child with a similar process group ID",
+                                self.general_text("wait for state change in any child with a similar process group ID",
                                 );
                             } else {
                                 self.general_text("wait for state change in child process ");
@@ -5916,7 +5901,7 @@ impl SyscallObject {
                         self.general_text(
                             "replace the current program with the following program and arguments",
                         );
-                        self.write_text(program_name.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(program_name);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -5986,7 +5971,7 @@ impl SyscallObject {
                             } else {
                                 let file_descriptor = eph_return.unwrap();
                                 self.write_text("created the ruleset file descriptor: ".green());
-                                self.write_text(file_descriptor.custom_color(OUR_YELLOW.get()));
+                                self.write_path_file(file_descriptor);
                             }
                         } else {
                             // TODO! granular
@@ -6068,7 +6053,7 @@ impl SyscallObject {
                                 self.write_text(offset.custom_color(OUR_YELLOW.get()));
                                 self.general_text(" from the beginning of the file: ");
                             }
-                            self.write_text(file_descriptor.custom_color(OUR_YELLOW.get()));
+                            self.write_path_file(file_descriptor);
                             if mode.contains(nix::fcntl::FallocateFlags::FALLOC_FL_KEEP_SIZE)
                                 && !mode.contains(nix::fcntl::FallocateFlags::FALLOC_FL_PUNCH_HOLE)
                             {
@@ -6107,7 +6092,7 @@ impl SyscallObject {
                                 self.write_text(offset.custom_color(OUR_YELLOW.get()));
                                 self.general_text(" from the beginning of the file: ");
                             }
-                            self.write_text(file_descriptor.custom_color(OUR_YELLOW.get()));
+                            self.write_path_file(file_descriptor);
                         } else if mode
                             .contains(nix::fcntl::FallocateFlags::FALLOC_FL_COLLAPSE_RANGE)
                         {
@@ -6120,7 +6105,7 @@ impl SyscallObject {
                                 self.write_text(offset.custom_color(OUR_YELLOW.get()));
                                 self.general_text(" from the beginning of the file: ");
                             }
-                            self.write_text(file_descriptor.custom_color(OUR_YELLOW.get()));
+                            self.write_path_file(file_descriptor);
                             self.write_text(
                                 " without leaving a hole".custom_color(OUR_YELLOW.get()),
                             );
@@ -6134,7 +6119,7 @@ impl SyscallObject {
                                 self.write_text(offset.custom_color(OUR_YELLOW.get()));
                                 self.general_text(" from the beginning of the file: ");
                             }
-                            self.write_text(file_descriptor.custom_color(OUR_YELLOW.get()));
+                            self.write_path_file(file_descriptor);
                             if mode.contains(nix::fcntl::FallocateFlags::FALLOC_FL_KEEP_SIZE) {
                                 self.general_text(" (");
                                 self.write_text(
@@ -6155,7 +6140,7 @@ impl SyscallObject {
                                 self.write_text(offset.custom_color(OUR_YELLOW.get()));
                                 self.general_text(" from the beginning of the file: ");
                             }
-                            self.write_text(file_descriptor.custom_color(OUR_YELLOW.get()));
+                            self.write_path_file(file_descriptor);
                             self.general_text(
                                 " without overwriting existing data (displace data instead)",
                             );
@@ -6176,35 +6161,35 @@ impl SyscallObject {
             }
             Sysno::getpriority => {
                 let which = self.args[0] as u32;
-                let target = self.args[1];
+                let process = self.args[1];
 
                 match self.state {
                     Entering => {
                         self.general_text("get the scheduling priority ");
                         if (which & PRIO_PROCESS) == PRIO_PROCESS {
                             self.general_text("of ");
-                            if target == 0 {
+                            if process == 0 {
                                 self.write_text(
                                     "the calling process".custom_color(OUR_YELLOW.get()),
                                 );
                             } else {
                                 self.write_text("process: ".custom_color(OUR_YELLOW.get()));
-                                self.write_text(target.to_string().custom_color(OUR_YELLOW.get()));
+                                self.write_text(process.to_string().custom_color(OUR_YELLOW.get()));
                             }
                         } else if (which & PRIO_PGRP) == PRIO_PGRP {
                             self.general_text("of ");
-                            if target == 0 {
+                            if process == 0 {
                                 self.write_text(
                                     "the process group of calling process"
                                         .custom_color(OUR_YELLOW.get()),
                                 );
                             } else {
                                 self.write_text("process group: ".custom_color(OUR_YELLOW.get()));
-                                self.write_text(target.to_string().custom_color(OUR_YELLOW.get()));
+                                self.write_text(process.to_string().custom_color(OUR_YELLOW.get()));
                             }
                         } else if (which & PRIO_USER) == PRIO_USER {
                             self.general_text("for ");
-                            if target == 0 {
+                            if process == 0 {
                                 self.write_text(
                                     "the real user id of the calling process"
                                         .custom_color(OUR_YELLOW.get()),
@@ -6213,7 +6198,7 @@ impl SyscallObject {
                                 self.write_text(
                                     "the real user id: ".custom_color(OUR_YELLOW.get()),
                                 );
-                                self.write_text(target.to_string().custom_color(OUR_YELLOW.get()));
+                                self.write_text(process.to_string().custom_color(OUR_YELLOW.get()));
                             }
                         }
                         // TODO! Flags
@@ -6234,7 +6219,7 @@ impl SyscallObject {
             }
             Sysno::setpriority => {
                 let which = self.args[0] as u32;
-                let target = self.args[1];
+                let process = self.args[1];
                 let prio = self.pavfol(2);
 
                 match self.state {
@@ -6242,32 +6227,32 @@ impl SyscallObject {
                         self.general_text("set the scheduling priority ");
                         if (which & PRIO_PROCESS) == PRIO_PROCESS {
                             self.general_text("of ");
-                            if target == 0 {
+                            if process == 0 {
                                 self.write_text(
                                     "the calling process".custom_color(OUR_YELLOW.get()),
                                 );
                             } else {
                                 self.write_text("process: ".custom_color(OUR_YELLOW.get()));
-                                self.write_text(target.to_string().custom_color(OUR_YELLOW.get()));
+                                self.write_text(process.to_string().custom_color(OUR_YELLOW.get()));
                             }
                             self.general_text(" to ");
                             self.write_text(prio.custom_color(OUR_YELLOW.get()));
                         } else if (which & PRIO_PGRP) == PRIO_PGRP {
                             self.general_text("of ");
-                            if target == 0 {
+                            if process == 0 {
                                 self.write_text(
                                     "the process group of calling process"
                                         .custom_color(OUR_YELLOW.get()),
                                 );
                             } else {
                                 self.write_text("process group: ".custom_color(OUR_YELLOW.get()));
-                                self.write_text(target.to_string().custom_color(OUR_YELLOW.get()));
+                                self.write_text(process.to_string().custom_color(OUR_YELLOW.get()));
                             }
                             self.general_text(" to ");
                             self.write_text(prio.custom_color(OUR_YELLOW.get()));
                         } else if (which & PRIO_USER) == PRIO_USER {
                             self.general_text("for ");
-                            if target == 0 {
+                            if process == 0 {
                                 self.write_text(
                                     "the real user id of the calling process"
                                         .custom_color(OUR_YELLOW.get()),
@@ -6276,7 +6261,7 @@ impl SyscallObject {
                                 self.write_text(
                                     "the real user id: ".custom_color(OUR_YELLOW.get()),
                                 );
-                                self.write_text(target.to_string().custom_color(OUR_YELLOW.get()));
+                                self.write_text(process.to_string().custom_color(OUR_YELLOW.get()));
                                 self.general_text(" to ");
                                 self.write_text(prio.custom_color(OUR_YELLOW.get()));
                             }
@@ -6301,7 +6286,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("retrieve the entries inside the directory ");
-                        self.write_text(directory.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(directory);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -6320,7 +6305,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("retrieve the entries inside the directory ");
-                        self.write_text(directory.custom_color(OUR_YELLOW.get()));
+                        self.write_path_file(directory);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -6469,6 +6454,7 @@ impl SyscallObject {
             }
         }
     }
+
     pub fn write_path_file(&mut self, filename: String) {
         let mut pathname = String::new();
 
@@ -6480,25 +6466,28 @@ impl SyscallObject {
             }
         }
         self.write_text(filename[0..file_start].custom_color(OUR_YELLOW.get()));
-        self.write_text(filename[file_start..].blue());
+        self.write_text(filename[file_start..].custom_color(PAGES_COLOR.get()));
     }
+
     pub(crate) fn possible_dirfd_file(&mut self, dirfd: i32, filename: String) {
         let file_path_buf = PathBuf::from(filename);
         if file_path_buf.is_relative() {
             if dirfd == AT_FDCWD {
-                let cwd = procfs::process::Process::new(self.process_pid.into())
-                    .unwrap()
-                    .cwd()
-                    .unwrap();
+                let current_working_directory =
+                    procfs::process::Process::new(self.process_pid.into())
+                        .unwrap()
+                        .cwd()
+                        .unwrap();
                 self.write_text(
-                    cwd.as_path()
+                    current_working_directory
+                        .as_path()
                         .to_string_lossy()
                         .custom_color(OUR_YELLOW.get()),
                 );
                 self.write_text("/".custom_color(OUR_YELLOW.get()));
                 let path_without_leading_relativeness =
                     lose_relativity_on_path(file_path_buf.as_path().to_string_lossy().to_owned());
-                self.write_text(path_without_leading_relativeness.blue());
+                self.write_text(path_without_leading_relativeness.custom_color(PAGES_COLOR.get()));
             } else {
                 let file_info =
                     procfs::process::FDInfo::from_raw_fd(self.process_pid.into(), dirfd).unwrap();
@@ -6515,7 +6504,9 @@ impl SyscallObject {
                         let path_without_leading_relativeness = lose_relativity_on_path(
                             file_path_buf.as_path().to_string_lossy().to_owned(),
                         );
-                        self.write_text(path_without_leading_relativeness.blue());
+                        self.write_text(
+                            path_without_leading_relativeness.custom_color(PAGES_COLOR.get()),
+                        );
                     }
                     _ => unreachable!(),
                 }
