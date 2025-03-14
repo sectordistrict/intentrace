@@ -1,14 +1,15 @@
 #![allow(unused_variables)]
+use crate::utilities::{colorize_general_text, REGISTERS};
 use crate::{
     types::{
         mlock2, Bytes, BytesPagesRelevant, Category, Flag, LandlockCreateFlags,
         LandlockRuleTypeFlags, SysArg, SysReturn, Syscall_Shape,
     },
     utilities::{
-        buffered_write, lose_relativity_on_path, static_handle_path_file, SYSCALL_CATEGORIES, SYSKELETON_MAP
+        buffered_write, lose_relativity_on_path, static_handle_path_file, SYSCATEGORIES_MAP,
+        SYSKELETON_MAP,
     },
 };
-use crate::utilities::colorize_general_text;
 
 use colored::{ColoredString, Colorize};
 use core::slice;
@@ -60,7 +61,6 @@ use syscalls::Sysno;
 pub struct SyscallObject {
     pub sysno: Sysno,
     pub category: Category,
-    pub args: Vec<u64>,
     pub skeleton: Vec<SysArg>,
     pub result: (Option<u64>, SysReturn),
     pub process_pid: Pid,
@@ -74,7 +74,6 @@ impl Default for SyscallObject {
         SyscallObject {
             sysno: unsafe { mem::zeroed() },
             category: unsafe { mem::zeroed() },
-            args: vec![],
             skeleton: vec![],
             result: unsafe { mem::zeroed() },
             process_pid: unsafe { mem::zeroed() },
@@ -106,6 +105,7 @@ impl SyscallObject {
     fn replace_content(&mut self, index: usize, sys_arg: SysArg) {
         self.skeleton[index] = sys_arg
     }
+
     #[inline(always)]
     pub(crate) fn general_text(&mut self, arg: &str) {
         colorize_general_text(arg);
@@ -114,7 +114,6 @@ impl SyscallObject {
     pub(crate) fn write_text(&self, text: ColoredString) {
         buffered_write(text);
     }
-
 }
 
 impl SyscallObject {
@@ -122,19 +121,17 @@ impl SyscallObject {
         // println!("{:?}", registers.orig_rax as i32);
         Sysno::from(orig_rax)
     }
-    pub(crate) fn build(registers: &user_regs_struct, child: Pid) -> Option<Self> {
-        let sysno = Sysno::from(registers.orig_rax as i32);
+    pub(crate) fn build(child: Pid, sysno: Sysno) -> Option<Self> {
         let syscall = match SYSKELETON_MAP.get(&sysno) {
             Some(&Syscall_Shape {
                 types,
                 syscall_return,
             }) => {
-                let category = *SYSCALL_CATEGORIES.get(&sysno).unwrap();
+                let category = *SYSCATEGORIES_MAP.get(&sysno).unwrap();
                 return Some(match types.len() {
                     0 => SyscallObject {
                         sysno,
-                        category: category,
-                        args: vec![],
+                        category,
                         skeleton: types.into_iter().cloned().collect(),
                         result: (None, syscall_return),
                         process_pid: child,
@@ -143,8 +140,7 @@ impl SyscallObject {
                     },
                     1 => SyscallObject {
                         sysno,
-                        category: category,
-                        args: vec![registers.rdi],
+                        category,
                         skeleton: types.into_iter().cloned().collect(),
                         result: (None, syscall_return),
                         process_pid: child,
@@ -153,8 +149,7 @@ impl SyscallObject {
                     },
                     2 => SyscallObject {
                         sysno,
-                        category: category,
-                        args: vec![registers.rdi, registers.rsi],
+                        category,
                         skeleton: types.into_iter().cloned().collect(),
                         result: (None, syscall_return),
                         process_pid: child,
@@ -163,8 +158,7 @@ impl SyscallObject {
                     },
                     3 => SyscallObject {
                         sysno,
-                        category: category,
-                        args: vec![registers.rdi, registers.rsi, registers.rdx],
+                        category,
                         skeleton: types.into_iter().cloned().collect(),
                         result: (None, syscall_return),
                         process_pid: child,
@@ -173,8 +167,7 @@ impl SyscallObject {
                     },
                     4 => SyscallObject {
                         sysno,
-                        category: category,
-                        args: vec![registers.rdi, registers.rsi, registers.rdx, registers.r10],
+                        category,
                         skeleton: types.into_iter().cloned().collect(),
                         result: (None, syscall_return),
                         process_pid: child,
@@ -183,14 +176,7 @@ impl SyscallObject {
                     },
                     5 => SyscallObject {
                         sysno,
-                        category: category,
-                        args: vec![
-                            registers.rdi,
-                            registers.rsi,
-                            registers.rdx,
-                            registers.r10,
-                            registers.r8,
-                        ],
+                        category,
                         skeleton: types.into_iter().cloned().collect(),
                         result: (None, syscall_return),
                         process_pid: child,
@@ -199,15 +185,7 @@ impl SyscallObject {
                     },
                     _ => SyscallObject {
                         sysno,
-                        category: category,
-                        args: vec![
-                            registers.rdi,
-                            registers.rsi,
-                            registers.rdx,
-                            registers.r10,
-                            registers.r8,
-                            registers.r9,
-                        ],
+                        category,
                         skeleton: types.into_iter().cloned().collect(),
                         result: (None, syscall_return),
                         process_pid: child,
@@ -217,7 +195,7 @@ impl SyscallObject {
                 });
             }
             None => {
-                return None
+                return None;
                 // // unsafe {
                 // //     if !UNSUPPORTED.contains(&sysno.name()) {
                 // //         UNSUPPORTED.push(sysno.name());
@@ -236,24 +214,247 @@ impl SyscallObject {
         };
         syscall
     }
+    // basically fill up all the parentheses data
+    pub(crate) fn get_precall_data(&mut self) {
+        // POPULATING ARGUMENTS
+        //
+        //
+        //
+        for index in 0..self.skeleton.len() {
+            use SysArg::*;
+            match self.skeleton[index] {
+                File_Descriptor(ref mut file_descriptor) => {
+                    let fd = REGISTERS.get()[index] as i32;
+
+                    let styled_fd =
+                        SyscallObject::style_file_descriptor(REGISTERS.get()[index], self.process_pid)
+                            .unwrap_or(format!("ignored"));
+                    *file_descriptor = styled_fd.leak();
+                }
+                File_Descriptor_openat(ref mut file_descriptor) => {
+                    let mut styled_fd = String::new();
+                    let fd = REGISTERS.get()[index] as i32;
+                    styled_fd = if fd == AT_FDCWD {
+                        format!("{}", "AT_FDCWD -> Current Working Directory".bright_blue())
+                    } else {
+                        SyscallObject::style_file_descriptor(REGISTERS.get()[index], self.process_pid)
+                            .unwrap_or(format!("ignored"))
+                    };
+                    *file_descriptor = styled_fd.leak();
+                }
+                Pointer_To_Text(ref mut text) => {
+                    // TODO! fix this
+                    let mut styled_fd = String::new();
+                    if self.sysno == Sysno::execve {
+                        continue;
+                    }
+                    if self.sysno == Sysno::write || self.sysno == Sysno::pwrite64 {
+                        if REGISTERS.get()[2] < 20 {
+                            match SyscallObject::read_string_specific_length(
+                                REGISTERS.get()[1] as usize,
+                                self.process_pid,
+                                REGISTERS.get()[2] as usize,
+                            ) {
+                                Some(styled_fd) => {
+                                    *text = styled_fd.leak();
+                                }
+                                None => (),
+                            }
+                            continue;
+                        }
+                    }
+                    let styled_fd =
+                        SyscallObject::string_from_pointer(REGISTERS.get()[index], self.process_pid);
+                    *text = styled_fd.leak();
+                }
+                Array_Of_Strings(ref mut text) => {
+                    // TODO! fix this
+                    if self.sysno == Sysno::execve {
+                        continue;
+                    }
+                    let array_of_texts =
+                        SyscallObject::string_from_array_of_strings(REGISTERS.get()[index], self.process_pid);
+                    let mut svec: Vec<&'static str> = vec![];
+                    for text in array_of_texts {
+                        svec.push(text.leak());
+                    }
+                    *text = Box::leak(svec.into_boxed_slice());
+                }
+                _ => {}
+            };
+        }
+    }
+
+    pub(crate) fn get_postcall_data(&mut self) {
+        // POPULATING ARGUMENTS
+        //
+        //
+        //
+        let len = self.skeleton.len();
+        for index in 0..len {
+            use SysArg::*;
+            match self.skeleton[index] {
+                Pointer_To_File_Descriptor_Array(
+                    [ref mut file_descriptor1, ref mut file_descriptor2],
+                ) => {
+                    match SyscallObject::read_two_word(REGISTERS.get()[index] as usize, self.process_pid)
+                    {
+                        Some([ref mut fd1, ref mut fd2]) => {
+                            let styled_fd1 =
+                                SyscallObject::style_file_descriptor(*fd1 as u64, self.process_pid)
+                                    .unwrap_or(format!("ignored"));
+                            let styled_fd2 =
+                                SyscallObject::style_file_descriptor(*fd2 as u64, self.process_pid)
+                                    .unwrap_or(format!("ignored"));
+                            *file_descriptor1 = styled_fd1.leak();
+                            *file_descriptor2 = styled_fd2.leak();
+                        }
+                        None => {
+                            *file_descriptor1 = "could not get fd";
+                            *file_descriptor2 = "could not get fd";
+                        }
+                    }
+                }
+                Pointer_To_Numeric(ref mut pid) => {
+                    match SyscallObject::read_word(REGISTERS.get()[index] as usize, self.process_pid) {
+                        Some(pid_at_word) => {
+                            if self.sysno == Sysno::wait4 {
+                                self.skeleton[1] = Pointer_To_Numeric(Some(pid_at_word))
+                                // self.skeleton[1] = Pointer_To_Numeric(Some(pid_at_word));
+                            }
+                        }
+                        None => {
+                            // p!("reading numeric failed");
+                        }
+                    }
+                }
+                Pointer_To_Numeric_Or_Numeric(ref mut pid) => {
+                    // this is only available for arch_prctl
+                    let operation = REGISTERS.get()[0];
+                    let addr = REGISTERS.get()[0];
+                    // workaround values for now
+                    let ARCH_SET_GS = 0x1001;
+                    let ARCH_SET_FS = 0x1002;
+                    let ARCH_GET_FS = 0x1003;
+                    let ARCH_GET_GS = 0x1004;
+                    let ARCH_GET_CPUID = 0x1011;
+                    let ARCH_SET_CPUID = 0x1012;
+
+                    // if (operation & ARCH_SET_CPUID) == ARCH_SET_CPUID ||(operation & ARCH_SET_FS) == ARCH_SET_FS ||(operation & ARCH_SET_GS) == ARCH_SET_GS  {
+                    // } else
+
+                    if (operation & ARCH_GET_CPUID) == ARCH_GET_CPUID
+                        || (operation & ARCH_GET_FS) == ARCH_GET_FS
+                        || (operation & ARCH_GET_GS) == ARCH_GET_GS
+                    {
+                        match SyscallObject::read_word(REGISTERS.get()[index] as usize, self.process_pid)
+                        {
+                            Some(pid_at_word) => {
+                                if self.sysno == Sysno::wait4 {
+                                    self.skeleton[1] =
+                                        Pointer_To_Numeric_Or_Numeric(Some(pid_at_word));
+                                }
+                            }
+                            None => {
+                                // p!("reading numeric failed");
+                            }
+                        }
+                    }
+                }
+                Pointer_To_Text(ref mut text) => {
+                    // TODO! fix this
+                    if self.sysno == Sysno::readlink || self.sysno == Sysno::readlinkat {
+                        // let a = nix::errno::Errno::EINVAL
+                        if self.errno.is_some() {
+                            continue;
+                        }
+                        let size = self.result.0.unwrap();
+                        if size > 0 {
+                            if size > 100 {
+                                let size = -1 * (size as i32);
+                                let error = nix::errno::Errno::from_raw(size);
+                            } else {
+                                if self.sysno == Sysno::readlink && index == 1 {
+                                    match SyscallObject::read_string_specific_length(
+                                        REGISTERS.get()[index] as usize,
+                                        self.process_pid,
+                                        size as usize,
+                                    ) {
+                                        Some(styled_fd) => self
+                                            .replace_content(1, Pointer_To_Text(styled_fd.leak())),
+                                        None => (),
+                                    }
+                                } else if self.sysno == Sysno::readlinkat && index == 2 {
+                                    match SyscallObject::read_string_specific_length(
+                                        REGISTERS.get()[index] as usize,
+                                        self.process_pid,
+                                        size as usize,
+                                    ) {
+                                        Some(styled_fd) => self
+                                            .replace_content(1, Pointer_To_Text(styled_fd.leak())),
+                                        None => (),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        // POPULATING RETURN
+        //
+        //
+        //
+        let (register, ref mut sys_return) = self.result;
+        use SysReturn::*;
+        match sys_return {
+            File_Descriptor_Or_Errno(data) => {
+                let fd = register.unwrap();
+                let styled_fd = SyscallObject::style_file_descriptor(fd, self.process_pid)
+                    .unwrap_or(format!("{:?}", self.errno));
+                *data = styled_fd.leak();
+            }
+
+            Address_Or_Errno_getcwd(data) => {
+                let styled_string =
+                    SyscallObject::string_from_pointer(REGISTERS.get()[0], self.process_pid);
+                *data = styled_string.leak();
+            }
+            Priority_Or_Errno(errored) => {
+                // TODO!
+                // we expect errno to have been set to zero before this syscall ran
+                // this means we now just check errno
+                // and if its -1, then the syscall errored
+                //
+                // check if process has errored
+                let pointer = REGISTERS.get()[0];
+                if errno::errno().0 == -1 {
+                    unsafe { errored.as_mut_ptr().write(true) };
+                } else {
+                    unsafe { errored.as_mut_ptr().write(false) };
+                }
+            }
+            _ => {}
+        };
+    }
     // previously `parse_arg_value_for_one_line`
-    pub(crate) fn pavfol(&self, index: usize) -> String {
-        let register_value = self.args[index];
+    pub(crate) fn displayable_ol(&self, index: usize) -> String {
+        let register_value = REGISTERS.get()[index];
         use SysArg::*;
         match self.skeleton[index] {
             // NUMERICS
-            Numeric => format!("{}", register_value as isize),
-            PID => format!("{}", register_value as isize),
-            User_Group => format!("{}", register_value as isize),
+            Numeric => (register_value as isize).to_string(),
+            PID => (register_value as isize).to_string(),
+            User_Group => (register_value as isize).to_string(),
             Unsigned_Numeric => format!("{register_value}"),
-            File_Descriptor(fd) => format!("{fd}"),
-            File_Descriptor_openat(fd) => format!("{fd}"),
+            File_Descriptor(fd) => (fd).to_string(),
+            File_Descriptor_openat(fd) => (fd).to_string(),
             Pointer_To_File_Descriptor_Array([fd1, fd2]) => {
                 format!("read end: {fd1}, write end: {fd2}")
             }
             // FLAG
             General_Flag(flag) => SyscallObject::handle_flag(register_value, flag),
-
             // BYTES
             Length_Of_Bytes => SyscallObject::style_bytes(register_value),
             Length_Of_Bytes_Specific => {
@@ -269,7 +470,6 @@ impl SyscallObject {
             //     SyscallObject::style_bytes_signed(register_value)
             // }
 
-            // can be mined for granular insights
             Pointer_To_Struct => "0x.. -> {..}".to_owned(),
             Array_Of_Struct => "[ {..}, {..} , {..} ]".to_owned(),
             Array_Of_Strings(array) => {
@@ -281,12 +481,10 @@ impl SyscallObject {
                 string
             }
             Byte_Stream => format!("whatever"),
-
             Single_Word => {
                 let pointer = register_value as *const ();
                 format!("{:p}", pointer)
             }
-
             Pointer_To_Numeric(pid) => {
                 let pointer = register_value as *const ();
                 if pointer.is_null() {
@@ -307,7 +505,6 @@ impl SyscallObject {
                     format!("{num}")
                 }
             }
-
             Pointer_To_Unsigned_Numeric => {
                 let pointer = register_value as *const ();
                 if pointer.is_null() {
@@ -321,11 +518,9 @@ impl SyscallObject {
             Pointer_To_Text(text) => {
                 format!("{}", text)
             }
-
             Pointer_To_Path(text) => {
                 format!("{}", text)
             }
-
             Address => {
                 let pointer = register_value as *const ();
                 if pointer == std::ptr::null() {
@@ -334,7 +529,6 @@ impl SyscallObject {
                     format!("{:p}", pointer)
                 }
             }
-
             Pointer_To_Length_Of_Bytes_Specific => String::from("did not handle this yet"),
             Multiple_Flags([flag1, flag2]) => {
                 SyscallObject::handle_flag(register_value, flag1)
@@ -342,7 +536,7 @@ impl SyscallObject {
             }
         }
     }
-    pub(crate) fn parse_return_value_one_line(&self) -> Result<String, ()> {
+    pub(crate) fn displayable_return_ol(&self) -> Result<String, ()> {
         if self.is_exiting() {
             return Ok("".to_owned());
         }
@@ -368,7 +562,6 @@ impl SyscallObject {
                     Ok(format!("{signal}"))
                 }
             }
-
             File_Descriptor_Or_Errno(fd) => {
                 let fd_num = register_value as isize;
                 if fd_num + 1 == -1 {
@@ -386,7 +579,6 @@ impl SyscallObject {
                     Ok(format!("{priority}"))
                 }
             }
-
             Length_Of_Bytes_Specific_Or_Errno => {
                 let bytes = register_value as isize;
                 if self.sysno == Sysno::readlink || self.sysno == Sysno::readlinkat {
@@ -438,247 +630,6 @@ impl SyscallObject {
             }
         }
     }
-    // basically fill up all the parentheses data
-    pub(crate) fn get_precall_data(&mut self) {
-        // POPULATING ARGUMENTS
-        //
-        //
-        //
-        for index in 0..self.skeleton.len() {
-            use SysArg::*;
-            match self.skeleton[index] {
-                File_Descriptor(ref mut file_descriptor) => {
-                    let fd = self.args[index] as i32;
-
-                    let styled_fd =
-                        SyscallObject::style_file_descriptor(self.args[index], self.process_pid)
-                            .unwrap_or(format!("ignored"));
-                    *file_descriptor = styled_fd.leak();
-                }
-                File_Descriptor_openat(ref mut file_descriptor) => {
-                    let mut styled_fd = String::new();
-                    let fd = self.args[index] as i32;
-                    styled_fd = if fd == AT_FDCWD {
-                        format!("{}", "AT_FDCWD -> Current Working Directory".bright_blue())
-                    } else {
-                        SyscallObject::style_file_descriptor(self.args[index], self.process_pid)
-                            .unwrap_or(format!("ignored"))
-                    };
-                    *file_descriptor = styled_fd.leak();
-                }
-                Pointer_To_Text(ref mut text) => {
-                    // TODO! fix this
-                    let mut styled_fd = String::new();
-                    if self.sysno == Sysno::execve {
-                        continue;
-                    }
-                    if self.sysno == Sysno::write || self.sysno == Sysno::pwrite64 {
-                        if self.args[2] < 20 {
-                            match SyscallObject::read_string_specific_length(
-                                self.args[1] as usize,
-                                self.process_pid,
-                                self.args[2] as usize,
-                            ) {
-                                Some(styled_fd) => {
-                                    *text = styled_fd.leak();
-                                }
-                                None => (),
-                            }
-                            continue;
-                        }
-                    }
-                    let styled_fd =
-                        SyscallObject::string_from_pointer(self.args[index], self.process_pid);
-                    *text = styled_fd.leak();
-                }
-                Array_Of_Strings(ref mut text) => {
-                    // TODO! fix this
-                    if self.sysno == Sysno::execve {
-                        continue;
-                    }
-                    let array_of_texts = SyscallObject::string_from_array_of_strings(
-                        self.args[index],
-                        self.process_pid,
-                    );
-                    let mut svec: Vec<&'static str> = vec![];
-                    for text in array_of_texts {
-                        svec.push(text.leak());
-                    }
-                    *text = Box::leak(svec.into_boxed_slice());
-                }
-                _ => {}
-            }
-        }
-        // POPULATING RETURN (for now only priority)
-        //
-        //
-        //
-        let (register, ref mut sys_return) = self.result;
-        use SysReturn::*;
-        match sys_return {
-            Priority_Or_Errno(_errored) => {
-                errno::set_errno(errno::Errno(0));
-            }
-            _ => {}
-        };
-        // returns are not populted because this is before the syscall runs
-    }
-
-    pub(crate) fn get_postcall_data(&mut self) {
-        // POPULATING ARGUMENTS
-        //
-        //
-        //
-        let len = self.skeleton.len();
-        for index in 0..len {
-            use SysArg::*;
-            match self.skeleton[index] {
-                Pointer_To_File_Descriptor_Array(
-                    [ref mut file_descriptor1, ref mut file_descriptor2],
-                ) => {
-                    match SyscallObject::read_two_word(self.args[index] as usize, self.process_pid)
-                    {
-                        Some([ref mut fd1, ref mut fd2]) => {
-                            let styled_fd1 =
-                                SyscallObject::style_file_descriptor(*fd1 as u64, self.process_pid)
-                                    .unwrap_or(format!("ignored"));
-                            let styled_fd2 =
-                                SyscallObject::style_file_descriptor(*fd2 as u64, self.process_pid)
-                                    .unwrap_or(format!("ignored"));
-                            *file_descriptor1 = styled_fd1.leak();
-                            *file_descriptor2 = styled_fd2.leak();
-                        }
-                        None => {
-                            *file_descriptor1 = "could not get fd";
-                            *file_descriptor2 = "could not get fd";
-                        }
-                    }
-                }
-                Pointer_To_Numeric(ref mut pid) => {
-                    match SyscallObject::read_word(self.args[index] as usize, self.process_pid) {
-                        Some(pid_at_word) => {
-                            if self.sysno == Sysno::wait4 {
-                                self.skeleton[1] = Pointer_To_Numeric(Some(pid_at_word))
-                                // self.skeleton[1] = Pointer_To_Numeric(Some(pid_at_word));
-                            }
-                        }
-                        None => {
-                            // p!("reading numeric failed");
-                        }
-                    }
-                }
-                Pointer_To_Numeric_Or_Numeric(ref mut pid) => {
-                    // this is only available for arch_prctl
-                    let operation = self.args[0];
-                    let addr = self.args[0];
-                    // workaround values for now
-                    let ARCH_SET_GS = 0x1001;
-                    let ARCH_SET_FS = 0x1002;
-                    let ARCH_GET_FS = 0x1003;
-                    let ARCH_GET_GS = 0x1004;
-                    let ARCH_GET_CPUID = 0x1011;
-                    let ARCH_SET_CPUID = 0x1012;
-
-                    // if (operation & ARCH_SET_CPUID) == ARCH_SET_CPUID ||(operation & ARCH_SET_FS) == ARCH_SET_FS ||(operation & ARCH_SET_GS) == ARCH_SET_GS  {
-                    // } else
-
-                    if (operation & ARCH_GET_CPUID) == ARCH_GET_CPUID
-                        || (operation & ARCH_GET_FS) == ARCH_GET_FS
-                        || (operation & ARCH_GET_GS) == ARCH_GET_GS
-                    {
-                        match SyscallObject::read_word(self.args[index] as usize, self.process_pid)
-                        {
-                            Some(pid_at_word) => {
-                                if self.sysno == Sysno::wait4 {
-                                    self.skeleton[1] =
-                                        Pointer_To_Numeric_Or_Numeric(Some(pid_at_word));
-                                }
-                            }
-                            None => {
-                                // p!("reading numeric failed");
-                            }
-                        }
-                    }
-                }
-                Pointer_To_Text(ref mut text) => {
-                    // TODO! fix this
-                    if self.sysno == Sysno::readlink || self.sysno == Sysno::readlinkat {
-                        // let a = nix::errno::Errno::EINVAL
-                        if self.errno.is_some() {
-                            continue;
-                        }
-                        let size = self.result.0.unwrap();
-                        if size > 0 {
-                            if size > 100 {
-                                let size = -1 * (size as i32);
-                                let error = nix::errno::Errno::from_raw(size);
-                            } else {
-                                if self.sysno == Sysno::readlink && index == 1 {
-                                    match SyscallObject::read_string_specific_length(
-                                        self.args[index] as usize,
-                                        self.process_pid,
-                                        size as usize,
-                                    ) {
-                                        Some(styled_fd) => self
-                                            .replace_content(1, Pointer_To_Text(styled_fd.leak())),
-                                        None => (),
-                                    }
-                                } else if self.sysno == Sysno::readlinkat && index == 2 {
-                                    match SyscallObject::read_string_specific_length(
-                                        self.args[index] as usize,
-                                        self.process_pid,
-                                        size as usize,
-                                    ) {
-                                        Some(styled_fd) => self
-                                            .replace_content(1, Pointer_To_Text(styled_fd.leak())),
-                                        None => (),
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        // POPULATING RETURN
-        //
-        //
-        //
-        let (register, ref mut sys_return) = self.result;
-        use SysReturn::*;
-        match sys_return {
-            File_Descriptor_Or_Errno(data) => {
-                let fd = register.unwrap();
-                let styled_fd = SyscallObject::style_file_descriptor(fd, self.process_pid)
-                    .unwrap_or(format!("{:?}", self.errno));
-                *data = styled_fd.leak();
-            }
-
-            Address_Or_Errno_getcwd(data) => {
-                let styled_string =
-                    SyscallObject::string_from_pointer(self.args[0], self.process_pid);
-                *data = styled_string.leak();
-            }
-            Priority_Or_Errno(errored) => {
-                // TODO!
-                // errno should should have been set to zero
-                // before this syscall ran
-                // this means we now just check errno
-                // and if its -1
-                // the syscall has errored
-                //
-                // check if process has errored
-                let pointer = self.args[0];
-                if errno::errno().0 == -1 {
-                    unsafe { errored.as_mut_ptr().write(true) };
-                } else {
-                    unsafe { errored.as_mut_ptr().write(false) };
-                }
-            }
-            _ => {}
-        };
-    }
     fn style_file_descriptor(register_value: u64, child: Pid) -> Option<String> {
         let fd = register_value as RawFd;
         let mut string = Vec::new();
@@ -697,7 +648,10 @@ impl SyscallObject {
                     procfs::process::FDTarget::Path(path) => {
                         string.push(format!("{} -> ", file.fd).bright_blue());
                         let mut formatted_path = vec![];
-                        static_handle_path_file(path.to_string_lossy().into_owned(), &mut formatted_path);
+                        static_handle_path_file(
+                            path.to_string_lossy().into_owned(),
+                            &mut formatted_path,
+                        );
                         for path_part in formatted_path {
                             string.push(path_part);
                         }
@@ -864,9 +818,10 @@ impl SyscallObject {
         // Note, however, that these system calls
         // do not check the memory regions in the remote process
         // until just before doing the read/write.
-        // Consequently, a partial read/write (see RETURN VALUE)
-        // may result if one of the remote_iov elements points to an invalid memory region in the remote process.
+        // Consequently, a partial read/write (see RETURN VALUE) may result
+        // if one of the remote_iov elements points to an invalid memory region in the remote process.
         // No further reads/writes will be attempted beyond that point.
+        //
         // Keep this in mind when attempting to read data of unknown length
         // (such as C strings that are null-terminated) from a remote process,
         // by avoiding spanning memory pages (typically 4 KiB)
@@ -1368,18 +1323,5 @@ impl SyscallObject {
             Category::Device => sysno.name().bold().bright_yellow(),
             Category::AsyncIO => sysno.name().bold().purple(),
         }
-    }
-    fn format_range(&self, start: u64, length: u64) -> Vec<ColoredString> {
-        let mut range = Vec::new();
-        let address = start as *const ();
-        if address == null() {
-            range.push(format!("0xNull").yellow())
-        } else {
-            range.push(format!("{:p}", address).yellow())
-        }
-        range.push(" + ".to_owned().yellow());
-        range.push(self.args[1].to_string().yellow());
-        range.push(" bytes".to_owned().yellow());
-        range
     }
 }

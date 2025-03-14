@@ -2,7 +2,7 @@ use crate::types::Category;
 use std::collections::HashMap;
 use syscalls::Sysno;
 
-pub fn initialize_syscall_category_map() -> HashMap<Sysno, Category> {
+pub fn initialize_categories_map() -> HashMap<Sysno, Category> {
     use Category::*;
     let array: Vec<(Sysno, Category)> = vec![
         (Sysno::read, DiskIO),

@@ -1,22 +1,21 @@
 use crate::{
-    syscall_annotations_map::initialize_syscall_annotations_map,
-    syscall_categories::initialize_syscall_category_map,
-    syscall_skeleton_map::initialize_syscall_skeleton_map,
+    syscall_annotations_map::initialize_annotations_map,
+    syscall_categories::initialize_categories_map,
+    syscall_skeleton_map::initialize_skeletons_map,
     types::{Category, SysAnnotations, Syscall_Shape},
 };
 use colored::{ColoredString, Colorize, CustomColor};
-use lazy_static::lazy_static;
 use nix::{errno::Errno, libc::__errno_location, unistd::Pid};
 use procfs::process::{MMapPath, MemoryMap};
 use std::{
     borrow::BorrowMut,
-    cell::{Cell, RefCell},
+    cell::{Cell, LazyCell, OnceCell, RefCell},
     collections::HashMap,
     io::{stdout, BufWriter, Stdout, Write},
     mem::MaybeUninit,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, LazyLock, Mutex, OnceLock,
     },
     time::Duration,
 };
@@ -25,73 +24,82 @@ use syscalls::Sysno;
 pub static mut UNSUPPORTED: Vec<&'static str> = Vec::new();
 
 thread_local! {
-    pub static PRE_CALL_PROGRAM_BREAK_POINT: Cell<usize> = Cell::new(0);
+    // CLI_ARGS
+    //
+    //
+    //
+    // TODO! Time blocks feature
+    // pub static TIME_BLOCKS: Cell<bool> = Cell::new(false);
+    pub static FOLLOW_FORKS: AtomicBool = AtomicBool::new(false);
     pub static STRING_LIMIT: Cell<usize> = Cell::new(36);
     pub static FAILED_ONLY: Cell<bool> = Cell::new(false);
     pub static QUIET: Cell<bool> = Cell::new(false);
     pub static ANNOT: Cell<bool> = Cell::new(false);
-    pub static GENERAL_TEXT_COLOR: Cell<CustomColor> = Cell::new(CustomColor {
-        r: 160,
-        g: 160,
-        b: 160,
-    });
-    pub static PID_BACKGROUND_COLOR: Cell<CustomColor> = Cell::new(CustomColor {
-        r: 0,
-        g: 0,
-        b: 0,
-    });
-    pub static PID_NUMBER_COLOR: Cell<CustomColor> = Cell::new(CustomColor {
-        r: 0,
-        g: 173,
-        b: 216,
-    });
-    pub static EXITED_BACKGROUND_COLOR: Cell<CustomColor> = Cell::new(CustomColor {
-        r: 100,
-        g: 0,
-        b: 0,
-    });
-    pub static OUR_YELLOW: Cell<CustomColor> = Cell::new(CustomColor {
-        r: 187,
-        g: 142,
-        b: 35,
-    });
-    pub static CONTINUED_COLOR: Cell<CustomColor> = Cell::new(CustomColor {
-        r: 17,
-        g: 38,
-        b: 21,
-    });
-    pub static STOPPED_COLOR: Cell<CustomColor> = Cell::new(CustomColor {
-        r: 47,
-        g: 86,
-        b: 54,
-    });
-    pub static PAGES_COLOR : Cell<CustomColor> = Cell::new(CustomColor {
-        r: 0,
-        g: 169,
-        b: 223,
-    });
     pub static ATTACH_PID: Cell<Option<usize>> = Cell::new(None);
-    // TODO! Time blocks feature
-    // pub static TIME_BLOCKS: Cell<bool> = Cell::new(false);
+
+    // COLORS
+    //
+    //
+    pub static  PAGES_COLOR: OnceCell<CustomColor> = OnceCell::new();
+    pub static  GENERAL_TEXT_COLOR: OnceCell<CustomColor> = OnceCell::new();
+    pub static  PID_BACKGROUND_COLOR: OnceCell<CustomColor> = OnceCell::new( );
+    pub static  PID_NUMBER_COLOR: OnceCell<CustomColor> = OnceCell::new();
+    pub static  EXITED_BACKGROUND_COLOR: OnceCell<CustomColor> = OnceCell::new( );
+    pub static  OUR_YELLOW: OnceCell<CustomColor> = OnceCell::new();
+    pub static  CONTINUED_COLOR: OnceCell<CustomColor> = OnceCell::new();
+    pub static  STOPPED_COLOR: OnceCell<CustomColor> = OnceCell::new();
+
+
+    //
+    //
+    //
+    pub static PRE_CALL_PROGRAM_BREAK_POINT: Cell<usize> = Cell::new(0);
+    pub static PAGE_SIZE: Cell<usize> = Cell::new(page_size::get());
+    pub static REGISTERS: Cell<[u64;6]> = Cell::new([0;6]);
+
+}
+pub static SUMMARY: AtomicBool = AtomicBool::new(false);
+pub static HALT_TRACING: AtomicBool = AtomicBool::new(false);
+
+static WRITER_LAZY: LazyLock<Mutex<BufWriter<Stdout>>> = LazyLock::new(|| {
+    let stdout = stdout();
+    Mutex::new(BufWriter::new(stdout))
+});
+pub static TABLE: LazyLock<Mutex<HashMap<Sysno, (usize, Duration)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+pub static TABLE_FOLLOW_FORKS: LazyLock<Mutex<HashMap<Sysno, usize>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+pub static SYSANNOT_MAP: LazyLock<HashMap<Sysno, SysAnnotations>> =
+    LazyLock::new(|| initialize_annotations_map());
+pub static SYSKELETON_MAP: LazyLock<HashMap<Sysno, Syscall_Shape>> =
+    LazyLock::new(|| initialize_skeletons_map());
+pub static SYSCATEGORIES_MAP: LazyLock<HashMap<Sysno, Category>> =
+    LazyLock::new(|| initialize_categories_map());
+
+pub fn setup(args: IntentraceArgs) -> Vec<String> {
+    if args.summary {
+        SUMMARY.store(true, Ordering::SeqCst);
+    }
+    if args.follow_forks {
+        FOLLOW_FORKS.with(|ff| ff.store(true, Ordering::SeqCst));
+    }
+    if args.mute_stdout {
+        QUIET.set(true);
+    }
+    if args.pid.is_some() {
+        ATTACH_PID.set(args.pid);
+    }
+    if args.failed_only {
+        FAILED_ONLY.set(true);
+    }
+    if let Some(Binary::Command(binary_and_args)) = args.binary {
+        binary_and_args
+    } else {
+        vec![]
+    }
 }
 
-lazy_static! {
-    static ref WRITER_LAZY: Mutex<BufWriter<Stdout>> = {
-        let stdout = stdout();
-        Mutex::new(BufWriter::new(stdout))
-    };
-    pub static ref HALT_FORK_FOLLOW: AtomicBool = AtomicBool::new(false);
-    pub static ref FOLLOW_FORKS: AtomicBool = AtomicBool::new(false);
-    pub static ref SUMMARY: AtomicBool = AtomicBool::new(false);
-    pub static ref TABLE: Mutex<HashMap<Sysno, (usize, Duration)>> = Mutex::new(HashMap::new());
-    pub static ref TABLE_FOLLOW_FORKS: Mutex<HashMap<Sysno, usize>> = Mutex::new(HashMap::new());
-    pub static ref SYSANNOT_MAP: HashMap<Sysno, SysAnnotations> =
-        initialize_syscall_annotations_map();
-    pub static ref SYSKELETON_MAP: HashMap<Sysno, Syscall_Shape> =
-        initialize_syscall_skeleton_map();
-    pub static ref SYSCALL_CATEGORIES: HashMap<Sysno, Category> = initialize_syscall_category_map();
-    pub static ref PAGE_SIZE: usize = page_size::get();
-}
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -136,83 +144,130 @@ pub enum Binary {
     Command(Vec<String>),
 }
 
-pub fn setup(args: IntentraceArgs) -> Vec<String> {
-    if args.summary {
-        SUMMARY.store(true, Ordering::SeqCst);
-    }
-    if args.follow_forks {
-        FOLLOW_FORKS.store(true, Ordering::SeqCst);
-    }
-    if args.mute_stdout {
-        QUIET.set(true);
-    }
-    if args.pid.is_some() {
-        ATTACH_PID.set(args.pid);
-    }
-    if args.failed_only {
-        FAILED_ONLY.set(true);
-    }
-    if let Some(Binary::Command(binary_and_args)) = args.binary {
-        binary_and_args
-    } else {
-        vec![]
-    }
-}
-
 pub fn terminal_setup() {
     if let Ok(theme) = termbg::theme(std::time::Duration::from_millis(10)) {
         match theme {
             termbg::Theme::Light => {
-                GENERAL_TEXT_COLOR.set(CustomColor {
-                    r: 64,
-                    g: 64,
-                    b: 64,
+                GENERAL_TEXT_COLOR.with(|color| {
+                    let _ = color.set(CustomColor {
+                        r: 64,
+                        g: 64,
+                        b: 64,
+                    });
                 });
-                PID_BACKGROUND_COLOR.set(CustomColor {
-                    r: 146,
-                    g: 146,
-                    b: 168,
+                PAGES_COLOR.with(|color| {
+                    let _ = color.set(CustomColor {
+                        r: 0,
+                        g: 169,
+                        b: 223,
+                    });
                 });
-                PID_NUMBER_COLOR.set(CustomColor { r: 0, g: 0, b: 140 });
-                EXITED_BACKGROUND_COLOR.set(CustomColor {
-                    r: 250,
-                    g: 160,
-                    b: 160,
+
+                PID_BACKGROUND_COLOR.with(|color| {
+                    let _ = color.set(CustomColor {
+                        r: 146,
+                        g: 146,
+                        b: 168,
+                    });
                 });
-                OUR_YELLOW.set(CustomColor {
-                    r: 112,
-                    g: 127,
-                    b: 35,
+                PID_NUMBER_COLOR.with(|color| {
+                    let _ = color.set(CustomColor { r: 0, g: 0, b: 140 });
                 });
-                CONTINUED_COLOR.set(CustomColor {
-                    r: 188,
-                    g: 210,
-                    b: 230,
+                EXITED_BACKGROUND_COLOR.with(|color| {
+                    let _ = color.set(CustomColor {
+                        r: 250,
+                        g: 160,
+                        b: 160,
+                    });
                 });
-                STOPPED_COLOR.set(CustomColor {
-                    r: 82,
-                    g: 138,
-                    b: 174,
+                OUR_YELLOW.with(|color| {
+                    let _ = color.set(CustomColor {
+                        r: 112,
+                        g: 127,
+                        b: 35,
+                    });
+                });
+                CONTINUED_COLOR.with(|color| {
+                    let _ = color.set(CustomColor {
+                        r: 188,
+                        g: 210,
+                        b: 230,
+                    });
+                });
+                STOPPED_COLOR.with(|color| {
+                    let _ = color.set(CustomColor {
+                        r: 82,
+                        g: 138,
+                        b: 174,
+                    });
                 });
             }
-            termbg::Theme::Dark => {}
+            termbg::Theme::Dark => {
+                GENERAL_TEXT_COLOR.with(|color| {
+                    let _ = color.set(CustomColor {
+                        r: 160,
+                        g: 160,
+                        b: 160,
+                    });
+                });
+                PAGES_COLOR.with(|color| {
+                    let _ = color.set(CustomColor {
+                        r: 0,
+                        g: 169,
+                        b: 223,
+                    });
+                });
+
+                PID_BACKGROUND_COLOR.with(|color| {
+                    let _ = color.set(CustomColor { r: 0, g: 0, b: 0 });
+                });
+                PID_NUMBER_COLOR.with(|color| {
+                    let _ = color.set(CustomColor {
+                        r: 0,
+                        g: 173,
+                        b: 216,
+                    });
+                });
+                EXITED_BACKGROUND_COLOR.with(|color| {
+                    let _ = color.set(CustomColor { r: 100, g: 0, b: 0 });
+                });
+                OUR_YELLOW.with(|color| {
+                    let _ = color.set(CustomColor {
+                        r: 187,
+                        g: 142,
+                        b: 35,
+                    });
+                });
+                CONTINUED_COLOR.with(|color| {
+                    let _ = color.set(CustomColor {
+                        r: 17,
+                        g: 38,
+                        b: 21,
+                    });
+                });
+                STOPPED_COLOR.with(|color| {
+                    let _ = color.set(CustomColor {
+                        r: 47,
+                        g: 86,
+                        b: 54,
+                    });
+                });
+            }
         }
     }
 }
 
 pub fn buffered_write(data: ColoredString) {
-    let mut writer = WRITER_LAZY.lock().unwrap();
-    write!(writer, "{}", data).unwrap();
-    // write!(a, "{}", "come on".yellow()).unwrap();
+    write!(WRITER_LAZY.lock().unwrap(), "{}", data).unwrap();
 }
 
 pub fn flush_buffer() {
-    let mut writer = WRITER_LAZY.lock().unwrap();
-    writer.flush().unwrap();
+    WRITER_LAZY.lock().unwrap().flush().unwrap();
 }
+
 #[inline(always)]
 pub fn colorize_general_text(arg: &str) {
-    let text = arg.custom_color(GENERAL_TEXT_COLOR.get());
+    let text = arg.custom_color(get_thread_local_color!(GENERAL_TEXT_COLOR));
     buffered_write(text);
 }
 
@@ -231,8 +286,9 @@ pub fn static_handle_path_file(filename: String, vector: &mut Vec<ColoredString>
             break;
         }
     }
-    vector.push(filename[0..file_start].custom_color(OUR_YELLOW.get()));
-    vector.push(filename[file_start..].custom_color(PAGES_COLOR.get()));
+    vector.push(filename[0..file_start].custom_color(get_thread_local_color!(OUR_YELLOW)));
+
+    vector.push(filename[file_start..].custom_color(get_thread_local_color!(PAGES_COLOR)));
 }
 
 pub fn lose_relativity_on_path(string: std::borrow::Cow<'_, str>) -> String {

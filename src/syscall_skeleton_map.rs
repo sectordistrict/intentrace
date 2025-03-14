@@ -4,14 +4,13 @@ use std::mem::MaybeUninit;
 use syscalls::Sysno;
 
 // TODO! differentiate between bitflags (orables) and enums
-// TODO! add granularity for value-return type of syscall arguments
-// these are semantics for syscall arguments that get modified after syscall return
+// TODO! add granularity for value-return (kernel-modified) syscall arguments
 // see if some arguments are better combined, like the very common buffer and buffer lengths (this makes processing cleaner but might result in complexity in non-conforming cases)
 // clarify whether a buffer is provided by the user or to be filled by the kernel in the name of the argument (GIVE vs FILL)
 // switch to MaybeUninit
 
 // TODO! switch to phf later
-pub fn initialize_syscall_skeleton_map() -> HashMap<Sysno, Syscall_Shape> {
+pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
     use Flag::*;
     use SysArg::*;
     use SysReturn::*;
@@ -1002,7 +1001,7 @@ pub fn initialize_syscall_skeleton_map() -> HashMap<Sysno, Syscall_Shape> {
             },
         ),
         (
-            // similar to epoll_wait but in addition to waiting on specific signals
+            // similar to epoll_wait but also waits for specific signals
             Sysno::epoll_pwait,
             Syscall_Shape {
                 types: &[
@@ -1382,7 +1381,7 @@ pub fn initialize_syscall_skeleton_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             // used during signal handling
             // A signal stack is a special area of memory
-            // to be used as the execution stack during signal handlers
+            // to be used as the execution stack during signal handling
             // It should be fairly large, to avoid any danger that it will overflow
             Sysno::sigaltstack,
             Syscall_Shape {
@@ -1424,7 +1423,7 @@ pub fn initialize_syscall_skeleton_map() -> HashMap<Sysno, Syscall_Shape> {
             },
         ),
         (
-            // require registering a handler first via sigaction
+            // requires registering a handler first via sigaction
             // sends the data to an arbitrary thread with the thread group
             Sysno::rt_sigqueueinfo,
             Syscall_Shape {

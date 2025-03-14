@@ -29,6 +29,18 @@ macro_rules! ppp {
     };
 }
 
+macro_rules! get_thread_local_color {
+    ($color:ident) => {
+        $color.with(|c| c.get().copied().unwrap())
+    };
+}
+
+macro_rules! get_thread_local {
+    ($var:ident) => {
+        $var.with(|v| v.get())
+    };
+}
+
 use ::errno::{errno, set_errno};
 use clap::Parser;
 use colored::{ColoredString, Colorize};
@@ -56,7 +68,7 @@ use std::{
     path::PathBuf,
     process::{exit, Command, Stdio},
     ptr::null,
-    sync::atomic::Ordering,
+    sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 use syscalls::Sysno;
@@ -64,8 +76,8 @@ use syscalls::Sysno;
 use utilities::{
     buffered_write, colorize_diverse, display_unsupported, errno_check, flush_buffer,
     set_memory_break, setup, terminal_setup, IntentraceArgs, ATTACH_PID, EXITED_BACKGROUND_COLOR,
-    FAILED_ONLY, FOLLOW_FORKS, GENERAL_TEXT_COLOR, HALT_FORK_FOLLOW, PID_BACKGROUND_COLOR, QUIET,
-    STOPPED_COLOR, SUMMARY, TABLE, TABLE_FOLLOW_FORKS,
+    FAILED_ONLY, FOLLOW_FORKS, GENERAL_TEXT_COLOR, HALT_TRACING, PID_BACKGROUND_COLOR, QUIET,
+    REGISTERS, STOPPED_COLOR, SUMMARY, SYSKELETON_MAP, TABLE, TABLE_FOLLOW_FORKS,
 };
 
 mod syscall_annotations_map;
@@ -82,7 +94,8 @@ fn main() {
     let args = IntentraceArgs::parse();
     ctrlc::set_handler(|| {
         flush_buffer();
-        HALT_FORK_FOLLOW.store(true, Ordering::SeqCst);
+        HALT_TRACING.store(true, Ordering::SeqCst);
+
         if SUMMARY.load(Ordering::SeqCst) {
             print_table();
         }
@@ -95,7 +108,7 @@ fn main() {
 }
 
 fn runner(command_line: Vec<String>) {
-    if FOLLOW_FORKS.load(Ordering::SeqCst) {
+    if FOLLOW_FORKS.with(|ff| ff.load(Ordering::SeqCst)) {
         match ATTACH_PID.get() {
             Some(_) => follow_forks(None),
             None => follow_forks(Some(command_line)),
@@ -194,9 +207,17 @@ fn parent(child_or_attach: Option<Pid>) {
                         // SYSCALL ABOUT TO RUN
                         match nix::sys::ptrace::getregs(child) {
                             Ok(registers) => {
-                                if let Some(syscall_built) = SyscallObject::build(&registers, child)
-                                {
+                                let sysno = Sysno::from(registers.orig_rax as i32);
+                                if let Some(syscall_built) = SyscallObject::build(child, sysno) {
                                     syscall = syscall_built;
+                                    REGISTERS.replace([
+                                        registers.rdi,
+                                        registers.rsi,
+                                        registers.rdx,
+                                        registers.r10,
+                                        registers.r8,
+                                        registers.r9,
+                                    ]);
                                     syscall_will_run(&mut syscall);
                                     if syscall.is_exiting() {
                                         break 'main_loop;
@@ -232,7 +253,15 @@ fn parent(child_or_attach: Option<Pid>) {
                                     .or_insert((1, end.unwrap().duration_since(start.unwrap())));
                                 start = None;
                                 end = None;
-                                syscall_returned(&mut syscall, &registers)
+                                REGISTERS.replace([
+                                    registers.rdi,
+                                    registers.rsi,
+                                    registers.rdx,
+                                    registers.r10,
+                                    registers.r8,
+                                    registers.r9,
+                                ]);
+                                syscall_returned(&mut syscall, registers.rax)
                             }
                             Err(errno) => {
                                 if errno == Errno::ESRCH {
@@ -262,7 +291,7 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
     let mut pid_syscall_map: HashMap<Pid, SyscallObject> = HashMap::new();
 
     while let Some(mut tracee) = ptracer.wait().unwrap() {
-        if HALT_FORK_FOLLOW.load(Ordering::SeqCst) {
+        if HALT_TRACING.load(Ordering::SeqCst) {
             break;
         }
         let syscall_pid = Pid::from_raw(tracee.pid.as_raw());
@@ -273,7 +302,8 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
                 match nix::sys::ptrace::getregs(syscall_pid) {
                     Ok(registers) => {
                         check_syscall_switch(last_pid, syscall_pid, &mut pid_syscall_map);
-                        let mut syscall_built = SyscallObject::build(&registers, syscall_pid);
+                        let sysno = Sysno::from(registers.orig_rax as i32);
+                        let mut syscall_built = SyscallObject::build(syscall_pid, sysno);
                         if let Some(mut syscall) = syscall_built {
                             if SUMMARY.load(Ordering::SeqCst) {
                                 let mut output = TABLE_FOLLOW_FORKS.lock().unwrap();
@@ -284,6 +314,14 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
                                     })
                                     .or_insert(1);
                             }
+                            REGISTERS.replace([
+                                registers.rdi,
+                                registers.rsi,
+                                registers.rdx,
+                                registers.r10,
+                                registers.r8,
+                                registers.r9,
+                            ]);
                             syscall_will_run(&mut syscall);
                             // if syscall.is_exiting() {
                             //     break 'for_exiting;
@@ -301,8 +339,16 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
                 check_syscall_switch(last_pid, syscall_pid, &mut pid_syscall_map);
                 match nix::sys::ptrace::getregs(syscall_pid) {
                     Ok(registers) => {
+                        REGISTERS.replace([
+                            registers.rdi,
+                            registers.rsi,
+                            registers.rdx,
+                            registers.r10,
+                            registers.r8,
+                            registers.r9,
+                        ]);
                         if let Some(mut syscall) = pid_syscall_map.get_mut(&syscall_pid) {
-                            syscall_returned(&mut syscall, &registers);
+                            syscall_returned(&mut syscall, registers.rax);
                             pid_syscall_map.remove(&syscall_pid).unwrap();
                         }
                     }
@@ -326,7 +372,7 @@ fn syscall_will_run(syscall: &mut SyscallObject) {
     if syscall.is_mem_alloc_dealloc() {
         set_memory_break(syscall.process_pid);
     }
-    if FOLLOW_FORKS.load(Ordering::SeqCst) || syscall.is_exiting() {
+    if FOLLOW_FORKS.with(|ff| ff.load(Ordering::SeqCst)) || syscall.is_exiting() {
         syscall.format();
         if syscall.is_exiting() {
             print_exiting(syscall.process_pid);
@@ -335,27 +381,28 @@ fn syscall_will_run(syscall: &mut SyscallObject) {
 }
 
 fn print_exiting(process_pid: Pid) {
-    let exited = " EXITED ".on_custom_color(EXITED_BACKGROUND_COLOR.get());
-    let pid = format!(" {} ", process_pid).on_custom_color(PID_BACKGROUND_COLOR.get());
+    let exited = " EXITED ".on_custom_color(get_thread_local_color!(EXITED_BACKGROUND_COLOR));
+    let pid =
+        format!(" {} ", process_pid).on_custom_color(get_thread_local_color!(PID_BACKGROUND_COLOR));
     buffered_write("\n\n ".white());
     buffered_write(pid);
     buffered_write(exited);
     buffered_write("\n\n".white());
 }
 
-fn syscall_returned(syscall: &mut SyscallObject, registers: &user_regs_struct) {
+fn syscall_returned(syscall: &mut SyscallObject, return_value: u64) {
     // STORE SYSCALL RETURN VALUE
-    syscall.result.0 = Some(registers.rax);
+    syscall.result.0 = Some(return_value);
 
     // manual calculation of errno for now
     // TODO! make this cleaner
-    syscall.errno = errno_check(registers.rax);
+    syscall.errno = errno_check(return_value);
 
     // GET POSTCALL DATA (some data will be lost if not saved in this time frame)
     syscall.get_postcall_data();
 
-    if !FOLLOW_FORKS.load(Ordering::SeqCst) {
-        if FAILED_ONLY.get() && !syscall.parse_return_value_one_line().is_err() {
+    if !FOLLOW_FORKS.with(|ff| ff.load(Ordering::SeqCst)) {
+        if FAILED_ONLY.get() && !syscall.displayable_return_ol().is_err() {
             return;
         }
 
@@ -384,8 +431,11 @@ fn check_syscall_switch(
         if let Some(last_syscall) = pid_syscall_map.get_mut(&last_pid) {
             if !last_syscall.is_exiting() {
                 last_syscall.paused = true;
-                last_syscall.write_text(" ├ ".custom_color(GENERAL_TEXT_COLOR.get()));
-                last_syscall.write_text(" STOPPED ".on_custom_color(STOPPED_COLOR.get()));
+                last_syscall
+                    .write_text(" ├ ".custom_color(get_thread_local_color!(GENERAL_TEXT_COLOR)));
+                last_syscall.write_text(
+                    " STOPPED ".on_custom_color(get_thread_local_color!(STOPPED_COLOR)),
+                );
                 buffered_write("\n".white());
             }
         }
@@ -409,7 +459,7 @@ fn handle_getting_registers_error(errno: Errno, syscall_enter_or_exit: &str, sys
 }
 
 fn print_table() {
-    if FOLLOW_FORKS.load(Ordering::SeqCst) {
+    if FOLLOW_FORKS.with(|ff| ff.load(Ordering::SeqCst)) {
         let output = TABLE_FOLLOW_FORKS.lock().unwrap();
         let mut vec = Vec::from_iter(output.iter());
         vec.sort_by(|(_sysno, count), (_sysno2, count2)| count2.cmp(count));

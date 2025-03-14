@@ -6,8 +6,7 @@ use crate::{
         LandlockRuleTypeFlags, SysArg, SysReturn, Syscall_Shape,
     },
     utilities::{
-        lose_relativity_on_path, static_handle_path_file, FOLLOW_FORKS, PAGES_COLOR, SYSANNOT_MAP,
-        SYSCALL_CATEGORIES, SYSKELETON_MAP,
+        lose_relativity_on_path, static_handle_path_file, FOLLOW_FORKS, PAGES_COLOR, REGISTERS, SYSANNOT_MAP, SYSCATEGORIES_MAP, SYSKELETON_MAP
     },
 };
 
@@ -62,7 +61,6 @@ pub struct SyscallObject_Annotations {
     pub sysno: Sysno,
     description: &'static str,
     pub category: Category,
-    pub args: Vec<u64>,
     pub args_types: Vec<SysArg>,
     rich_args: Vec<Annotation>,
     pub result: (Option<u64>, Annotation, SysReturn),
@@ -75,7 +73,6 @@ impl Default for SyscallObject_Annotations {
             sysno: unsafe { mem::zeroed() },
             description: "",
             category: unsafe { mem::zeroed() },
-            args: vec![],
             rich_args: vec![],
             args_types: vec![],
             result: unsafe { mem::zeroed() },
@@ -90,7 +87,6 @@ impl From<&mut SyscallObject> for SyscallObject_Annotations {
         SyscallObject {
             sysno,
             category,
-            args,
             skeleton,
             result,
             process_pid,
@@ -102,12 +98,11 @@ impl From<&mut SyscallObject> for SyscallObject_Annotations {
         if let Some(&(description, annotations_arg_containers, return_annotation)) =
             SYSANNOT_MAP.get(&sysno)
         {
-            let category = *SYSCALL_CATEGORIES.get(&sysno).unwrap();
+            let category = *SYSCATEGORIES_MAP.get(&sysno).unwrap();
             SyscallObject_Annotations {
                 sysno: *sysno,
                 description,
                 category,
-                args: args.clone(),
                 args_types: skeleton.clone(),
                 rich_args: annotations_arg_containers.into_iter().cloned().collect(),
                 result: (result.0, return_annotation, result.1),
@@ -123,7 +118,6 @@ impl From<&mut SyscallObject> for SyscallObject_Annotations {
                 result: (Some(0), ["", ""], SysReturn::Always_Succeeds),
                 process_pid: *process_pid,
                 errno: None,
-                args: args.clone(),
                 args_types: skeleton.clone(),
             }
         }
@@ -135,7 +129,7 @@ impl SyscallObject_Annotations {
         let mut output = vec![];
         output.push("\n".dimmed());
         let eph_return = self.parse_return_value(1);
-        if FOLLOW_FORKS.load(Ordering::SeqCst) {
+        if FOLLOW_FORKS.with(|ff| ff.load(Ordering::SeqCst)) {
             output.push(self.process_pid.to_string().bright_blue());
         } else {
             if eph_return.is_ok() {
@@ -152,7 +146,7 @@ impl SyscallObject_Annotations {
         output.push(self.description.dimmed());
         output.push("\n".bright_white());
         output.push("\t(\n".bright_white());
-        let len = self.args.len();
+        let len = self.rich_args.len();
         for index in 0..len {
             // self.args.get(index), self.rich_args[index]
             output.push("\t\t".dimmed());
@@ -176,40 +170,6 @@ impl SyscallObject_Annotations {
         println!("{}", string)
         // write!(f, "{}\n", string)?
 
-        //
-        //
-        //
-        //
-        //
-        // normal old one line
-        // let mut output = vec![];
-        // output.push(self.sysno.name().bright_green());
-        // output.push(" - ".dimmed());
-        // output.push(self.alt_name.dimmed());
-        // output.push(" (".bright_white());
-        // let len = self.args.len();
-        // for index in 0..len {
-        //     let parse_output = self.parse_arg_value(index, 0);
-        //     output.extend(parse_output);
-        //     output.push(", ".dimmed());
-        // }
-        // output.pop();
-        // output.push(") = ".bright_white());
-        // let (might_register, (annotation, sys_return)) = self.result;
-        // let parse_return_output = match might_register {
-        //     Some(register) => self.parse_return_value(0),
-        //     None => {
-        //         vec![]
-        //     }
-        // };
-        // output.extend(parse_return_output);
-        // let string = String::from_iter(output.into_iter().map(|x| x.to_string()));
-        // write!(f, "{}", string)
-        //
-        //
-        //
-        //
-        //
     }
 }
 
@@ -223,7 +183,7 @@ impl SyscallObject_Annotations {
                     types,
                     syscall_return,
                 } = SYSKELETON_MAP.get(&sysno).unwrap();
-                let category = *SYSCALL_CATEGORIES.get(&sysno).unwrap();
+                let category = *SYSCATEGORIES_MAP.get(&sysno).unwrap();
                 match annotations_arg_containers.len() {
                     0 => SyscallObject_Annotations {
                         sysno,
@@ -343,7 +303,7 @@ impl SyscallObject_Annotations {
     }
     pub(crate) fn parse_arg_value(&self, index: usize, which: usize) -> Vec<ColoredString> {
         let annotation = self.rich_args[index];
-        let register_value = self.args[index];
+        let register_value = REGISTERS.get()[index];
 
         let mut output: Vec<ColoredString> = Vec::new();
         use SysArg::*;
@@ -623,17 +583,17 @@ impl SyscallObject_Annotations {
         if fd < 0 {
             return None;
         } else if fd == 0 {
-            string.push("0 -> StdIn".custom_color(PAGES_COLOR.get()));
+            string.push("0 -> StdIn".custom_color(get_thread_local_color!(PAGES_COLOR)));
         } else if fd == 1 {
-            string.push("1 -> StdOut".custom_color(PAGES_COLOR.get()));
+            string.push("1 -> StdOut".custom_color(get_thread_local_color!(PAGES_COLOR)));
         } else if fd == 2 {
-            string.push("2 -> StdErr".custom_color(PAGES_COLOR.get()));
+            string.push("2 -> StdErr".custom_color(get_thread_local_color!(PAGES_COLOR)));
         } else {
             let file_info = procfs::process::FDInfo::from_raw_fd(child.into(), fd);
             match file_info {
                 Ok(file) => match file.target {
                     procfs::process::FDTarget::Path(path) => {
-                        string.push(format!("{} -> ", file.fd).custom_color(PAGES_COLOR.get()));
+                        string.push(format!("{} -> ", file.fd).custom_color(get_thread_local_color!(PAGES_COLOR)));
                         let mut formatted_path = vec![];
                         static_handle_path_file(
                             path.to_string_lossy().into_owned(),
@@ -660,7 +620,7 @@ impl SyscallObject_Annotations {
                                                 file.fd,
                                                 entry.remote_address.port()
                                             )
-                                            .custom_color(PAGES_COLOR.get()),
+                                            .custom_color(get_thread_local_color!(PAGES_COLOR)),
                                         );
                                     } else {
                                         string.push(
@@ -670,7 +630,7 @@ impl SyscallObject_Annotations {
                                                 entry.remote_address.ip(),
                                                 entry.remote_address.port()
                                             )
-                                            .custom_color(PAGES_COLOR.get()),
+                                            .custom_color(get_thread_local_color!(PAGES_COLOR)),
                                         );
                                     }
                                     break 'lookup;
@@ -686,7 +646,7 @@ impl SyscallObject_Annotations {
                                 if entry.inode == socket_number {
                                     string.push(
                                         format!("{} -> Unix Domain Socket", file.fd)
-                                            .custom_color(PAGES_COLOR.get()),
+                                            .custom_color(get_thread_local_color!(PAGES_COLOR)),
                                     );
                                     break 'lookup;
                                 }
@@ -699,7 +659,7 @@ impl SyscallObject_Annotations {
                     }
                     procfs::process::FDTarget::Pipe(pipe) => {
                         string.push(
-                            format!("{} -> Unix Pipe", file.fd).custom_color(PAGES_COLOR.get()),
+                            format!("{} -> Unix Pipe", file.fd).custom_color(get_thread_local_color!(PAGES_COLOR)),
                         );
                     }
                     procfs::process::FDTarget::AnonInode(anon_inode) => {
@@ -720,16 +680,16 @@ impl SyscallObject_Annotations {
                         // can still write to it, fstat() it, etc. but you can't find it in the filesystem.
                         string.push(
                             format!("{} -> Anonymous Inode", file.fd)
-                                .custom_color(PAGES_COLOR.get()),
+                                .custom_color(get_thread_local_color!(PAGES_COLOR)),
                         );
                     }
                     procfs::process::FDTarget::MemFD(mem_fd) => {
                         string
-                            .push(format!("{} -> MemFD", file.fd).custom_color(PAGES_COLOR.get()));
+                            .push(format!("{} -> MemFD", file.fd).custom_color(get_thread_local_color!(PAGES_COLOR)));
                     }
                     procfs::process::FDTarget::Other(first, second) => {
                         string
-                            .push(format!("{} -> Other", file.fd).custom_color(PAGES_COLOR.get()));
+                            .push(format!("{} -> Other", file.fd).custom_color(get_thread_local_color!(PAGES_COLOR)));
                     }
                 },
                 Err(_) => {}
