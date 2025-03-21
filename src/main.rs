@@ -47,7 +47,7 @@ use colored::{ColoredString, Colorize};
 use errno::Errno as LibErrno;
 use nix::{
     errno::Errno,
-    libc::{user_regs_struct, ESRCH},
+    libc::{sigaction, user_regs_struct, ESRCH},
     sys::{
         ptrace::{self},
         signal::{kill, Signal},

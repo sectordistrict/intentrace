@@ -63,6 +63,7 @@ pub enum Flag {
     LandlockRestrictFlag,
     ReservedForFutureUse,
     LandlockCreateFlag,
+    PtraceOperation
 }
 
 type FD = &'static str;
@@ -117,8 +118,10 @@ pub enum SysReturn {
     Priority_Or_Errno(Errored),
     File_Descriptor_Or_Errno(FD),
     Does_Not_Return_Anything,
+    Ptrace_Diverse_Or_Errno,
     Always_Successful_User_Group,
     Always_Succeeds,
+    Always_Errors,
     Never_Returns,
 }
 

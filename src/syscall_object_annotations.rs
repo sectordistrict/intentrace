@@ -6,7 +6,8 @@ use crate::{
         LandlockRuleTypeFlags, SysArg, SysReturn, Syscall_Shape,
     },
     utilities::{
-        lose_relativity_on_path, static_handle_path_file, FOLLOW_FORKS, PAGES_COLOR, REGISTERS, SYSANNOT_MAP, SYSCATEGORIES_MAP, SYSKELETON_MAP
+        lose_relativity_on_path, static_handle_path_file, FOLLOW_FORKS, PAGES_COLOR, REGISTERS,
+        SYSANNOT_MAP, SYSCATEGORIES_MAP, SYSKELETON_MAP,
     },
 };
 
@@ -169,7 +170,6 @@ impl SyscallObject_Annotations {
         let string = String::from_iter(output.into_iter().map(|x| x.to_string()));
         println!("{}", string)
         // write!(f, "{}\n", string)?
-
     }
 }
 
@@ -473,7 +473,6 @@ impl SyscallObject_Annotations {
                     format!("{signal}").yellow()
                 }
             }
-            // because -1 is a valid priority, we have to check
             Priority_Or_Errno(errored) => {
                 let priority = register_value as isize;
                 if unsafe { errored.assume_init() } {
@@ -486,7 +485,6 @@ impl SyscallObject_Annotations {
                     priority.to_string().yellow()
                 }
             }
-
             File_Descriptor_Or_Errno(fd) => {
                 output.push(annotation[which].dimmed());
                 output.push(": ".dimmed());
@@ -501,7 +499,6 @@ impl SyscallObject_Annotations {
                     format!("{fd}").yellow()
                 }
             }
-
             Length_Of_Bytes_Specific_Or_Errno => {
                 output.push(annotation[which].dimmed());
                 output.push(": ".dimmed());
@@ -569,6 +566,26 @@ impl SyscallObject_Annotations {
                 // println!("Does_Not_Return_Anything");
                 format!("").yellow()
             }
+            Always_Errors => {
+                return Err(self
+                    .errno
+                    .unwrap_or_else(|| Errno::UnknownErrno)
+                    .to_string()
+                    .red());
+            }
+            Ptrace_Diverse_Or_Errno => {
+                // a successful PTRACE_PEEK might return -1 so errno must be cleared before the call
+                let ptrace_return = register_value as i64;
+                if ptrace_return == -1 {
+                    return Err(self
+                        .errno
+                        .unwrap_or_else(|| Errno::UnknownErrno)
+                        .to_string()
+                        .red());
+                } else {
+                   format!("{ptrace_return}").yellow()
+                }
+            }
         };
         output.push(value);
         Ok(output)
@@ -593,7 +610,10 @@ impl SyscallObject_Annotations {
             match file_info {
                 Ok(file) => match file.target {
                     procfs::process::FDTarget::Path(path) => {
-                        string.push(format!("{} -> ", file.fd).custom_color(get_thread_local_color!(PAGES_COLOR)));
+                        string.push(
+                            format!("{} -> ", file.fd)
+                                .custom_color(get_thread_local_color!(PAGES_COLOR)),
+                        );
                         let mut formatted_path = vec![];
                         static_handle_path_file(
                             path.to_string_lossy().into_owned(),
@@ -659,7 +679,8 @@ impl SyscallObject_Annotations {
                     }
                     procfs::process::FDTarget::Pipe(pipe) => {
                         string.push(
-                            format!("{} -> Unix Pipe", file.fd).custom_color(get_thread_local_color!(PAGES_COLOR)),
+                            format!("{} -> Unix Pipe", file.fd)
+                                .custom_color(get_thread_local_color!(PAGES_COLOR)),
                         );
                     }
                     procfs::process::FDTarget::AnonInode(anon_inode) => {
@@ -684,12 +705,16 @@ impl SyscallObject_Annotations {
                         );
                     }
                     procfs::process::FDTarget::MemFD(mem_fd) => {
-                        string
-                            .push(format!("{} -> MemFD", file.fd).custom_color(get_thread_local_color!(PAGES_COLOR)));
+                        string.push(
+                            format!("{} -> MemFD", file.fd)
+                                .custom_color(get_thread_local_color!(PAGES_COLOR)),
+                        );
                     }
                     procfs::process::FDTarget::Other(first, second) => {
-                        string
-                            .push(format!("{} -> Other", file.fd).custom_color(get_thread_local_color!(PAGES_COLOR)));
+                        string.push(
+                            format!("{} -> Other", file.fd)
+                                .custom_color(get_thread_local_color!(PAGES_COLOR)),
+                        );
                     }
                 },
                 Err(_) => {}
@@ -1033,6 +1058,11 @@ impl SyscallObject_Annotations {
             }
             CloneFlags => {
                 let bitmap: clone3::Flags = unsafe { std::mem::transmute(register_value) };
+                format!("{:?}", bitmap)
+            }
+            PtraceOperation => {
+                let bitmap: nix::sys::ptrace::Request =
+                    unsafe { std::mem::transmute(register_value as i32) };
                 format!("{:?}", bitmap)
             }
         }

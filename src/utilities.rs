@@ -545,3 +545,7 @@ pub fn errno_to_string(errno: Errno) -> &'static str {
         _ => unreachable!(),
     }
 }
+
+pub fn parse_register_as_address(register: u64) -> String {
+    format!("{:p}", register as *const ())
+}

@@ -1335,14 +1335,18 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             },
         ),
         (
+            // change the action taken by a process on receipt of a specific signal
             Sysno::rt_sigaction,
             Syscall_Shape {
                 types: &[
                     // can be any valid signal except SIGKILL and SIGSTOP.
                     General_Flag(Signal),
+                    // new action
                     Pointer_To_Struct,
+                    // old action
                     // nullable meaning we dont want it
                     Pointer_To_Struct,
+                    // Size of sigset in new action
                     Length_Of_Bytes_Specific,
                 ],
                 syscall_return: Numeric_Or_Errno,
@@ -1423,8 +1427,9 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             },
         ),
         (
+            // send a signal and data (siginfo_t struct) to a thread group
+            // (an arbitrary thread will receive the signal)
             // requires registering a handler first via sigaction
-            // sends the data to an arbitrary thread with the thread group
             Sysno::rt_sigqueueinfo,
             Syscall_Shape {
                 types: &[PID, General_Flag(Signal), Pointer_To_Struct],
@@ -1432,8 +1437,8 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             },
         ),
         (
-            // require registering a handler first via sigaction
-            // sends the data to a specific thread withing the thread group
+            // send a signal and data (info struct) to a specific thread in a thread group
+            // requires registering a handler first via sigaction
             Sysno::rt_tgsigqueueinfo,
             Syscall_Shape {
                 types: &[PID, PID, General_Flag(Signal), Pointer_To_Struct],
@@ -1634,13 +1639,23 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             },
         ),
         (
-            // can be used to send a signal only to a process (i.e., thread group) as a whole,
-            // and the signal will be delivered to an arbitrary thread within that process.
-            // similar to rt_tgsigqueueinfo
+            // send a signal to a process
+            Sysno::kill,
+            Syscall_Shape {
+                types: &[
+                    // tgid specified as -1 makes the syscall equivalent to tkill()
+                    PID,
+                    Numeric,
+                ],
+                syscall_return: Numeric_Or_Errno,
+            },
+        ),
+        (
+            // send a signal to a specific thread in a specific thread group
             Sysno::tgkill,
             Syscall_Shape {
                 types: &[
-                    // If tgid is specified as -1, tgkill() is equivalent to tkill().
+                    // tgid specified as -1 makes the syscall equivalent to tkill()
                     PID,
                     PID,
                     General_Flag(Signal),
@@ -1649,11 +1664,49 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             },
         ),
         (
-            // similar to rt_sigqueueinfo
+            // a version of tgkill that doesnt specify the thread group
+            // in rare situations this results in the signal being sent to a wrong thread (true thread dies, and false thread recycles the same tid)
             Sysno::tkill,
             Syscall_Shape {
                 types: &[PID, General_Flag(Signal)],
                 syscall_return: Numeric_Or_Errno,
+            },
+        ),
+        (
+            // pause the process until its interrupted by a signal that either triggers a signal handler or triggers a process termination
+            Sysno::pause,
+            Syscall_Shape {
+                types: &[],
+                // returns if the signal triggers a handler and the handler returns, in this case: returns -1, and errno is set to EINTR
+                // does not return if the signal causes termination
+                syscall_return: Always_Errors,
+            },
+        ),
+        (
+            // pause the process until its interrupted by a signal that either triggers a signal handler or triggers a process termination
+            Sysno::ptrace,
+            Syscall_Shape {
+                types: &[
+                    // OP
+                    General_Flag(PtraceOperation),
+                    // PID
+                    PID,
+                    // ADDR
+                    Pointer_To_Struct,
+                    // DATA
+                    Pointer_To_Struct,
+                ],
+                // On success
+                // the PTRACE_PEEK* operations return the requested data (one word)
+                // the PTRACE_SECCOMP_GET_FILTER operation returns the number of instructions in the BPF program
+                // the PTRACE_GET_SYSCALL_INFO operation returns the number of bytes available to be written by the kernel
+                // and other operations return zero
+                //
+                //
+                // Since the value returned by a successful PTRACE_PEEK* operation may be -1
+                // the  caller  must  clear errno  before  the call
+                // and then check afterwards
+                syscall_return: Ptrace_Diverse_Or_Errno,
             },
         ),
         (
@@ -2042,9 +2095,6 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         //     Sysno::execveat,
         // ),
         // (
-        //     Sysno::kill,
-        // ),
-        // (
         //     Sysno::shmget,
         // ),
         // (
@@ -2052,9 +2102,6 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         // ),
         // (
         //     Sysno::shmctl,
-        // ),
-        // (
-        //     Sysno::pause,
         // ),
         // (
         //     Sysno::getitimer,

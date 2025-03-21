@@ -226,9 +226,11 @@ impl SyscallObject {
                 File_Descriptor(ref mut file_descriptor) => {
                     let fd = REGISTERS.get()[index] as i32;
 
-                    let styled_fd =
-                        SyscallObject::style_file_descriptor(REGISTERS.get()[index], self.process_pid)
-                            .unwrap_or(format!("ignored"));
+                    let styled_fd = SyscallObject::style_file_descriptor(
+                        REGISTERS.get()[index],
+                        self.process_pid,
+                    )
+                    .unwrap_or(format!("ignored"));
                     *file_descriptor = styled_fd.leak();
                 }
                 File_Descriptor_openat(ref mut file_descriptor) => {
@@ -237,8 +239,11 @@ impl SyscallObject {
                     styled_fd = if fd == AT_FDCWD {
                         format!("{}", "AT_FDCWD -> Current Working Directory".bright_blue())
                     } else {
-                        SyscallObject::style_file_descriptor(REGISTERS.get()[index], self.process_pid)
-                            .unwrap_or(format!("ignored"))
+                        SyscallObject::style_file_descriptor(
+                            REGISTERS.get()[index],
+                            self.process_pid,
+                        )
+                        .unwrap_or(format!("ignored"))
                     };
                     *file_descriptor = styled_fd.leak();
                 }
@@ -263,8 +268,10 @@ impl SyscallObject {
                             continue;
                         }
                     }
-                    let styled_fd =
-                        SyscallObject::string_from_pointer(REGISTERS.get()[index], self.process_pid);
+                    let styled_fd = SyscallObject::string_from_pointer(
+                        REGISTERS.get()[index],
+                        self.process_pid,
+                    );
                     *text = styled_fd.leak();
                 }
                 Array_Of_Strings(ref mut text) => {
@@ -272,8 +279,10 @@ impl SyscallObject {
                     if self.sysno == Sysno::execve {
                         continue;
                     }
-                    let array_of_texts =
-                        SyscallObject::string_from_array_of_strings(REGISTERS.get()[index], self.process_pid);
+                    let array_of_texts = SyscallObject::string_from_array_of_strings(
+                        REGISTERS.get()[index],
+                        self.process_pid,
+                    );
                     let mut svec: Vec<&'static str> = vec![];
                     for text in array_of_texts {
                         svec.push(text.leak());
@@ -297,8 +306,10 @@ impl SyscallObject {
                 Pointer_To_File_Descriptor_Array(
                     [ref mut file_descriptor1, ref mut file_descriptor2],
                 ) => {
-                    match SyscallObject::read_two_word(REGISTERS.get()[index] as usize, self.process_pid)
-                    {
+                    match SyscallObject::read_two_word(
+                        REGISTERS.get()[index] as usize,
+                        self.process_pid,
+                    ) {
                         Some([ref mut fd1, ref mut fd2]) => {
                             let styled_fd1 =
                                 SyscallObject::style_file_descriptor(*fd1 as u64, self.process_pid)
@@ -316,7 +327,10 @@ impl SyscallObject {
                     }
                 }
                 Pointer_To_Numeric(ref mut pid) => {
-                    match SyscallObject::read_word(REGISTERS.get()[index] as usize, self.process_pid) {
+                    match SyscallObject::read_word(
+                        REGISTERS.get()[index] as usize,
+                        self.process_pid,
+                    ) {
                         Some(pid_at_word) => {
                             if self.sysno == Sysno::wait4 {
                                 self.skeleton[1] = Pointer_To_Numeric(Some(pid_at_word))
@@ -347,8 +361,10 @@ impl SyscallObject {
                         || (operation & ARCH_GET_FS) == ARCH_GET_FS
                         || (operation & ARCH_GET_GS) == ARCH_GET_GS
                     {
-                        match SyscallObject::read_word(REGISTERS.get()[index] as usize, self.process_pid)
-                        {
+                        match SyscallObject::read_word(
+                            REGISTERS.get()[index] as usize,
+                            self.process_pid,
+                        ) {
                             Some(pid_at_word) => {
                                 if self.sysno == Sysno::wait4 {
                                     self.skeleton[1] =
@@ -469,7 +485,6 @@ impl SyscallObject {
             // Signed_Length_Of_Bytes_Specific => {
             //     SyscallObject::style_bytes_signed(register_value)
             // }
-
             Pointer_To_Struct => "0x.. -> {..}".to_owned(),
             Array_Of_Struct => "[ {..}, {..} , {..} ]".to_owned(),
             Array_Of_Strings(array) => {
@@ -570,7 +585,6 @@ impl SyscallObject {
                     Ok(format!("{fd}"))
                 }
             }
-            // because -1 is a valid priority, we have to check
             Priority_Or_Errno(errored) => {
                 let priority = register_value as isize;
                 if unsafe { errored.assume_init() } {
@@ -616,6 +630,15 @@ impl SyscallObject {
                     Ok(format!("{current_working_dir}",))
                 }
             }
+            Ptrace_Diverse_Or_Errno => {
+                // a successful PTRACE_PEEK might return -1 so errno must be cleared before the call
+                let ptrace_return = register_value as i64;
+                if ptrace_return == -1 {
+                    Err(())
+                } else {
+                    Ok(format!("{ptrace_return}"))
+                }
+            }
             Always_Successful_User_Group => {
                 let result = register_value as isize;
                 Ok(format!("{result}"))
@@ -628,6 +651,7 @@ impl SyscallObject {
                 // println!("Does_Not_Return_Anything");
                 Ok(format!(""))
             }
+            Always_Errors => Err(()),
         }
     }
     fn style_file_descriptor(register_value: u64, child: Pid) -> Option<String> {
@@ -1085,7 +1109,6 @@ impl SyscallObject {
                 let bitmap: epollctlflags = unsafe { std::mem::transmute(register_value as u32) };
                 format!("{:?}", bitmap)
             }
-
             SocketFamily => {
                 let bitmap: nix::sys::socket::AddressFamily =
                     unsafe { std::mem::transmute(register_value as u32) };
@@ -1287,6 +1310,11 @@ impl SyscallObject {
             }
             CloneFlags => {
                 let bitmap: clone3::Flags = unsafe { std::mem::transmute(register_value) };
+                format!("{:?}", bitmap)
+            }
+            PtraceOperation => {
+                let bitmap: nix::sys::ptrace::Request =
+                    unsafe { std::mem::transmute(register_value as i32) };
                 format!("{:?}", bitmap)
             }
         }
