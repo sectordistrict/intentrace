@@ -573,19 +573,26 @@ impl SyscallObject {
             }
             Sysno::statx => {
                 let dirfd = REGISTERS.get()[0] as i32;
-                let pathname: String = self.displayable_ol(1);
+                let pathname = self.displayable_ol(1);
                 // let flags: rustix::fs::AtFlags = unsafe { std::mem::transmute(REGISTERS.get()[2] as i32) };
                 let flags_num = REGISTERS.get()[2] as i32;
                 match self.state {
                     Entering => {
                         self.general_text("get the stats of the file: ");
-
-                        // statx logic for when the pathname is empty
-                        if pathname.is_empty() && (flags_num & AT_EMPTY_PATH) > 0 {
-                            // if pathname is empty and AT_EMPTY_PATH is given, dirfd is used
-                            self.possible_dirfd_file(dirfd, pathname);
-                        } else {
+                        if pathname.starts_with('/') {
+                            // absolute pathname
+                            // dirfd is ignored
                             self.write_path_file(pathname);
+                        } else {
+                            if pathname.is_empty() && (flags_num & AT_EMPTY_PATH) > 0 {
+                                // the pathname is empty
+                                let dirfd_parsed = self.displayable_ol(0);
+                                // if pathname is empty and AT_EMPTY_PATH is given, dirfd is used
+                                self.write_path_file(dirfd_parsed);
+                            } else {
+                                // A relative pathname, dirfd = CWD, or a normal directory
+                                self.possible_dirfd_file(dirfd, pathname);
+                            }
                         }
                         let mut flag_directive = vec![];
                         if (flags_num & AT_NO_AUTOMOUNT) > 0 {
