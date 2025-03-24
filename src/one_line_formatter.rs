@@ -3406,13 +3406,19 @@ impl SyscallObject {
                         }
 
                         if timeout > 0 {
-                            let timespec = SyscallObject::read_bytes_as_struct::<16, timespec>(
-                                REGISTERS.get()[2] as usize,
-                                self.process_pid as _,
-                            )
-                            .unwrap();
                             self.general_text(", and timeout ");
-                            self.format_timespec(timespec.tv_sec, timespec.tv_nsec);
+                            if let Some(timespec) =
+                                SyscallObject::read_bytes_as_struct::<16, timespec>(
+                                    REGISTERS.get()[2] as usize,
+                                    self.process_pid as _,
+                                )
+                            {
+                                self.format_timespec(timespec.tv_sec, timespec.tv_nsec);
+                            } else {
+                                self.write_text(
+                                    "[intentrace: could not get timeout]".blink().bright_black(),
+                                );
+                            }
                         } else {
                             self.general_text(", and ");
                             self.write_text(
