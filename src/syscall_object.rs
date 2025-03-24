@@ -962,10 +962,17 @@ impl SyscallObject {
         Some(data)
     }
     pub(crate) fn read_bytes_as_struct<const N: usize, T>(addr: usize, child: Pid) -> Option<T> {
-        match SyscallObject::read_bytes::<N>(addr, child) {
-            Some(bytes) => Some(unsafe { std::mem::transmute_copy(&bytes) }),
-            None => None,
+        match SyscallObject::read_bytes_specific_length(addr, child, N) {
+            Some(vec) => {
+                let arr: [u8; N] = vec.try_into().unwrap();
+                Some(unsafe { std::mem::transmute_copy(&arr) })
+            }
+            None => todo!(),
         }
+        // match SyscallObject::read_bytes::<N>(addr, child) {
+        //     Some(bytes) => Some(unsafe { std::mem::transmute_copy(&bytes) }),
+        //     None => None,
+        // }
     }
     pub(crate) fn write_bytes<const N: usize>(
         addr: usize,
