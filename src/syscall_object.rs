@@ -967,7 +967,7 @@ impl SyscallObject {
                 let arr: [u8; N] = vec.try_into().unwrap();
                 Some(unsafe { std::mem::transmute_copy(&arr) })
             }
-            None => todo!(),
+            None => None,
         }
         // match SyscallObject::read_bytes::<N>(addr, child) {
         //     Some(bytes) => Some(unsafe { std::mem::transmute_copy(&bytes) }),
