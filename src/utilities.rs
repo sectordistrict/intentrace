@@ -33,20 +33,15 @@ use crate::{
 // TODO! Time blocks feature
 // pub static TIME_BLOCKS: Cell<bool> = Cell::new(false);
 
-pub static INTENTRACE_ARGS: LazyLock<IntentraceArgs> = LazyLock::new(|| IntentraceArgs::parse());
+pub static INTENTRACE_ARGS: LazyLock<IntentraceArgs> = LazyLock::new(|| argh::from_env());
 pub static FOLLOW_FORKS: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.follow_forks);
 pub static STRING_LIMIT: AtomicUsize = AtomicUsize::new(36);
 pub static FAILED_ONLY: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.failed_only);
 pub static QUIET: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.mute_stdout);
 pub static ANNOT: AtomicBool = AtomicBool::new(false);
 pub static ATTACH_PID: LazyLock<Option<usize>> = LazyLock::new(|| INTENTRACE_ARGS.pid);
-pub static BINARY_AND_ARGS: LazyLock<&'static [String]> = LazyLock::new(|| {
-    if let Some(Binary::Command(binary_and_args)) = INTENTRACE_ARGS.binary.as_ref() {
-        binary_and_args
-    } else {
-        &[]
-    }
-});
+pub static BINARY_AND_ARGS: LazyLock<&'static [String]> =
+    LazyLock::new(|| INTENTRACE_ARGS.binary.as_ref());
 
 // COLORS
 //
@@ -95,48 +90,31 @@ pub static SYSKELETON_MAP: LazyLock<HashMap<Sysno, Syscall_Shape>> =
 pub static SYSCATEGORIES_MAP: LazyLock<HashMap<Sysno, Category>> =
     LazyLock::new(|| initialize_categories_map());
 
-use clap::{Parser, Subcommand};
-
-#[derive(Parser)]
-#[command(
-    about = "intentrace is a strace for everyone.",
-    version,
-    allow_external_subcommands = true
-)]
+#[derive(argh::FromArgs)]
+/// intentrace is a strace for everyone
 pub struct IntentraceArgs {
-    /// provide a summary table at the end of tracing
-    #[arg(short = 'c', long)]
+    #[argh(switch, short = 'c', long = "summary")]
+    /// provide a summary table at the end of tracing, default [false]
     pub summary: bool,
-
-    /// attach to an already running proceess
-    #[arg(short = 'p', long = "attach")]
+    #[argh(option, short = 'p', long = "attach")]
+    /// attach to an already running proceess, default [false]
     pub pid: Option<usize>,
 
-    /// trace child processes when traced programs create them
-    #[arg(
-        short = 'f',
-        long = "follow-forks",
-        conflicts_with = "pid",
-        conflicts_with = "failed_only"
-    )]
+    #[argh(switch, short = 'f', long = "follow-forks")]
+    /// trace child processes when traced programs create them, default [false]
     pub follow_forks: bool,
 
-    /// only print failed syscalls
-    #[arg(short = 'z', long = "failed-only")]
+    #[argh(switch, short = 'z', long = "failed-only")]
+    /// only print failed syscalls, default [false]
     pub failed_only: bool,
 
-    /// mute the traced program's std output
-    #[arg(short = 'q', long = "mute-stdout")]
+    #[argh(switch, short = 'q', long = "mute-stdout")]
+    /// mute the traced program's std output, default [false]
     pub mute_stdout: bool,
 
-    #[command(subcommand)]
-    pub binary: Option<Binary>,
-}
-
-#[derive(Subcommand, Debug, PartialEq)]
-pub enum Binary {
-    #[command(external_subcommand)]
-    Command(Vec<String>),
+    #[argh(positional, greedy)]
+    /// binary to trace and its arguments, example 'ls -l'
+    pub binary: Vec<String>,
 }
 
 fn color((l_r, l_g, l_b): (u8, u8, u8), (d_r, d_g, d_b): (u8, u8, u8)) -> CustomColor {

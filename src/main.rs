@@ -45,7 +45,6 @@ use std::{
 };
 
 use ::errno::{errno, set_errno};
-use clap::Parser;
 use colored::{ColoredString, Colorize};
 use errno::Errno as LibErrno;
 use nix::{
@@ -79,7 +78,6 @@ mod one_line_formatter;
 mod utilities;
 
 fn main() {
-    let args = IntentraceArgs::parse();
     ctrlc::set_handler(|| {
         flush_buffer();
         HALT_TRACING.store(true, Ordering::SeqCst);
