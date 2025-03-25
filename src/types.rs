@@ -249,19 +249,19 @@ impl Display for BytesPagesRelevant {
             PagesCeil(bytes) => match *bytes {
                 norm(bytes) => {
                     let pages = format!("{} Pages", f64::ceil(bytes as f64 / *PAGE_SIZE as f64))
-                        .custom_color(*(PAGES_COLOR));
+                        .custom_color(*PAGES_COLOR);
                     write!(f, "{:.1} Bytes ({})", bytes, pages)
                 }
                 kilo(bytes) => {
                     let pages =
                         format!("{} Pages", f64::ceil((bytes * 1024.0) / *PAGE_SIZE as f64))
-                            .custom_color(*(PAGES_COLOR));
+                            .custom_color(*PAGES_COLOR);
                     write!(f, "{:.1} KiB ({})", bytes, pages)
                 }
                 mega(bytes) => {
                     let pages =
                         format!("{} Pages", f64::ceil((bytes * 1_048_576.0) / *PAGE_SIZE as f64))
-                            .custom_color(*(PAGES_COLOR));
+                            .custom_color(*PAGES_COLOR);
                     write!(f, "{:.1} MiB ({})", bytes, pages)
                 }
                 giga(bytes) => {
@@ -269,28 +269,28 @@ impl Display for BytesPagesRelevant {
                         "{} Pages",
                         f64::ceil((bytes * 1_073_741_824.0) / *PAGE_SIZE as f64)
                     )
-                    .custom_color(*(PAGES_COLOR));
+                    .custom_color(*PAGES_COLOR);
                     write!(f, "{:.1} GiB ({})", bytes, pages)
                 }
             },
             PagesFloor(bytes) => match *bytes {
                 norm(bytes) => {
                     let pages = format!("{} Pages", f64::floor(bytes as f64 / *PAGE_SIZE as f64))
-                        .custom_color(*(PAGES_COLOR));
+                        .custom_color(*PAGES_COLOR);
 
                     write!(f, "{:.1} Bytes ({})", bytes, pages)
                 }
                 kilo(bytes) => {
                     let pages =
                         format!("{} Pages", f64::floor((bytes * 1024.0) / *PAGE_SIZE as f64))
-                            .custom_color(*(PAGES_COLOR));
+                            .custom_color(*PAGES_COLOR);
 
                     write!(f, "{:.1} KiB ({})", bytes, pages)
                 }
                 mega(bytes) => {
                     let pages =
                         format!("{} Pages", f64::floor((bytes * 1_048_576.0) / *PAGE_SIZE as f64))
-                            .custom_color(*(PAGES_COLOR));
+                            .custom_color(*PAGES_COLOR);
 
                     write!(f, "{:.1} MiB ({})", bytes, pages)
                 }
@@ -299,7 +299,7 @@ impl Display for BytesPagesRelevant {
                         "{} Pages",
                         f64::floor((bytes * 1_073_741_824.0) / *PAGE_SIZE as f64)
                     )
-                    .custom_color(*(PAGES_COLOR));
+                    .custom_color(*PAGES_COLOR);
 
                     write!(f, "{:.1} GiB ({})", bytes, pages)
                 }

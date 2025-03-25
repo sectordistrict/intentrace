@@ -1114,7 +1114,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         //             General_Flag(SocketType),
         //             General_Flag(SocketProtocol),
         //             // (ValueReturn(Pointer_To_File_Descriptor_Array(["", ""],syscall_return:
-        // Pointer_To_File_Descriptor_Array(["", ""]))             
+        // Pointer_To_File_Descriptor_Array(["", ""]))
         // Pointer_To_File_Descriptor_Array(["", ""]),         ],
         //         // on error sv is left unchanged
         //         syscall_return: Numeric_Or_Errno,
