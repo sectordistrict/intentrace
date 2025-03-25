@@ -222,28 +222,26 @@ impl SyscallObject {
         //
         for index in 0..self.skeleton.len() {
             use SysArg::*;
+
+            let register = *REGISTERS.lock().unwrap();
+
             match self.skeleton[index] {
                 File_Descriptor(ref mut file_descriptor) => {
-                    let fd = REGISTERS.get()[index] as i32;
+                    let fd = register[index] as i32;
 
-                    let styled_fd = SyscallObject::style_file_descriptor(
-                        REGISTERS.get()[index],
-                        self.process_pid,
-                    )
-                    .unwrap_or(format!("ignored"));
+                    let styled_fd =
+                        SyscallObject::style_file_descriptor(register[index], self.process_pid)
+                            .unwrap_or(format!("ignored"));
                     *file_descriptor = styled_fd.leak();
                 }
                 File_Descriptor_openat(ref mut file_descriptor) => {
                     let mut styled_fd = String::new();
-                    let fd = REGISTERS.get()[index] as i32;
+                    let fd = register[index] as i32;
                     styled_fd = if fd == AT_FDCWD {
                         format!("{}", "AT_FDCWD -> Current Working Directory".bright_blue())
                     } else {
-                        SyscallObject::style_file_descriptor(
-                            REGISTERS.get()[index],
-                            self.process_pid,
-                        )
-                        .unwrap_or(format!("ignored"))
+                        SyscallObject::style_file_descriptor(register[index], self.process_pid)
+                            .unwrap_or(format!("ignored"))
                     };
                     *file_descriptor = styled_fd.leak();
                 }
@@ -254,11 +252,11 @@ impl SyscallObject {
                         continue;
                     }
                     if self.sysno == Sysno::write || self.sysno == Sysno::pwrite64 {
-                        if REGISTERS.get()[2] < 20 {
+                        if register[2] < 20 {
                             match SyscallObject::read_string_specific_length(
-                                REGISTERS.get()[1] as usize,
+                                register[1] as usize,
                                 self.process_pid,
-                                REGISTERS.get()[2] as usize,
+                                register[2] as usize,
                             ) {
                                 Some(styled_fd) => {
                                     *text = styled_fd.leak();
@@ -268,10 +266,8 @@ impl SyscallObject {
                             continue;
                         }
                     }
-                    let styled_fd = SyscallObject::string_from_pointer(
-                        REGISTERS.get()[index],
-                        self.process_pid,
-                    );
+                    let styled_fd =
+                        SyscallObject::string_from_pointer(register[index], self.process_pid);
                     *text = styled_fd.leak();
                 }
                 Array_Of_Strings(ref mut text) => {
@@ -280,7 +276,7 @@ impl SyscallObject {
                         continue;
                     }
                     let array_of_texts = SyscallObject::string_from_array_of_strings(
-                        REGISTERS.get()[index],
+                        register[index],
                         self.process_pid,
                     );
                     let mut svec: Vec<&'static str> = vec![];
@@ -300,6 +296,7 @@ impl SyscallObject {
         //
         //
         let len = self.skeleton.len();
+        let register = *REGISTERS.lock().unwrap();
         for index in 0..len {
             use SysArg::*;
             match self.skeleton[index] {
@@ -307,7 +304,7 @@ impl SyscallObject {
                     [ref mut file_descriptor1, ref mut file_descriptor2],
                 ) => {
                     match SyscallObject::read_two_word(
-                        REGISTERS.get()[index] as usize,
+                        REGISTERS.lock().unwrap()[index] as usize,
                         self.process_pid,
                     ) {
                         Some([ref mut fd1, ref mut fd2]) => {
@@ -328,7 +325,7 @@ impl SyscallObject {
                 }
                 Pointer_To_Numeric(ref mut pid) => {
                     match SyscallObject::read_word(
-                        REGISTERS.get()[index] as usize,
+                        REGISTERS.lock().unwrap()[index] as usize,
                         self.process_pid,
                     ) {
                         Some(pid_at_word) => {
@@ -344,8 +341,8 @@ impl SyscallObject {
                 }
                 Pointer_To_Numeric_Or_Numeric(ref mut pid) => {
                     // this is only available for arch_prctl
-                    let operation = REGISTERS.get()[0];
-                    let addr = REGISTERS.get()[0];
+                    let operation = register[0];
+                    let addr = register[0];
                     // workaround values for now
                     let ARCH_SET_GS = 0x1001;
                     let ARCH_SET_FS = 0x1002;
@@ -361,10 +358,7 @@ impl SyscallObject {
                         || (operation & ARCH_GET_FS) == ARCH_GET_FS
                         || (operation & ARCH_GET_GS) == ARCH_GET_GS
                     {
-                        match SyscallObject::read_word(
-                            REGISTERS.get()[index] as usize,
-                            self.process_pid,
-                        ) {
+                        match SyscallObject::read_word(register[index] as usize, self.process_pid) {
                             Some(pid_at_word) => {
                                 if self.sysno == Sysno::wait4 {
                                     self.skeleton[1] =
@@ -392,7 +386,7 @@ impl SyscallObject {
                             } else {
                                 if self.sysno == Sysno::readlink && index == 1 {
                                     match SyscallObject::read_string_specific_length(
-                                        REGISTERS.get()[index] as usize,
+                                        register[index] as usize,
                                         self.process_pid,
                                         size as usize,
                                     ) {
@@ -402,7 +396,7 @@ impl SyscallObject {
                                     }
                                 } else if self.sysno == Sysno::readlinkat && index == 2 {
                                     match SyscallObject::read_string_specific_length(
-                                        REGISTERS.get()[index] as usize,
+                                        register[index] as usize,
                                         self.process_pid,
                                         size as usize,
                                     ) {
@@ -433,8 +427,10 @@ impl SyscallObject {
             }
 
             Address_Or_Errno_getcwd(data) => {
-                let styled_string =
-                    SyscallObject::string_from_pointer(REGISTERS.get()[0], self.process_pid);
+                let styled_string = SyscallObject::string_from_pointer(
+                    REGISTERS.lock().unwrap()[0],
+                    self.process_pid,
+                );
                 *data = styled_string.leak();
             }
             Priority_Or_Errno(errored) => {
@@ -444,7 +440,7 @@ impl SyscallObject {
                 // and if its -1, then the syscall errored
                 //
                 // check if process has errored
-                let pointer = REGISTERS.get()[0];
+                let pointer = REGISTERS.lock().unwrap()[0];
                 if errno::errno().0 == -1 {
                     unsafe { errored.as_mut_ptr().write(true) };
                 } else {
@@ -456,7 +452,7 @@ impl SyscallObject {
     }
     // previously `parse_arg_value_for_one_line`
     pub(crate) fn displayable_ol(&self, index: usize) -> String {
-        let register_value = REGISTERS.get()[index];
+        let register_value = REGISTERS.lock().unwrap()[index];
         use SysArg::*;
         match self.skeleton[index] {
             // NUMERICS
