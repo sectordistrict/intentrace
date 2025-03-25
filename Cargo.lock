@@ -527,7 +527,6 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "memoffset 0.9.1",
- "pin-utils",
 ]
 
 [[package]]
