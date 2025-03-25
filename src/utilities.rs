@@ -72,7 +72,7 @@ pub static STOPPED_COLOR: LazyLock<CustomColor> =
     LazyLock::new(|| color((82, 138, 174), (47, 86, 54)));
 
 //
-pub static PAGE_SIZE: LazyLock<usize> = LazyLock::new(page_size::get);
+pub static PAGE_SIZE: LazyLock<usize> = LazyLock::new(rustix::param::page_size);
 pub static PRE_CALL_PROGRAM_BREAK_POINT: AtomicUsize = AtomicUsize::new(0);
 pub static REGISTERS: Mutex<[u64; 6]> = Mutex::new([0; 6]);
 
