@@ -24,7 +24,7 @@ pete = { version = "0.12.0" }
 procfs = "0.16.0"
 rustix = { version = "0.38.35", features = ["mm", "net", "rand"] }
 syscalls = "0.6.18"
-tabled = "0.16.0"
+tabled = "0.18.0"
 termbg = "0.6.1"
 uzers = "0.12.1"
 
