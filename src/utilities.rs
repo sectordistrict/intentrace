@@ -1,62 +1,72 @@
+use core::sync::atomic::AtomicUsize;
+use std::{
+    borrow::BorrowMut,
+    cell::{Cell, LazyCell, OnceCell, RefCell},
+    collections::HashMap,
+    io::{BufWriter, Stdout, Write, stdout},
+    mem::MaybeUninit,
+    sync::{
+        Arc, LazyLock, Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
+
+use colored::{ColoredString, Colorize, CustomColor};
+use nix::{errno::Errno, libc::__errno_location, unistd::Pid};
+use procfs::process::{MMapPath, MemoryMap};
+use syscalls::Sysno;
+
 use crate::{
     syscall_annotations_map::initialize_annotations_map,
     syscall_categories::initialize_categories_map,
     syscall_skeleton_map::initialize_skeletons_map,
     types::{Category, SysAnnotations, Syscall_Shape},
 };
-use colored::{ColoredString, Colorize, CustomColor};
-use nix::{errno::Errno, libc::__errno_location, unistd::Pid};
-use procfs::process::{MMapPath, MemoryMap};
-use std::{
-    borrow::BorrowMut,
-    cell::{Cell, LazyCell, OnceCell, RefCell},
-    collections::HashMap,
-    io::{stdout, BufWriter, Stdout, Write},
-    mem::MaybeUninit,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, LazyLock, Mutex, OnceLock,
-    },
-    time::Duration,
-};
-use syscalls::Sysno;
 
-pub static mut UNSUPPORTED: Vec<&'static str> = Vec::new();
+// pub static mut UNSUPPORTED: Vec<&'static str> = Vec::new();
 
-thread_local! {
-    // CLI_ARGS
-    //
-    //
-    //
-    // TODO! Time blocks feature
-    // pub static TIME_BLOCKS: Cell<bool> = Cell::new(false);
-    pub static FOLLOW_FORKS: AtomicBool = AtomicBool::new(false);
-    pub static STRING_LIMIT: Cell<usize> = Cell::new(36);
-    pub static FAILED_ONLY: Cell<bool> = Cell::new(false);
-    pub static QUIET: Cell<bool> = Cell::new(false);
-    pub static ANNOT: Cell<bool> = Cell::new(false);
-    pub static ATTACH_PID: Cell<Option<usize>> = Cell::new(None);
+// CLI_ARGS
+//
+//
+//
+// TODO! Time blocks feature
+// pub static TIME_BLOCKS: Cell<bool> = Cell::new(false);
+pub static FOLLOW_FORKS: AtomicBool = AtomicBool::new(false);
+pub static STRING_LIMIT: AtomicUsize = AtomicUsize::new(36);
+pub static FAILED_ONLY: AtomicBool = AtomicBool::new(false);
+pub static QUIET: AtomicBool = AtomicBool::new(false);
+pub static ANNOT: AtomicBool = AtomicBool::new(false);
+pub static ATTACH_PID: Mutex<Option<usize>> = Mutex::new(None);
 
-    // COLORS
-    //
-    //
-    pub static  PAGES_COLOR: OnceCell<CustomColor> = OnceCell::new();
-    pub static  GENERAL_TEXT_COLOR: OnceCell<CustomColor> = OnceCell::new();
-    pub static  PID_BACKGROUND_COLOR: OnceCell<CustomColor> = OnceCell::new();
-    pub static  PID_NUMBER_COLOR: OnceCell<CustomColor> = OnceCell::new();
-    pub static  EXITED_BACKGROUND_COLOR: OnceCell<CustomColor> = OnceCell::new();
-    pub static  OUR_YELLOW: OnceCell<CustomColor> = OnceCell::new();
-    pub static  CONTINUED_COLOR: OnceCell<CustomColor> = OnceCell::new();
-    pub static  STOPPED_COLOR: OnceCell<CustomColor> = OnceCell::new();
+// COLORS
+//
+//
+pub static TERMINAL_THEME: LazyLock<termbg::Theme> = LazyLock::new(|| {
+    termbg::theme(std::time::Duration::from_millis(10)).unwrap_or(termbg::Theme::Dark)
+});
+pub static PAGES_COLOR: LazyLock<CustomColor> =
+    LazyLock::new(|| color((0, 169, 233), (0, 169, 223)));
+pub static GENERAL_TEXT_COLOR: LazyLock<CustomColor> =
+    LazyLock::new(|| color((64, 64, 64), (160, 160, 160)));
+pub static PID_BACKGROUND_COLOR: LazyLock<CustomColor> =
+    LazyLock::new(|| color((146, 146, 168), (0, 0, 0)));
+pub static PID_NUMBER_COLOR: LazyLock<CustomColor> =
+    LazyLock::new(|| color((0, 0, 140), (0, 173, 216)));
+pub static EXITED_BACKGROUND_COLOR: LazyLock<CustomColor> =
+    LazyLock::new(|| color((250, 160, 160), (100, 0, 0)));
+pub static OUR_YELLOW: LazyLock<CustomColor> =
+    LazyLock::new(|| color((112, 127, 35), (187, 142, 35)));
+pub static CONTINUED_COLOR: LazyLock<CustomColor> =
+    LazyLock::new(|| color((188, 210, 230), (17, 38, 21)));
+pub static STOPPED_COLOR: LazyLock<CustomColor> =
+    LazyLock::new(|| color((82, 138, 174), (47, 86, 54)));
 
+//
+pub static PAGE_SIZE: LazyLock<usize> = LazyLock::new(page_size::get);
+pub static PRE_CALL_PROGRAM_BREAK_POINT: AtomicUsize = AtomicUsize::new(0);
+pub static REGISTERS: Mutex<[u64; 6]> = Mutex::new([0; 6]);
 
-    //
-    //
-    //
-    pub static PAGE_SIZE: usize = page_size::get();
-    pub static PRE_CALL_PROGRAM_BREAK_POINT: Cell<usize> = Cell::new(0);
-    pub static REGISTERS: Cell<[u64;6]> = Cell::new([0;6]);
-}
 pub static SUMMARY: AtomicBool = AtomicBool::new(false);
 pub static HALT_TRACING: AtomicBool = AtomicBool::new(false);
 
@@ -81,22 +91,18 @@ pub fn setup(args: IntentraceArgs) -> Vec<String> {
         SUMMARY.store(true, Ordering::SeqCst);
     }
     if args.follow_forks {
-        FOLLOW_FORKS.with(|ff| ff.store(true, Ordering::SeqCst));
+        FOLLOW_FORKS.store(true, Ordering::SeqCst);
     }
     if args.mute_stdout {
-        QUIET.set(true);
+        QUIET.store(true, Ordering::SeqCst);
     }
     if args.pid.is_some() {
-        ATTACH_PID.set(args.pid);
+        *ATTACH_PID.lock().unwrap() = args.pid;
     }
     if args.failed_only {
-        FAILED_ONLY.set(true);
+        FAILED_ONLY.store(true, Ordering::SeqCst);
     }
-    if let Some(Binary::Command(binary_and_args)) = args.binary {
-        binary_and_args
-    } else {
-        vec![]
-    }
+    if let Some(Binary::Command(binary_and_args)) = args.binary { binary_and_args } else { vec![] }
 }
 
 use clap::{Parser, Subcommand};
@@ -143,136 +149,22 @@ pub enum Binary {
     Command(Vec<String>),
 }
 
-pub fn terminal_setup() {
-    if let Ok(theme) = termbg::theme(std::time::Duration::from_millis(10)) {
-        match theme {
-            termbg::Theme::Light => {
-                GENERAL_TEXT_COLOR.with(|color| {
-                    let _ = color.set(CustomColor {
-                        r: 64,
-                        g: 64,
-                        b: 64,
-                    });
-                });
-                PAGES_COLOR.with(|color| {
-                    let _ = color.set(CustomColor {
-                        r: 0,
-                        g: 169,
-                        b: 223,
-                    });
-                });
-
-                PID_BACKGROUND_COLOR.with(|color| {
-                    let _ = color.set(CustomColor {
-                        r: 146,
-                        g: 146,
-                        b: 168,
-                    });
-                });
-                PID_NUMBER_COLOR.with(|color| {
-                    let _ = color.set(CustomColor { r: 0, g: 0, b: 140 });
-                });
-                EXITED_BACKGROUND_COLOR.with(|color| {
-                    let _ = color.set(CustomColor {
-                        r: 250,
-                        g: 160,
-                        b: 160,
-                    });
-                });
-                OUR_YELLOW.with(|color| {
-                    let _ = color.set(CustomColor {
-                        r: 112,
-                        g: 127,
-                        b: 35,
-                    });
-                });
-                CONTINUED_COLOR.with(|color| {
-                    let _ = color.set(CustomColor {
-                        r: 188,
-                        g: 210,
-                        b: 230,
-                    });
-                });
-                STOPPED_COLOR.with(|color| {
-                    let _ = color.set(CustomColor {
-                        r: 82,
-                        g: 138,
-                        b: 174,
-                    });
-                });
-            }
-            termbg::Theme::Dark => {
-                dark_mode_palette();
-            }
-        }
-    } else {
-        dark_mode_palette();
+fn color((l_r, l_g, l_b): (u8, u8, u8), (d_r, d_g, d_b): (u8, u8, u8)) -> CustomColor {
+    match *TERMINAL_THEME {
+        termbg::Theme::Light => CustomColor::new(l_r, l_g, l_b),
+        termbg::Theme::Dark => CustomColor::new(d_r, d_g, d_b),
     }
-}
-
-fn dark_mode_palette() {
-    GENERAL_TEXT_COLOR.with(|color| {
-        let _ = color.set(CustomColor {
-            r: 160,
-            g: 160,
-            b: 160,
-        });
-    });
-    PAGES_COLOR.with(|color| {
-        let _ = color.set(CustomColor {
-            r: 0,
-            g: 169,
-            b: 223,
-        });
-    });
-
-    PID_BACKGROUND_COLOR.with(|color| {
-        let _ = color.set(CustomColor { r: 0, g: 0, b: 0 });
-    });
-    PID_NUMBER_COLOR.with(|color| {
-        let _ = color.set(CustomColor {
-            r: 0,
-            g: 173,
-            b: 216,
-        });
-    });
-    EXITED_BACKGROUND_COLOR.with(|color| {
-        let _ = color.set(CustomColor { r: 100, g: 0, b: 0 });
-    });
-    OUR_YELLOW.with(|color| {
-        let _ = color.set(CustomColor {
-            r: 187,
-            g: 142,
-            b: 35,
-        });
-    });
-    CONTINUED_COLOR.with(|color| {
-        let _ = color.set(CustomColor {
-            r: 17,
-            g: 38,
-            b: 21,
-        });
-    });
-    STOPPED_COLOR.with(|color| {
-        let _ = color.set(CustomColor {
-            r: 47,
-            g: 86,
-            b: 54,
-        });
-    });
 }
 
 pub fn buffered_write(data: ColoredString) {
     write!(WRITER_LAZY.lock().unwrap(), "{}", data).unwrap();
 }
 
-pub fn flush_buffer() {
-    WRITER_LAZY.lock().unwrap().flush().unwrap();
-}
+pub fn flush_buffer() { WRITER_LAZY.lock().unwrap().flush().unwrap(); }
 
 #[inline(always)]
 pub fn colorize_general_text(arg: &str) {
-    let text = arg.custom_color(get_thread_local_color!(GENERAL_TEXT_COLOR));
+    let text = arg.custom_color(*(GENERAL_TEXT_COLOR));
     buffered_write(text);
 }
 
@@ -291,9 +183,9 @@ pub fn static_handle_path_file(filename: String, vector: &mut Vec<ColoredString>
             break;
         }
     }
-    vector.push(filename[0..file_start].custom_color(get_thread_local_color!(OUR_YELLOW)));
+    vector.push(filename[0..file_start].custom_color(*(OUR_YELLOW)));
 
-    vector.push(filename[file_start..].custom_color(get_thread_local_color!(PAGES_COLOR)));
+    vector.push(filename[file_start..].custom_color(*(PAGES_COLOR)));
 }
 
 pub fn lose_relativity_on_path(string: std::borrow::Cow<'_, str>) -> String {
@@ -309,7 +201,7 @@ pub fn lose_relativity_on_path(string: std::borrow::Cow<'_, str>) -> String {
 }
 
 pub fn get_mem_difference_from_previous(post_call_brk: usize) -> isize {
-    post_call_brk as isize - PRE_CALL_PROGRAM_BREAK_POINT.get() as isize
+    post_call_brk as isize - PRE_CALL_PROGRAM_BREAK_POINT.load(Ordering::SeqCst) as isize
 }
 
 pub fn match_enum_with_libc_flag(flags: u64, discriminant: i32) -> bool {
@@ -321,27 +213,23 @@ pub fn set_memory_break(child: Pid) {
     let stat = ptraced_process.stat().unwrap();
     let pre_call_brk = stat.start_brk.unwrap() as usize;
 
-    let old_stored_brk = PRE_CALL_PROGRAM_BREAK_POINT.get();
-    PRE_CALL_PROGRAM_BREAK_POINT.set(pre_call_brk);
+    let old_stored_brk = PRE_CALL_PROGRAM_BREAK_POINT.load(Ordering::SeqCst);
+    PRE_CALL_PROGRAM_BREAK_POINT.store(pre_call_brk, Ordering::SeqCst);
 }
 
 pub fn where_in_childs_memory(child: Pid, address: u64) -> Option<MemoryMap> {
     let ptraced_process = procfs::process::Process::new(i32::from(child)).unwrap();
     let maps = ptraced_process.maps().unwrap().0;
-    maps.into_iter()
-        .find(|x| (address >= x.address.0) && (address <= x.address.1))
+    maps.into_iter().find(|x| (address >= x.address.0) && (address <= x.address.1))
 }
 
 pub fn get_child_memory_break(child: Pid) -> (usize, (u64, u64)) {
     let ptraced_process = procfs::process::Process::new(i32::from(child)).unwrap();
     let stat = ptraced_process.stat().unwrap();
     let aa = ptraced_process.maps().unwrap().0;
-    let c = aa
-        .into_iter()
-        .find(|x| x.pathname == MMapPath::Stack)
-        .map(|x| x.address)
-        .unwrap_or((0, 0));
-    (PRE_CALL_PROGRAM_BREAK_POINT.get(), c)
+    let c =
+        aa.into_iter().find(|x| x.pathname == MMapPath::Stack).map(|x| x.address).unwrap_or((0, 0));
+    (PRE_CALL_PROGRAM_BREAK_POINT.load(Ordering::SeqCst), c)
 }
 
 pub fn errno_check(rax: u64) -> Option<Errno> {
@@ -551,6 +439,4 @@ pub fn errno_to_string(errno: Errno) -> &'static str {
     }
 }
 
-pub fn parse_register_as_address(register: u64) -> String {
-    format!("{:p}", register as *const ())
-}
+pub fn parse_register_as_address(register: u64) -> String { format!("{:p}", register as *const ()) }
