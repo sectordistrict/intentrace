@@ -156,7 +156,7 @@ pub fn flush_buffer() {
 
 #[inline(always)]
 pub fn colorize_general_text(arg: &str) {
-    let text = arg.custom_color(*(GENERAL_TEXT_COLOR));
+    let text = arg.custom_color(*GENERAL_TEXT_COLOR);
     buffered_write(text);
 }
 
@@ -175,9 +175,9 @@ pub fn static_handle_path_file(filename: String, vector: &mut Vec<ColoredString>
             break;
         }
     }
-    vector.push(filename[0..file_start].custom_color(*(OUR_YELLOW)));
+    vector.push(filename[0..file_start].custom_color(*OUR_YELLOW));
 
-    vector.push(filename[file_start..].custom_color(*(PAGES_COLOR)));
+    vector.push(filename[file_start..].custom_color(*PAGES_COLOR));
 }
 
 pub fn lose_relativity_on_path(string: std::borrow::Cow<'_, str>) -> String {
