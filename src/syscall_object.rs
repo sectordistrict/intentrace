@@ -12,6 +12,7 @@ use crate::{
 };
 
 use colored::{ColoredString, Colorize};
+use core::num::NonZeroUsize;
 use core::slice;
 use nix::{
     errno::Errno,
@@ -1005,7 +1006,7 @@ impl SyscallObject {
         let cpu_set: cpu_set_t = unsafe { transmute(a) };
 
         let mut vec = Vec::new();
-        for cpu_number in 0..num_cpus::get() as usize {
+        for cpu_number in 0..std::thread::available_parallelism().map(NonZeroUsize::get).unwrap_or(1) as usize {
             if unsafe { CPU_ISSET(cpu_number, &cpu_set) } {
                 vec.push(cpu_number)
             }
