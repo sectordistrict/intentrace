@@ -42,9 +42,9 @@ thread_local! {
     //
     pub static  PAGES_COLOR: OnceCell<CustomColor> = OnceCell::new();
     pub static  GENERAL_TEXT_COLOR: OnceCell<CustomColor> = OnceCell::new();
-    pub static  PID_BACKGROUND_COLOR: OnceCell<CustomColor> = OnceCell::new( );
+    pub static  PID_BACKGROUND_COLOR: OnceCell<CustomColor> = OnceCell::new();
     pub static  PID_NUMBER_COLOR: OnceCell<CustomColor> = OnceCell::new();
-    pub static  EXITED_BACKGROUND_COLOR: OnceCell<CustomColor> = OnceCell::new( );
+    pub static  EXITED_BACKGROUND_COLOR: OnceCell<CustomColor> = OnceCell::new();
     pub static  OUR_YELLOW: OnceCell<CustomColor> = OnceCell::new();
     pub static  CONTINUED_COLOR: OnceCell<CustomColor> = OnceCell::new();
     pub static  STOPPED_COLOR: OnceCell<CustomColor> = OnceCell::new();
@@ -53,10 +53,9 @@ thread_local! {
     //
     //
     //
+    pub static PAGE_SIZE: usize = page_size::get();
     pub static PRE_CALL_PROGRAM_BREAK_POINT: Cell<usize> = Cell::new(0);
-    pub static PAGE_SIZE: Cell<usize> = Cell::new(page_size::get());
     pub static REGISTERS: Cell<[u64;6]> = Cell::new([0;6]);
-
 }
 pub static SUMMARY: AtomicBool = AtomicBool::new(false);
 pub static HALT_TRACING: AtomicBool = AtomicBool::new(false);
@@ -203,58 +202,64 @@ pub fn terminal_setup() {
                 });
             }
             termbg::Theme::Dark => {
-                GENERAL_TEXT_COLOR.with(|color| {
-                    let _ = color.set(CustomColor {
-                        r: 160,
-                        g: 160,
-                        b: 160,
-                    });
-                });
-                PAGES_COLOR.with(|color| {
-                    let _ = color.set(CustomColor {
-                        r: 0,
-                        g: 169,
-                        b: 223,
-                    });
-                });
-
-                PID_BACKGROUND_COLOR.with(|color| {
-                    let _ = color.set(CustomColor { r: 0, g: 0, b: 0 });
-                });
-                PID_NUMBER_COLOR.with(|color| {
-                    let _ = color.set(CustomColor {
-                        r: 0,
-                        g: 173,
-                        b: 216,
-                    });
-                });
-                EXITED_BACKGROUND_COLOR.with(|color| {
-                    let _ = color.set(CustomColor { r: 100, g: 0, b: 0 });
-                });
-                OUR_YELLOW.with(|color| {
-                    let _ = color.set(CustomColor {
-                        r: 187,
-                        g: 142,
-                        b: 35,
-                    });
-                });
-                CONTINUED_COLOR.with(|color| {
-                    let _ = color.set(CustomColor {
-                        r: 17,
-                        g: 38,
-                        b: 21,
-                    });
-                });
-                STOPPED_COLOR.with(|color| {
-                    let _ = color.set(CustomColor {
-                        r: 47,
-                        g: 86,
-                        b: 54,
-                    });
-                });
+                dark_mode_palette();
             }
         }
+    } else {
+        dark_mode_palette();
     }
+}
+
+fn dark_mode_palette() {
+    GENERAL_TEXT_COLOR.with(|color| {
+        let _ = color.set(CustomColor {
+            r: 160,
+            g: 160,
+            b: 160,
+        });
+    });
+    PAGES_COLOR.with(|color| {
+        let _ = color.set(CustomColor {
+            r: 0,
+            g: 169,
+            b: 223,
+        });
+    });
+
+    PID_BACKGROUND_COLOR.with(|color| {
+        let _ = color.set(CustomColor { r: 0, g: 0, b: 0 });
+    });
+    PID_NUMBER_COLOR.with(|color| {
+        let _ = color.set(CustomColor {
+            r: 0,
+            g: 173,
+            b: 216,
+        });
+    });
+    EXITED_BACKGROUND_COLOR.with(|color| {
+        let _ = color.set(CustomColor { r: 100, g: 0, b: 0 });
+    });
+    OUR_YELLOW.with(|color| {
+        let _ = color.set(CustomColor {
+            r: 187,
+            g: 142,
+            b: 35,
+        });
+    });
+    CONTINUED_COLOR.with(|color| {
+        let _ = color.set(CustomColor {
+            r: 17,
+            g: 38,
+            b: 21,
+        });
+    });
+    STOPPED_COLOR.with(|color| {
+        let _ = color.set(CustomColor {
+            r: 47,
+            g: 86,
+            b: 54,
+        });
+    });
 }
 
 pub fn buffered_write(data: ColoredString) {
