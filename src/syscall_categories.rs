@@ -1,6 +1,8 @@
-use crate::types::Category;
 use std::collections::HashMap;
+
 use syscalls::Sysno;
+
+use crate::types::Category;
 
 pub fn initialize_categories_map() -> HashMap<Sysno, Category> {
     use Category::*;

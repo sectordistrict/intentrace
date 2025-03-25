@@ -95,7 +95,7 @@ fn main() {
 }
 
 fn runner(command_line: Vec<String>) {
-    let attach_pid =  *ATTACH_PID.lock().unwrap();
+    let attach_pid = *ATTACH_PID.lock().unwrap();
     if FOLLOW_FORKS.load(Ordering::SeqCst) {
         match attach_pid {
             Some(_) => follow_forks(None),
@@ -240,13 +240,13 @@ fn parent(child_or_attach: Option<Pid>) {
                                 start = None;
                                 end = None;
                                 *REGISTERS.lock().unwrap() = [
-                                        registers.rdi,
-                                        registers.rsi,
-                                        registers.rdx,
-                                        registers.r10,
-                                        registers.r8,
-                                        registers.r9,
-                                    ];
+                                    registers.rdi,
+                                    registers.rsi,
+                                    registers.rdx,
+                                    registers.r10,
+                                    registers.r8,
+                                    registers.r9,
+                                ];
                                 syscall_returned(&mut syscall, registers.rax)
                             }
                             Err(errno) => {
@@ -301,13 +301,13 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
                                     .or_insert(1);
                             }
                             *REGISTERS.lock().unwrap() = [
-                                        registers.rdi,
-                                        registers.rsi,
-                                        registers.rdx,
-                                        registers.r10,
-                                        registers.r8,
-                                        registers.r9,
-                                    ];
+                                registers.rdi,
+                                registers.rsi,
+                                registers.rdx,
+                                registers.r10,
+                                registers.r8,
+                                registers.r9,
+                            ];
                             syscall_will_run(&mut syscall);
                             // if syscall.is_exiting() {
                             //     break 'for_exiting;
@@ -326,13 +326,13 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
                 match nix::sys::ptrace::getregs(syscall_pid) {
                     Ok(registers) => {
                         *REGISTERS.lock().unwrap() = [
-                                        registers.rdi,
-                                        registers.rsi,
-                                        registers.rdx,
-                                        registers.r10,
-                                        registers.r8,
-                                        registers.r9,
-                                    ];
+                            registers.rdi,
+                            registers.rsi,
+                            registers.rdx,
+                            registers.r10,
+                            registers.r8,
+                            registers.r9,
+                        ];
                         if let Some(mut syscall) = pid_syscall_map.get_mut(&syscall_pid) {
                             syscall_returned(&mut syscall, registers.rax);
                             pid_syscall_map.remove(&syscall_pid).unwrap();

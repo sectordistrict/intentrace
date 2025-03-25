@@ -1,24 +1,23 @@
 #![allow(unused_variables)]
-use crate::utilities::{colorize_general_text, REGISTERS};
-use crate::{
-    types::{
-        mlock2, Bytes, BytesPagesRelevant, Category, Flag, LandlockCreateFlags,
-        LandlockRuleTypeFlags, SysArg, SysReturn, Syscall_Shape,
-    },
-    utilities::{
-        buffered_write, lose_relativity_on_path, static_handle_path_file, SYSCATEGORIES_MAP,
-        SYSKELETON_MAP,
-    },
+use core::slice;
+use std::{
+    fmt::Display,
+    io::IoSliceMut,
+    mem::{self, transmute, zeroed},
+    os::{fd::RawFd, raw::c_void},
+    path::PathBuf,
+    ptr::null,
+    sync::atomic::Ordering,
 };
 
 use colored::{ColoredString, Colorize};
-use core::slice;
 use nix::{
+    NixPath,
     errno::Errno,
     fcntl::{self, AtFlags, FallocateFlags, OFlag, RenameFlags},
     libc::{
-        cpu_set_t, iovec, msghdr, sockaddr, user_regs_struct, AT_FDCWD, CPU_ISSET, CPU_SETSIZE,
-        MAP_FAILED, PRIO_PGRP, PRIO_PROCESS, PRIO_USER,
+        AT_FDCWD, CPU_ISSET, CPU_SETSIZE, MAP_FAILED, PRIO_PGRP, PRIO_PROCESS, PRIO_USER,
+        cpu_set_t, iovec, msghdr, sockaddr, user_regs_struct,
     },
     sys::{
         eventfd,
@@ -29,25 +28,24 @@ use nix::{
         signalfd::SfdFlags,
         socket::{self, SockFlag},
         stat::{FchmodatFlags, Mode},
-        uio::{process_vm_readv, RemoteIoVec},
+        uio::{RemoteIoVec, process_vm_readv},
         wait::WaitPidFlag,
     },
     unistd::{AccessFlags, Pid, Whence},
-    NixPath,
 };
-
 use rustix::{
     fs::StatxFlags, io::ReadWriteFlags, path::Arg, rand::GetRandomFlags, thread::FutexFlags,
 };
 
-use std::{
-    fmt::Display,
-    io::IoSliceMut,
-    mem::{self, transmute, zeroed},
-    os::{fd::RawFd, raw::c_void},
-    path::PathBuf,
-    ptr::null,
-    sync::atomic::Ordering,
+use crate::{
+    types::{
+        Bytes, BytesPagesRelevant, Category, Flag, LandlockCreateFlags, LandlockRuleTypeFlags,
+        SysArg, SysReturn, Syscall_Shape, mlock2,
+    },
+    utilities::{
+        REGISTERS, SYSCATEGORIES_MAP, SYSKELETON_MAP, buffered_write, colorize_general_text,
+        lose_relativity_on_path, static_handle_path_file,
+    },
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -59,27 +57,27 @@ pub enum SyscallState {
 use syscalls::Sysno;
 #[derive(Debug)]
 pub struct SyscallObject {
-    pub sysno: Sysno,
-    pub category: Category,
-    pub skeleton: Vec<SysArg>,
-    pub result: (Option<u64>, SysReturn),
+    pub sysno:       Sysno,
+    pub category:    Category,
+    pub skeleton:    Vec<SysArg>,
+    pub result:      (Option<u64>, SysReturn),
     pub process_pid: Pid,
-    pub errno: Option<Errno>,
-    pub state: SyscallState,
-    pub paused: bool,
+    pub errno:       Option<Errno>,
+    pub state:       SyscallState,
+    pub paused:      bool,
 }
 
 impl Default for SyscallObject {
     fn default() -> Self {
         SyscallObject {
-            sysno: unsafe { mem::zeroed() },
-            category: unsafe { mem::zeroed() },
-            skeleton: vec![],
-            result: unsafe { mem::zeroed() },
+            sysno:       unsafe { mem::zeroed() },
+            category:    unsafe { mem::zeroed() },
+            skeleton:    vec![],
+            result:      unsafe { mem::zeroed() },
             process_pid: unsafe { mem::zeroed() },
-            errno: unsafe { mem::zeroed() },
-            state: SyscallState::Entering,
-            paused: false,
+            errno:       unsafe { mem::zeroed() },
+            state:       SyscallState::Entering,
+            paused:      false,
         }
     }
 }
@@ -102,18 +100,12 @@ impl SyscallObject {
         }
     }
 
-    fn replace_content(&mut self, index: usize, sys_arg: SysArg) {
-        self.skeleton[index] = sys_arg
-    }
+    fn replace_content(&mut self, index: usize, sys_arg: SysArg) { self.skeleton[index] = sys_arg }
 
     #[inline(always)]
-    pub(crate) fn general_text(&mut self, arg: &str) {
-        colorize_general_text(arg);
-    }
+    pub(crate) fn general_text(&mut self, arg: &str) { colorize_general_text(arg); }
 
-    pub(crate) fn write_text(&self, text: ColoredString) {
-        buffered_write(text);
-    }
+    pub(crate) fn write_text(&self, text: ColoredString) { buffered_write(text); }
 }
 
 impl SyscallObject {
@@ -121,12 +113,10 @@ impl SyscallObject {
         // println!("{:?}", registers.orig_rax as i32);
         Sysno::from(orig_rax)
     }
+
     pub(crate) fn build(child: Pid, sysno: Sysno) -> Option<Self> {
         let syscall = match SYSKELETON_MAP.get(&sysno) {
-            Some(&Syscall_Shape {
-                types,
-                syscall_return,
-            }) => {
+            Some(&Syscall_Shape { types, syscall_return }) => {
                 let category = *SYSCATEGORIES_MAP.get(&sysno).unwrap();
                 return Some(match types.len() {
                     0 => SyscallObject {
@@ -214,6 +204,7 @@ impl SyscallObject {
         };
         syscall
     }
+
     // basically fill up all the parentheses data
     pub(crate) fn get_precall_data(&mut self) {
         // POPULATING ARGUMENTS
@@ -229,11 +220,9 @@ impl SyscallObject {
                 File_Descriptor(ref mut file_descriptor) => {
                     let fd = register[index] as i32;
 
-                    let styled_fd = SyscallObject::style_file_descriptor(
-                        register[index],
-                        self.process_pid,
-                    )
-                    .unwrap_or(format!("ignored"));
+                    let styled_fd =
+                        SyscallObject::style_file_descriptor(register[index], self.process_pid)
+                            .unwrap_or(format!("ignored"));
                     *file_descriptor = styled_fd.leak();
                 }
                 File_Descriptor_openat(ref mut file_descriptor) => {
@@ -242,11 +231,8 @@ impl SyscallObject {
                     styled_fd = if fd == AT_FDCWD {
                         format!("{}", "AT_FDCWD -> Current Working Directory".bright_blue())
                     } else {
-                        SyscallObject::style_file_descriptor(
-                            register[index],
-                            self.process_pid,
-                        )
-                        .unwrap_or(format!("ignored"))
+                        SyscallObject::style_file_descriptor(register[index], self.process_pid)
+                            .unwrap_or(format!("ignored"))
                     };
                     *file_descriptor = styled_fd.leak();
                 }
@@ -271,10 +257,8 @@ impl SyscallObject {
                             continue;
                         }
                     }
-                    let styled_fd = SyscallObject::string_from_pointer(
-                        register[index],
-                        self.process_pid,
-                    );
+                    let styled_fd =
+                        SyscallObject::string_from_pointer(register[index], self.process_pid);
                     *text = styled_fd.leak();
                 }
                 Array_Of_Strings(ref mut text) => {
@@ -358,17 +342,15 @@ impl SyscallObject {
                     let ARCH_GET_CPUID = 0x1011;
                     let ARCH_SET_CPUID = 0x1012;
 
-                    // if (operation & ARCH_SET_CPUID) == ARCH_SET_CPUID ||(operation & ARCH_SET_FS) == ARCH_SET_FS ||(operation & ARCH_SET_GS) == ARCH_SET_GS  {
+                    // if (operation & ARCH_SET_CPUID) == ARCH_SET_CPUID ||(operation & ARCH_SET_FS)
+                    // == ARCH_SET_FS ||(operation & ARCH_SET_GS) == ARCH_SET_GS  {
                     // } else
 
                     if (operation & ARCH_GET_CPUID) == ARCH_GET_CPUID
                         || (operation & ARCH_GET_FS) == ARCH_GET_FS
                         || (operation & ARCH_GET_GS) == ARCH_GET_GS
                     {
-                        match SyscallObject::read_word(
-                            register[index] as usize,
-                            self.process_pid,
-                        ) {
+                        match SyscallObject::read_word(register[index] as usize, self.process_pid) {
                             Some(pid_at_word) => {
                                 if self.sysno == Sysno::wait4 {
                                     self.skeleton[1] =
@@ -437,8 +419,10 @@ impl SyscallObject {
             }
 
             Address_Or_Errno_getcwd(data) => {
-                let styled_string =
-                    SyscallObject::string_from_pointer(REGISTERS.lock().unwrap()[0], self.process_pid);
+                let styled_string = SyscallObject::string_from_pointer(
+                    REGISTERS.lock().unwrap()[0],
+                    self.process_pid,
+                );
                 *data = styled_string.leak();
             }
             Priority_Or_Errno(errored) => {
@@ -458,6 +442,7 @@ impl SyscallObject {
             _ => {}
         };
     }
+
     // previously `parse_arg_value_for_one_line`
     pub(crate) fn displayable_ol(&self, index: usize) -> String {
         let register_value = REGISTERS.lock().unwrap()[index];
@@ -526,11 +511,7 @@ impl SyscallObject {
             }
             Pointer_To_Unsigned_Numeric => {
                 let pointer = register_value as *const ();
-                if pointer.is_null() {
-                    format!("0xNull")
-                } else {
-                    format!("{:p}", pointer)
-                }
+                if pointer.is_null() { format!("0xNull") } else { format!("{:p}", pointer) }
                 // let pointer = register_value as *const u64;
                 // let reference: &u64 = unsafe { transmute(pointer) };
             }
@@ -555,6 +536,7 @@ impl SyscallObject {
             }
         }
     }
+
     pub(crate) fn displayable_return_ol(&self) -> Result<String, ()> {
         if self.is_exiting() {
             return Ok("".to_owned());
@@ -566,36 +548,20 @@ impl SyscallObject {
         match sys_return {
             Numeric_Or_Errno => {
                 let numeric_return = register_value as isize;
-                if numeric_return + 1 == -1 {
-                    Err(())
-                } else {
-                    Ok(format!("{numeric_return}"))
-                }
+                if numeric_return + 1 == -1 { Err(()) } else { Ok(format!("{numeric_return}")) }
             }
             Always_Successful_Numeric => Ok(format!("{}", register_value as isize)),
             Signal_Or_Errno(signal) => {
                 let signal_num = register_value as isize;
-                if signal_num + 1 == -1 {
-                    Err(())
-                } else {
-                    Ok(format!("{signal}"))
-                }
+                if signal_num + 1 == -1 { Err(()) } else { Ok(format!("{signal}")) }
             }
             File_Descriptor_Or_Errno(fd) => {
                 let fd_num = register_value as isize;
-                if fd_num + 1 == -1 {
-                    Err(())
-                } else {
-                    Ok(format!("{fd}"))
-                }
+                if fd_num + 1 == -1 { Err(()) } else { Ok(format!("{fd}")) }
             }
             Priority_Or_Errno(errored) => {
                 let priority = register_value as isize;
-                if unsafe { errored.assume_init() } {
-                    Err(())
-                } else {
-                    Ok(format!("{priority}"))
-                }
+                if unsafe { errored.assume_init() } { Err(()) } else { Ok(format!("{priority}")) }
             }
             Length_Of_Bytes_Specific_Or_Errno => {
                 let bytes = register_value as isize;
@@ -604,11 +570,7 @@ impl SyscallObject {
                         return Err(());
                     }
                 }
-                if bytes + 1 == -1 {
-                    Err(())
-                } else {
-                    Ok(format!("{bytes} Bytes"))
-                }
+                if bytes + 1 == -1 { Err(()) } else { Ok(format!("{bytes} Bytes")) }
             }
             Address_Or_Errno(address) => {
                 let address_value = register_value as isize;
@@ -628,20 +590,12 @@ impl SyscallObject {
             }
             Address_Or_Errno_getcwd(current_working_dir) => {
                 let pointer = register_value as *const ();
-                if pointer.is_null() {
-                    Err(())
-                } else {
-                    Ok(format!("{current_working_dir}",))
-                }
+                if pointer.is_null() { Err(()) } else { Ok(format!("{current_working_dir}",)) }
             }
             Ptrace_Diverse_Or_Errno => {
                 // a successful PTRACE_PEEK might return -1 so errno must be cleared before the call
                 let ptrace_return = register_value as i64;
-                if ptrace_return == -1 {
-                    Err(())
-                } else {
-                    Ok(format!("{ptrace_return}"))
-                }
+                if ptrace_return == -1 { Err(()) } else { Ok(format!("{ptrace_return}")) }
             }
             Always_Successful_User_Group => {
                 let result = register_value as isize;
@@ -658,6 +612,7 @@ impl SyscallObject {
             Always_Errors => Err(()),
         }
     }
+
     fn style_file_descriptor(register_value: u64, child: Pid) -> Option<String> {
         let fd = register_value as RawFd;
         let mut string = Vec::new();
@@ -742,20 +697,23 @@ impl SyscallObject {
                     }
                     procfs::process::FDTarget::AnonInode(anon_inode) => {
                         // anon_inode is basically a file that has no corresponding inode
-                        // anon_inode could've been something that was a file but is no longer on the disk
-                        // For file descriptors that have no corresponding inode
-                        // (e.g., file descriptors produced by
-                        // epoll_create(2), eventfd(2), inotify_init(2), signalfd(2), and timerfd(2)),
+                        // anon_inode could've been something that was a file but is no longer on
+                        // the disk For file descriptors that have no
+                        // corresponding inode (e.g., file descriptors
+                        // produced by epoll_create(2), eventfd(2),
+                        // inotify_init(2), signalfd(2), and timerfd(2)),
                         // the entry will be a symbolic link with contents "anon_inode:<file-type>"
-                        // An anon_inode shows that there's a file descriptor which has no referencing inode
+                        // An anon_inode shows that there's a file descriptor which has no
+                        // referencing inode
 
                         // At least in some contexts, an anonymous inode is
                         // an inode without an attached directory entry.
                         // The easiest way to create such an inode is as such:
                         //          int fd = open( "/tmp/file", O_CREAT | O_RDWR, 0666 );
                         //          unlink( "/tmp/file" );
-                        // Note that the descriptor fd now points to an inode that has no filesystem entry; you
-                        // can still write to it, fstat() it, etc. but you can't find it in the filesystem.
+                        // Note that the descriptor fd now points to an inode that has no filesystem
+                        // entry; you can still write to it, fstat() it,
+                        // etc. but you can't find it in the filesystem.
                         string.push(format!("{} -> Anonymous Inode", file.fd).bright_blue());
                     }
                     procfs::process::FDTarget::MemFD(mem_fd) => {
@@ -770,10 +728,12 @@ impl SyscallObject {
         }
         Some(String::from_iter(string.into_iter().map(|x| x.to_string())))
     }
+
     pub(crate) fn style_bytes_page_aligned_ceil(register_value: u64) -> String {
         let bytes = BytesPagesRelevant::from_ceil(register_value as usize);
         bytes.to_string()
     }
+
     fn style_bytes_page_aligned_floor(register_value: u64) -> String {
         let bytes = BytesPagesRelevant::from_floor(register_value as usize);
         bytes.to_string()
@@ -791,6 +751,7 @@ impl SyscallObject {
         }
         bytes.to_string()
     }
+
     pub(crate) fn style_bytes_length_specific(register_value: u64) -> String {
         let bytes_amount = register_value as usize;
         let mut bytes = Bytes::norm(bytes_amount);
@@ -812,6 +773,7 @@ impl SyscallObject {
             None => "".to_owned(),
         }
     }
+
     fn string_from_array_of_strings(address: u64, child: Pid) -> Vec<String> {
         // TODO! execve fails this
         let mut array = SyscallObject::read_words_until_null(address as usize, child).unwrap();
@@ -826,11 +788,7 @@ impl SyscallObject {
     pub(crate) fn read_word(addr: usize, child: Pid) -> Option<usize> {
         let remote_iov = RemoteIoVec { base: addr, len: 1 };
         let mut bytes_buffer = vec![0u8; 4];
-        match process_vm_readv(
-            child,
-            &mut [IoSliceMut::new(&mut bytes_buffer)],
-            &[remote_iov],
-        ) {
+        match process_vm_readv(child, &mut [IoSliceMut::new(&mut bytes_buffer)], &[remote_iov]) {
             Ok(_) => Some(unsafe { mem::transmute(&bytes_buffer) }),
             Err(err) => None,
         }
@@ -847,8 +805,8 @@ impl SyscallObject {
         // do not check the memory regions in the remote process
         // until just before doing the read/write.
         // Consequently, a partial read/write (see RETURN VALUE) may result
-        // if one of the remote_iov elements points to an invalid memory region in the remote process.
-        // No further reads/writes will be attempted beyond that point.
+        // if one of the remote_iov elements points to an invalid memory region in the remote
+        // process. No further reads/writes will be attempted beyond that point.
         //
         // Keep this in mind when attempting to read data of unknown length
         // (such as C strings that are null-terminated) from a remote process,
@@ -857,11 +815,7 @@ impl SyscallObject {
         // (Instead, split the remote read into two remote_iov elements
         // and have them merge back into a single write local_iov entry.
         // The first read entry goes up to the page boundary,
-        match process_vm_readv(
-            child,
-            &mut [IoSliceMut::new(&mut bytes_buffer)],
-            &[remote_iov],
-        ) {
+        match process_vm_readv(child, &mut [IoSliceMut::new(&mut bytes_buffer)], &[remote_iov]) {
             Ok(_) => Some(bytes_buffer),
             Err(err) => None,
         }
@@ -900,6 +854,7 @@ impl SyscallObject {
         }
         Some(data)
     }
+
     pub(crate) fn read_words_until_null(address: usize, child: Pid) -> Option<Vec<u64>> {
         let mut addr: *mut std::ffi::c_void = address as *mut c_void;
         let mut data = vec![];
@@ -919,6 +874,7 @@ impl SyscallObject {
         }
         Some(data)
     }
+
     pub(crate) fn read_bytes_until_null(address: usize, child: Pid) -> Option<Vec<u8>> {
         let mut addr: *mut std::ffi::c_void = address as *mut c_void;
         let mut data = vec![];
@@ -941,6 +897,7 @@ impl SyscallObject {
         }
         Some(data)
     }
+
     pub(crate) fn read_specific<const N: usize>(addr: usize, child: Pid) -> Option<[u8; N]> {
         let mut addr = addr as *mut c_void;
         let mut data: [u8; N] = [0; N];
@@ -965,6 +922,7 @@ impl SyscallObject {
         }
         Some(data)
     }
+
     pub(crate) fn read_bytes_as_struct<const N: usize, T>(addr: usize, child: Pid) -> Option<T> {
         match SyscallObject::read_bytes_specific_length(addr, child, N) {
             Some(vec) => {
@@ -978,6 +936,7 @@ impl SyscallObject {
         //     None => None,
         // }
     }
+
     pub(crate) fn write_bytes<const N: usize>(
         addr: usize,
         child: Pid,
@@ -1131,10 +1090,12 @@ impl SyscallObject {
                 // it may include the bitwise OR of any of the following values,
                 // to modify the behavior of socket():
 
-                // SOCK_NONBLOCK   Set the O_NONBLOCK file status flag on the open file description (see open(2)) referred to by the new file descriptor.  Using this flag saves  extra  calls
-                //                 to fcntl(2) to achieve the same result.
-                // SOCK_CLOEXEC    Set  the close-on-exec (FD_CLOEXEC) flag on the new file descriptor.  See the description of the O_CLOEXEC flag in open(2) for reasons why this may be use‐
-                //                 ful.
+                // SOCK_NONBLOCK   Set the O_NONBLOCK file status flag on the open file description
+                // (see open(2)) referred to by the new file descriptor.  Using this flag saves
+                // extra  calls                 to fcntl(2) to achieve the same
+                // result. SOCK_CLOEXEC    Set  the close-on-exec (FD_CLOEXEC) flag
+                // on the new file descriptor.  See the description of the O_CLOEXEC flag in open(2)
+                // for reasons why this may be use‐                 ful.
 
                 // two flags 1 register is crazy
                 // so we separate
@@ -1330,12 +1291,15 @@ impl SyscallObject {
             }
         }
     }
+
     pub(crate) fn is_mem_alloc_dealloc(&self) -> bool {
         self.sysno == Sysno::brk || self.sysno == Sysno::mmap
     }
+
     pub(crate) fn is_exiting(&self) -> bool {
         self.sysno == Sysno::exit || self.sysno == Sysno::exit_group
     }
+
     // TODO! check how strace does this, maybe its better
     pub(crate) fn colorize_syscall_name(sysno: &Sysno, category: &Category) -> ColoredString {
         match category {

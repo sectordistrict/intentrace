@@ -1,46 +1,5 @@
 #![allow(unused_variables)]
-use crate::{
-    syscall_object::SyscallObject,
-    types::{
-        mlock2, Annotation, Bytes, BytesPagesRelevant, Category, Flag, LandlockCreateFlags,
-        LandlockRuleTypeFlags, SysArg, SysReturn, Syscall_Shape,
-    },
-    utilities::{
-        lose_relativity_on_path, static_handle_path_file, FOLLOW_FORKS, PAGES_COLOR, REGISTERS,
-        SYSANNOT_MAP, SYSCATEGORIES_MAP, SYSKELETON_MAP,
-    },
-};
-
-use colored::{ColoredString, Colorize};
 use core::slice;
-use nix::{
-    errno::Errno,
-    fcntl::{self, AtFlags, FallocateFlags, OFlag, RenameFlags},
-    libc::{
-        cpu_set_t, iovec, msghdr, sockaddr, user_regs_struct, AT_FDCWD, CPU_ISSET, CPU_SETSIZE,
-        MAP_FAILED, PRIO_PGRP, PRIO_PROCESS, PRIO_USER,
-    },
-    sys::{
-        eventfd,
-        mman::{MRemapFlags, MapFlags, MmapAdvise, MsFlags, ProtFlags},
-        ptrace,
-        resource::{Resource, UsageWho},
-        signal::Signal,
-        signalfd::SfdFlags,
-        socket::{self, SockFlag},
-        stat::{FchmodatFlags, Mode},
-        uio::{process_vm_readv, RemoteIoVec},
-        wait::WaitPidFlag,
-    },
-    unistd::{AccessFlags, Pid, Whence},
-    NixPath,
-};
-use syscalls::Sysno;
-
-use rustix::{
-    fs::StatxFlags, io::ReadWriteFlags, path::Arg, rand::GetRandomFlags, thread::FutexFlags,
-};
-
 use std::{
     fmt::Display,
     io::IoSliceMut,
@@ -51,6 +10,46 @@ use std::{
     sync::atomic::Ordering,
 };
 
+use colored::{ColoredString, Colorize};
+use nix::{
+    NixPath,
+    errno::Errno,
+    fcntl::{self, AtFlags, FallocateFlags, OFlag, RenameFlags},
+    libc::{
+        AT_FDCWD, CPU_ISSET, CPU_SETSIZE, MAP_FAILED, PRIO_PGRP, PRIO_PROCESS, PRIO_USER,
+        cpu_set_t, iovec, msghdr, sockaddr, user_regs_struct,
+    },
+    sys::{
+        eventfd,
+        mman::{MRemapFlags, MapFlags, MmapAdvise, MsFlags, ProtFlags},
+        ptrace,
+        resource::{Resource, UsageWho},
+        signal::Signal,
+        signalfd::SfdFlags,
+        socket::{self, SockFlag},
+        stat::{FchmodatFlags, Mode},
+        uio::{RemoteIoVec, process_vm_readv},
+        wait::WaitPidFlag,
+    },
+    unistd::{AccessFlags, Pid, Whence},
+};
+use rustix::{
+    fs::StatxFlags, io::ReadWriteFlags, path::Arg, rand::GetRandomFlags, thread::FutexFlags,
+};
+use syscalls::Sysno;
+
+use crate::{
+    syscall_object::SyscallObject,
+    types::{
+        Annotation, Bytes, BytesPagesRelevant, Category, Flag, LandlockCreateFlags,
+        LandlockRuleTypeFlags, SysArg, SysReturn, Syscall_Shape, mlock2,
+    },
+    utilities::{
+        FOLLOW_FORKS, PAGES_COLOR, REGISTERS, SYSANNOT_MAP, SYSCATEGORIES_MAP, SYSKELETON_MAP,
+        lose_relativity_on_path, static_handle_path_file,
+    },
+};
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum SyscallState {
     Entering,
@@ -59,26 +58,26 @@ pub enum SyscallState {
 
 #[derive(Clone, Debug)]
 pub struct SyscallObject_Annotations {
-    pub sysno: Sysno,
-    description: &'static str,
-    pub category: Category,
-    pub args_types: Vec<SysArg>,
-    rich_args: Vec<Annotation>,
-    pub result: (Option<u64>, Annotation, SysReturn),
+    pub sysno:       Sysno,
+    description:     &'static str,
+    pub category:    Category,
+    pub args_types:  Vec<SysArg>,
+    rich_args:       Vec<Annotation>,
+    pub result:      (Option<u64>, Annotation, SysReturn),
     pub process_pid: Pid,
-    pub errno: Option<Errno>,
+    pub errno:       Option<Errno>,
 }
 impl Default for SyscallObject_Annotations {
     fn default() -> Self {
         SyscallObject_Annotations {
-            sysno: unsafe { mem::zeroed() },
+            sysno:       unsafe { mem::zeroed() },
             description: "",
-            category: unsafe { mem::zeroed() },
-            rich_args: vec![],
-            args_types: vec![],
-            result: unsafe { mem::zeroed() },
+            category:    unsafe { mem::zeroed() },
+            rich_args:   vec![],
+            args_types:  vec![],
+            result:      unsafe { mem::zeroed() },
             process_pid: unsafe { mem::zeroed() },
-            errno: unsafe { mem::zeroed() },
+            errno:       unsafe { mem::zeroed() },
         }
     }
 }
@@ -112,14 +111,14 @@ impl From<&mut SyscallObject> for SyscallObject_Annotations {
             }
         } else {
             SyscallObject_Annotations {
-                sysno: *sysno,
+                sysno:       *sysno,
                 description: "syscall not covered currently",
-                category: Category::Process,
-                rich_args: vec![],
-                result: (Some(0), ["", ""], SysReturn::Always_Succeeds),
+                category:    Category::Process,
+                rich_args:   vec![],
+                result:      (Some(0), ["", ""], SysReturn::Always_Succeeds),
                 process_pid: *process_pid,
-                errno: None,
-                args_types: skeleton.clone(),
+                errno:       None,
+                args_types:  skeleton.clone(),
             }
         }
     }
@@ -179,16 +178,13 @@ impl SyscallObject_Annotations {
         let sysno = Sysno::from(registers.orig_rax as i32);
         match SYSANNOT_MAP.get(&sysno) {
             Some((syscall_description, annotations_arg_containers, return_annotation)) => {
-                let Syscall_Shape {
-                    types,
-                    syscall_return,
-                } = SYSKELETON_MAP.get(&sysno).unwrap();
+                let Syscall_Shape { types, syscall_return } = SYSKELETON_MAP.get(&sysno).unwrap();
                 let category = *SYSCATEGORIES_MAP.get(&sysno).unwrap();
                 match annotations_arg_containers.len() {
                     0 => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: category,
+                        category,
                         rich_args: vec![],
                         result: (None, *return_annotation, *syscall_return),
                         process_pid: child,
@@ -198,7 +194,7 @@ impl SyscallObject_Annotations {
                     1 => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: category,
+                        category,
                         rich_args: vec![annotations_arg_containers[0]],
                         result: (None, *return_annotation, *syscall_return),
                         process_pid: child,
@@ -208,7 +204,7 @@ impl SyscallObject_Annotations {
                     2 => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: category,
+                        category,
                         rich_args: vec![
                             annotations_arg_containers[0],
                             annotations_arg_containers[1],
@@ -221,7 +217,7 @@ impl SyscallObject_Annotations {
                     3 => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: category,
+                        category,
                         rich_args: vec![
                             annotations_arg_containers[0],
                             annotations_arg_containers[1],
@@ -235,7 +231,7 @@ impl SyscallObject_Annotations {
                     4 => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: category,
+                        category,
                         rich_args: vec![
                             annotations_arg_containers[0],
                             annotations_arg_containers[1],
@@ -250,7 +246,7 @@ impl SyscallObject_Annotations {
                     5 => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: category,
+                        category,
                         rich_args: vec![
                             annotations_arg_containers[0],
                             annotations_arg_containers[1],
@@ -266,7 +262,7 @@ impl SyscallObject_Annotations {
                     _ => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: category,
+                        category,
                         rich_args: vec![
                             annotations_arg_containers[0],
                             annotations_arg_containers[1],
@@ -301,6 +297,7 @@ impl SyscallObject_Annotations {
             }
         }
     }
+
     pub(crate) fn parse_arg_value(&self, index: usize, which: usize) -> Vec<ColoredString> {
         let annotation = self.rich_args[index];
         let register_value = REGISTERS.lock().unwrap()[index];
@@ -567,11 +564,7 @@ impl SyscallObject_Annotations {
                 format!("").yellow()
             }
             Always_Errors => {
-                return Err(self
-                    .errno
-                    .unwrap_or_else(|| Errno::UnknownErrno)
-                    .to_string()
-                    .red());
+                return Err(self.errno.unwrap_or_else(|| Errno::UnknownErrno).to_string().red());
             }
             Ptrace_Diverse_Or_Errno => {
                 // a successful PTRACE_PEEK might return -1 so errno must be cleared before the call
@@ -583,13 +576,14 @@ impl SyscallObject_Annotations {
                         .to_string()
                         .red());
                 } else {
-                   format!("{ptrace_return}").yellow()
+                    format!("{ptrace_return}").yellow()
                 }
             }
         };
         output.push(value);
         Ok(output)
     }
+
     pub(crate) fn is_exiting(&self) -> bool {
         self.sysno == Sysno::exit || self.sysno == Sysno::exit_group
     }
@@ -610,10 +604,7 @@ impl SyscallObject_Annotations {
             match file_info {
                 Ok(file) => match file.target {
                     procfs::process::FDTarget::Path(path) => {
-                        string.push(
-                            format!("{} -> ", file.fd)
-                                .custom_color(*(PAGES_COLOR)),
-                        );
+                        string.push(format!("{} -> ", file.fd).custom_color(*(PAGES_COLOR)));
                         let mut formatted_path = vec![];
                         static_handle_path_file(
                             path.to_string_lossy().into_owned(),
@@ -678,43 +669,37 @@ impl SyscallObject_Annotations {
                         string.push(format!("NET").bright_magenta())
                     }
                     procfs::process::FDTarget::Pipe(pipe) => {
-                        string.push(
-                            format!("{} -> Unix Pipe", file.fd)
-                                .custom_color(*(PAGES_COLOR)),
-                        );
+                        string
+                            .push(format!("{} -> Unix Pipe", file.fd).custom_color(*(PAGES_COLOR)));
                     }
                     procfs::process::FDTarget::AnonInode(anon_inode) => {
                         // anon_inode is basically a file that has no corresponding inode
-                        // anon_inode could've been something that was a file but is no longer on the disk
-                        // For file descriptors that have no corresponding inode
-                        // (e.g., file descriptors produced by
-                        // epoll_create(2), eventfd(2), inotify_init(2), signalfd(2), and timerfd(2)),
+                        // anon_inode could've been something that was a file but is no longer on
+                        // the disk For file descriptors that have no
+                        // corresponding inode (e.g., file descriptors
+                        // produced by epoll_create(2), eventfd(2),
+                        // inotify_init(2), signalfd(2), and timerfd(2)),
                         // the entry will be a symbolic link with contents "anon_inode:<file-type>"
-                        // An anon_inode shows that there's a file descriptor which has no referencing inode
+                        // An anon_inode shows that there's a file descriptor which has no
+                        // referencing inode
 
                         // At least in some contexts, an anonymous inode is
                         // an inode without an attached directory entry.
                         // The easiest way to create such an inode is as such:
                         //          int fd = open( "/tmp/file", O_CREAT | O_RDWR, 0666 );
                         //          unlink( "/tmp/file" );
-                        // Note that the descriptor fd now points to an inode that has no filesystem entry; you
-                        // can still write to it, fstat() it, etc. but you can't find it in the filesystem.
+                        // Note that the descriptor fd now points to an inode that has no filesystem
+                        // entry; you can still write to it, fstat() it,
+                        // etc. but you can't find it in the filesystem.
                         string.push(
-                            format!("{} -> Anonymous Inode", file.fd)
-                                .custom_color(*(PAGES_COLOR)),
+                            format!("{} -> Anonymous Inode", file.fd).custom_color(*(PAGES_COLOR)),
                         );
                     }
                     procfs::process::FDTarget::MemFD(mem_fd) => {
-                        string.push(
-                            format!("{} -> MemFD", file.fd)
-                                .custom_color(*(PAGES_COLOR)),
-                        );
+                        string.push(format!("{} -> MemFD", file.fd).custom_color(*(PAGES_COLOR)));
                     }
                     procfs::process::FDTarget::Other(first, second) => {
-                        string.push(
-                            format!("{} -> Other", file.fd)
-                                .custom_color(*(PAGES_COLOR)),
-                        );
+                        string.push(format!("{} -> Other", file.fd).custom_color(*(PAGES_COLOR)));
                     }
                 },
                 Err(_) => {}
@@ -722,10 +707,12 @@ impl SyscallObject_Annotations {
         }
         Some(String::from_iter(string.into_iter().map(|x| x.to_string())))
     }
+
     pub(crate) fn style_bytes_page_aligned_ceil(register_value: u64) -> String {
         let bytes = BytesPagesRelevant::from_ceil(register_value as usize);
         bytes.to_string()
     }
+
     fn style_bytes_page_aligned_floor(register_value: u64) -> String {
         let bytes = BytesPagesRelevant::from_floor(register_value as usize);
         bytes.to_string()
@@ -743,6 +730,7 @@ impl SyscallObject_Annotations {
         }
         bytes.to_string()
     }
+
     pub(crate) fn style_bytes_length_specific(register_value: u64) -> String {
         let bytes_amount = register_value as usize;
         let mut bytes = Bytes::norm(bytes_amount);
@@ -868,10 +856,12 @@ impl SyscallObject_Annotations {
                 // it may include the bitwise OR of any of the following values,
                 // to modify the behavior of socket():
 
-                // SOCK_NONBLOCK   Set the O_NONBLOCK file status flag on the open file description (see open(2)) referred to by the new file descriptor.  Using this flag saves  extra  calls
-                //                 to fcntl(2) to achieve the same result.
-                // SOCK_CLOEXEC    Set  the close-on-exec (FD_CLOEXEC) flag on the new file descriptor.  See the description of the O_CLOEXEC flag in open(2) for reasons why this may be use‐
-                //                 ful.
+                // SOCK_NONBLOCK   Set the O_NONBLOCK file status flag on the open file description
+                // (see open(2)) referred to by the new file descriptor.  Using this flag saves
+                // extra  calls                 to fcntl(2) to achieve the same
+                // result. SOCK_CLOEXEC    Set  the close-on-exec (FD_CLOEXEC) flag
+                // on the new file descriptor.  See the description of the O_CLOEXEC flag in open(2)
+                // for reasons why this may be use‐                 ful.
 
                 // two flags 1 register is crazy
                 // so we separate
@@ -1067,9 +1057,11 @@ impl SyscallObject_Annotations {
             }
         }
     }
+
     pub(crate) fn is_mem_alloc_dealloc(&self) -> bool {
         self.sysno == Sysno::brk || self.sysno == Sysno::mmap
     }
+
     // TODO! check how strace does this, maybe its better
     pub(crate) fn colorize_syscall_name(sysno: &Sysno, category: &Category) -> ColoredString {
         match category {

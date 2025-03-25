@@ -1,13 +1,15 @@
-use crate::types::{Category, Flag, SysArg, SysReturn, Syscall_Shape};
-use std::collections::HashMap;
-use std::mem::MaybeUninit;
+use std::{collections::HashMap, mem::MaybeUninit};
+
 use syscalls::Sysno;
+
+use crate::types::{Category, Flag, SysArg, SysReturn, Syscall_Shape};
 
 // TODO! differentiate between bitflags (orables) and enums
 // TODO! add granularity for value-return (kernel-modified) syscall arguments
-// see if some arguments are better combined, like the very common buffer and buffer lengths (this makes processing cleaner but might result in complexity in non-conforming cases)
-// clarify whether a buffer is provided by the user or to be filled by the kernel in the name of the argument (GIVE vs FILL)
-// switch to MaybeUninit
+// see if some arguments are better combined, like the very common buffer and buffer lengths (this
+// makes processing cleaner but might result in complexity in non-conforming cases) clarify whether
+// a buffer is provided by the user or to be filled by the kernel in the name of the argument (GIVE
+// vs FILL) switch to MaybeUninit
 
 // TODO! switch to phf later
 pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
@@ -19,7 +21,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::read,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Pointer_To_Text(""),
                     Length_Of_Bytes_Specific,
@@ -31,7 +33,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::write,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Pointer_To_Text(""),
                     Length_Of_Bytes_Specific,
@@ -48,13 +50,13 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // If you read() twice, you get different results
             // If you pread() twice, you get the same result
 
-            // the system call was renamed in from pread() to pread64(). The syscall numbers remain the same.
-            // The glibc pread() and pwrite() wrapper functions transparently deal with the change.
-            // parallel read
+            // the system call was renamed in from pread() to pread64(). The syscall numbers remain
+            // the same. The glibc pread() and pwrite() wrapper functions transparently
+            // deal with the change. parallel read
             // also: stateless read
             Sysno::pread64,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Pointer_To_Text(""),
                     Length_Of_Bytes_Specific,
@@ -65,13 +67,13 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         ),
         // write to a file descriptor at a given offset
         (
-            // the system call was renamed in from pwrite() to pwrite64(). The syscall numbers remain the same.
-            // The glibc pread() and pwrite() wrapper functions transparently deal with the change.
-            // parallel write
+            // the system call was renamed in from pwrite() to pwrite64(). The syscall numbers
+            // remain the same. The glibc pread() and pwrite() wrapper functions
+            // transparently deal with the change. parallel write
             // also: stateless write
             Sysno::pwrite64,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Pointer_To_Text(""),
                     Length_Of_Bytes_Specific,
@@ -81,16 +83,17 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             },
         ),
         (
-            // The readv() function behave the same as read( ), except that multiple buffers are read to.
-            // this is used when memory to read from is scattered around (not contiguous)
-            // this avoids multiple read syscalls that would otherwise be needed
+            // The readv() function behave the same as read( ), except that multiple buffers are
+            // read to. this is used when memory to read from is scattered around (not
+            // contiguous) this avoids multiple read syscalls that would otherwise be
+            // needed
             //
             // readv: read vectored
             // you use it when you know that you have multiple fixed size blocks of data
             // to read into non-contiguous memory locations
             Sysno::readv,
             Syscall_Shape {
-                types: &[File_Descriptor(""), Array_Of_Struct, Unsigned_Numeric],
+                types:          &[File_Descriptor(""), Array_Of_Struct, Unsigned_Numeric],
                 syscall_return: Length_Of_Bytes_Specific_Or_Errno,
             },
         ),
@@ -111,7 +114,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // parallel read vectored
             Sysno::preadv,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Array_Of_Struct,
                     Unsigned_Numeric,
@@ -124,7 +127,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // parallel write vectored
             Sysno::pwritev,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Array_Of_Struct,
                     Unsigned_Numeric,
@@ -162,26 +165,24 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::pipe,
             Syscall_Shape {
-                types: &[Pointer_To_File_Descriptor_Array(["", ""])],
+                types:          &[Pointer_To_File_Descriptor_Array(["", ""])],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::pipe2,
             Syscall_Shape {
-                types: &[
-                    Pointer_To_File_Descriptor_Array(["", ""]),
-                    General_Flag(Open),
-                ],
+                types:          &[Pointer_To_File_Descriptor_Array(["", ""]), General_Flag(Open)],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         // duplicate a file descriptor
-        // creates a copy of the file descriptor oldfd, using the lowest-numbered unused file descriptor for the new descriptor.
+        // creates a copy of the file descriptor oldfd, using the lowest-numbered unused file
+        // descriptor for the new descriptor.
         (
             Sysno::dup,
             Syscall_Shape {
-                types: &[File_Descriptor("")],
+                types:          &[File_Descriptor("")],
                 syscall_return: File_Descriptor_Or_Errno(""),
             },
         ),
@@ -191,15 +192,16 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::dup2,
             Syscall_Shape {
-                types: &[File_Descriptor(""), File_Descriptor("")],
+                types:          &[File_Descriptor(""), File_Descriptor("")],
                 syscall_return: File_Descriptor_Or_Errno(""),
             },
         ),
-        // same as dup2 but the caller can force the close-on-exec flag to be set for the new file descriptor by specifying O_CLOEXEC in flags.
+        // same as dup2 but the caller can force the close-on-exec flag to be set for the new file
+        // descriptor by specifying O_CLOEXEC in flags.
         (
             Sysno::dup3,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     File_Descriptor(""),
                     General_Flag(Dup3Flags),
@@ -210,14 +212,14 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::access,
             Syscall_Shape {
-                types: &[Pointer_To_Text(""), General_Flag(Access)],
+                types:          &[Pointer_To_Text(""), General_Flag(Access)],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::faccessat,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Pointer_To_Text(""),
                     General_Flag(Access),
@@ -229,7 +231,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::faccessat2,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Pointer_To_Text(""),
                     General_Flag(Access),
@@ -239,12 +241,12 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             },
         ),
         // open and possibly create a file
-        // open handles a relative path by considering it relative to the current process working directory
-        // files must be opened first before being read from or written to
+        // open handles a relative path by considering it relative to the current process working
+        // directory files must be opened first before being read from or written to
         (
             Sysno::open,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     Pointer_To_Text(""),
                     // flags: one of the following modes: O_RDONLY, O_WRONLY, or O_RDWR.
                     // and an optional or of others
@@ -260,7 +262,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::openat,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor_openat(""),
                     Pointer_To_Text(""),
                     General_Flag(Open),
@@ -283,8 +285,8 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         //         syscall_return: File_Descriptor_Or_Errno(""),
         //     },
         // ),
-        // calling creat() is equivalent to calling open() with flags equal to O_CREAT|O_WRONLY|O_TRUNC
-        // (
+        // calling creat() is equivalent to calling open() with flags equal to
+        // O_CREAT|O_WRONLY|O_TRUNC (
         //     Sysno::creat,
         //     Syscall_Shape {
         //         types: &[Pointer_To_Text(""), General_Flag(FileMode)],
@@ -294,7 +296,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::getcwd,
             Syscall_Shape {
-                types: &[Pointer_To_Text(""), Length_Of_Bytes_Specific],
+                types:          &[Pointer_To_Text(""), Length_Of_Bytes_Specific],
                 syscall_return: Address_Or_Errno_getcwd(""),
             },
         ),
@@ -315,14 +317,14 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::rename,
             Syscall_Shape {
-                types: &[Pointer_To_Text(""), Pointer_To_Text("")],
+                types:          &[Pointer_To_Text(""), Pointer_To_Text("")],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::renameat,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Pointer_To_Text(""),
                     File_Descriptor(""),
@@ -334,7 +336,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::renameat2,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Pointer_To_Text(""),
                     File_Descriptor(""),
@@ -347,18 +349,14 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::mkdir,
             Syscall_Shape {
-                types: &[Pointer_To_Text(""), General_Flag(FileMode)],
+                types:          &[Pointer_To_Text(""), General_Flag(FileMode)],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::mkdirat,
             Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    Pointer_To_Text(""),
-                    General_Flag(FileMode),
-                ],
+                types:          &[File_Descriptor(""), Pointer_To_Text(""), General_Flag(FileMode)],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
@@ -368,11 +366,11 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         //         // after hard linking it is impossible to tell which file was the original
         //         // because they both point to the same inode now
         //         //
-        //         // The link() system call can be used to detect and trace malicious or suspicious file modification.
-        //         // For example, if a malicious user is trying to modify or delete files in a system,
-        //         // creating/deleting a hard link to the file is one way to do this.
-        //         // Tracking the link() system call will notify if any files are modified in this way.
-        //         types: &[
+        //         // The link() system call can be used to detect and trace malicious or
+        // suspicious file modification.         // For example, if a malicious user is
+        // trying to modify or delete files in a system,         // creating/deleting a
+        // hard link to the file is one way to do this.         // Tracking the link()
+        // system call will notify if any files are modified in this way.         types: &[
         //             Pointer_To_Text(""),
         //             // if existing, will not be overwritten
         //             Pointer_To_Text(""),
@@ -397,16 +395,23 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::unlink,
             Syscall_Shape {
-                // Each inode on your FileOp has a reference count - it knows how many places refer to it. A directory entry is a reference. Multiple references to the same inode can exist. unlink removes a reference. When the reference count is zero, then the inode is no longer in use and may be deleted. This is how many things work, such as hard linking and snap shots.
-                // In particular - an open file handle is a reference. So you can open a file, unlink it, and continue to use it - it'll only be actually removed after the file handle is closed (provided the reference count drops to zero, and it's not open/hard linked anywhere else).
-                types: &[Pointer_To_Text("")],
+                // Each inode on your FileOp has a reference count - it knows how many places refer
+                // to it. A directory entry is a reference. Multiple references to the same inode
+                // can exist. unlink removes a reference. When the reference count is zero, then
+                // the inode is no longer in use and may be deleted. This is how many things work,
+                // such as hard linking and snap shots. In particular - an open
+                // file handle is a reference. So you can open a file, unlink it, and continue to
+                // use it - it'll only be actually removed after the file handle is closed
+                // (provided the reference count drops to zero, and it's not open/hard linked
+                // anywhere else).
+                types:          &[Pointer_To_Text("")],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::unlinkat,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Pointer_To_Text(""),
                     General_Flag(FileAtFlags),
@@ -426,7 +431,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // (point to a nonexistent file);
             Sysno::symlink,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     Pointer_To_Text(""),
                     // If linkpath exists, it will not be overwritten.
                     Pointer_To_Text(""),
@@ -437,7 +442,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::symlinkat,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     Pointer_To_Text(""),
                     File_Descriptor(""),
                     // If linkpath exists, it will not be overwritten.
@@ -450,7 +455,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // contents of the symbolic link pathname in the buffer buf,
             Sysno::readlink,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     Pointer_To_Text(""),
                     Pointer_To_Text(""),
                     Length_Of_Bytes_Specific,
@@ -461,7 +466,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::readlinkat,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Pointer_To_Text(""),
                     Pointer_To_Text(""),
@@ -473,14 +478,14 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::chmod,
             Syscall_Shape {
-                types: &[Pointer_To_Text(""), General_Flag(FileMode)],
+                types:          &[Pointer_To_Text(""), General_Flag(FileMode)],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::fchmod,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     // the RWX combination variants are infact a combination of the 3 R W X flags
                     // its not its own variant
@@ -492,7 +497,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::fchmodat,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Pointer_To_Text(""),
                     General_Flag(FileMode),
@@ -507,14 +512,14 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::chown,
             Syscall_Shape {
-                types: &[Pointer_To_Text(""), Unsigned_Numeric, Unsigned_Numeric],
+                types:          &[Pointer_To_Text(""), Unsigned_Numeric, Unsigned_Numeric],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::fchown,
             Syscall_Shape {
-                types: &[File_Descriptor(""), Unsigned_Numeric, Unsigned_Numeric],
+                types:          &[File_Descriptor(""), Unsigned_Numeric, Unsigned_Numeric],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
@@ -523,14 +528,14 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::lchown,
             Syscall_Shape {
-                types: &[Pointer_To_Text(""), Unsigned_Numeric, Unsigned_Numeric],
+                types:          &[Pointer_To_Text(""), Unsigned_Numeric, Unsigned_Numeric],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::fchownat,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Pointer_To_Text(""),
                     Numeric,
@@ -543,16 +548,13 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             // file-system level sync
             Sysno::sync,
-            Syscall_Shape {
-                types: &[],
-                syscall_return: Does_Not_Return_Anything,
-            },
+            Syscall_Shape { types: &[], syscall_return: Does_Not_Return_Anything },
         ),
         (
             // file-system level sync
             Sysno::syncfs,
             Syscall_Shape {
-                types: &[File_Descriptor("")],
+                types:          &[File_Descriptor("")],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
@@ -560,7 +562,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // file level sync
             Sysno::fsync,
             Syscall_Shape {
-                types: &[File_Descriptor("")],
+                types:          &[File_Descriptor("")],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
@@ -570,7 +572,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // file level sync
             Sysno::fdatasync,
             Syscall_Shape {
-                types: &[File_Descriptor("")],
+                types:          &[File_Descriptor("")],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
@@ -596,7 +598,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // file must be writable.
             Sysno::truncate,
             Syscall_Shape {
-                types: &[Pointer_To_Text(""), Length_Of_Bytes_Specific],
+                types:          &[Pointer_To_Text(""), Length_Of_Bytes_Specific],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
@@ -604,7 +606,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // file must be open for writing
             Sysno::ftruncate,
             Syscall_Shape {
-                types: &[File_Descriptor(""), Length_Of_Bytes_Specific],
+                types:          &[File_Descriptor(""), Length_Of_Bytes_Specific],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
@@ -623,7 +625,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::close,
             Syscall_Shape {
-                types: &[File_Descriptor("")],
+                types:          &[File_Descriptor("")],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
@@ -631,7 +633,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::stat,
             Syscall_Shape {
-                types: &[Pointer_To_Text(""), Pointer_To_Struct],
+                types:          &[Pointer_To_Text(""), Pointer_To_Struct],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
@@ -639,7 +641,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::fstat,
             Syscall_Shape {
-                types: &[File_Descriptor(""), Pointer_To_Struct],
+                types:          &[File_Descriptor(""), Pointer_To_Struct],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
@@ -648,14 +650,14 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::lstat,
             Syscall_Shape {
-                types: &[Pointer_To_Text(""), Pointer_To_Struct],
+                types:          &[Pointer_To_Text(""), Pointer_To_Struct],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::newfstatat,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Pointer_To_Text(""),
                     Pointer_To_Struct,
@@ -667,7 +669,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::statx,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Pointer_To_Text(""),
                     General_Flag(FileAtFlags),
@@ -680,14 +682,14 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::statfs,
             Syscall_Shape {
-                types: &[Pointer_To_Text(""), Pointer_To_Struct],
+                types:          &[Pointer_To_Text(""), Pointer_To_Struct],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::fstatfs,
             Syscall_Shape {
-                types: &[File_Descriptor(""), Pointer_To_Struct],
+                types:          &[File_Descriptor(""), Pointer_To_Struct],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
@@ -722,7 +724,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::lseek,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Length_Of_Bytes_Specific,
                     General_Flag(LSeekWhence),
@@ -733,7 +735,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::mmap,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     // Nullable
                     Address,
                     Length_Of_Bytes_Page_Aligned_Ceil,
@@ -750,11 +752,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::mprotect,
             Syscall_Shape {
-                types: &[
-                    Address,
-                    Length_Of_Bytes_Page_Aligned_Ceil,
-                    General_Flag(Prot),
-                ],
+                types:          &[Address, Length_Of_Bytes_Page_Aligned_Ceil, General_Flag(Prot)],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
@@ -762,23 +760,24 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::munmap,
             Syscall_Shape {
-                types: &[Address, Length_Of_Bytes_Page_Aligned_Ceil],
+                types:          &[Address, Length_Of_Bytes_Page_Aligned_Ceil],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::brk,
             Syscall_Shape {
-                types: &[Address],
+                types:          &[Address],
                 // However, the actual Linux system call returns the new program break on success.
                 syscall_return: Address_Or_Errno(""),
-            }, // On failure, the system call returns the current break.
-               // to know if an error occured you have to store the previous program break point somewhere to compare
+            }, /* On failure, the system call returns the current break.
+                * to know if an error occured you have to store the previous program break point
+                * somewhere to compare */
         ),
         (
             Sysno::mlock,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     Address,
                     // Pages Ceil
                     Length_Of_Bytes_Page_Aligned_Ceil,
@@ -790,7 +789,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::mlock2,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     Address,
                     // Pages Ceil
                     Length_Of_Bytes_Page_Aligned_Ceil,
@@ -809,7 +808,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // Memory locking and unlocking are performed in units of whole pages.
             Sysno::munlock,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     Address,
                     // Pages Ceil
                     Length_Of_Bytes_Page_Aligned_Ceil,
@@ -819,26 +818,24 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         ),
         (
             // Memory locking and unlocking are performed in units of whole pages.
-            // this is equivalent to MAP_POPULATE (unless the flag is specified for custom behaviour for non-resident and future pages)
+            // this is equivalent to MAP_POPULATE (unless the flag is specified for custom
+            // behaviour for non-resident and future pages)
             Sysno::mlockall,
             Syscall_Shape {
-                types: &[General_Flag(MLockAll)],
+                types:          &[General_Flag(MLockAll)],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             // Memory locking and unlocking are performed in units of whole pages.
             Sysno::munlockall,
-            Syscall_Shape {
-                types: &[],
-                syscall_return: Numeric_Or_Errno,
-            },
+            Syscall_Shape { types: &[], syscall_return: Numeric_Or_Errno },
         ),
         // expands (or shrinks) an existing memory mapping, potentially moving it at the same time
         (
             Sysno::mremap,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     // must be page aligned
                     Address,
                     Length_Of_Bytes_Page_Aligned_Ceil,
@@ -853,21 +850,18 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::msync,
             Syscall_Shape {
-                types: &[
-                    Address,
-                    Length_Of_Bytes_Page_Aligned_Ceil,
-                    General_Flag(MSync),
-                ],
+                types:          &[Address, Length_Of_Bytes_Page_Aligned_Ceil, General_Flag(MSync)],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         // returns a vector that represent whether pages of the calling process's virtual memory
-        // are resident in core (RAM), and so will not cause a disk access (page fault) if referenced
+        // are resident in core (RAM), and so will not cause a disk access (page fault) if
+        // referenced
         (
             // memory in core
             Sysno::mincore,
             Syscall_Shape {
-                types: &[Address, Length_Of_Bytes_Page_Aligned_Ceil, Byte_Stream],
+                types:          &[Address, Length_Of_Bytes_Page_Aligned_Ceil, Byte_Stream],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
@@ -875,7 +869,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::madvise,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     // only operates on whole pages
                     // so must be page aligned
                     Address,
@@ -888,15 +882,16 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::select,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     Numeric,
                     // you can set any of these sets to NULL if you don’t care about waiting for it
                     Pointer_To_Struct,
                     Pointer_To_Struct,
                     Pointer_To_Struct,
-                    // Some Unices update the timeout here to show how much time is left, not all of them
-                    // If you set the fields in your struct timeval to 0,
-                    // select() will timeout immediately, effectively polling all the file descriptors in your sets.
+                    // Some Unices update the timeout here to show how much time is left, not all
+                    // of them If you set the fields in your struct timeval to
+                    // 0, select() will timeout immediately, effectively
+                    // polling all the file descriptors in your sets.
                     // If you set the parameter timeout to NULL,
                     // it will wait forever until the first file descriptor is ready.
                     Pointer_To_Struct,
@@ -907,23 +902,25 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::pselect6,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     Numeric,
                     // you can set any of these sets to NULL if you don’t care about waiting for it
                     Pointer_To_Struct,
                     Pointer_To_Struct,
                     Pointer_To_Struct,
-                    // pselect never updates timeout to indicate how much time is left (normal select does that in some unices)
-                    // If you set the fields in your struct timeval to 0,
-                    // select() will timeout immediately, effectively polling all the file descriptors in your sets.
+                    // pselect never updates timeout to indicate how much time is left (normal
+                    // select does that in some unices) If you set the fields
+                    // in your struct timeval to 0, select() will timeout
+                    // immediately, effectively polling all the file descriptors in your sets.
                     // If you set the parameter timeout to NULL,
                     // it will wait forever until the first file descriptor is ready.
                     Pointer_To_Struct,
-                    // The final argument of the pselect6() system call is not a sigset_t * pointer, but is instead a structure of the form:
+                    // The final argument of the pselect6() system call is not a sigset_t *
+                    // pointer, but is instead a structure of the form:
                     // struct {
                     //     const kernel_sigset_t *ss;   /* Pointer to signal set */
-                    //     size_t ss_len;               /* Size (in bytes) of object pointed to by 'ss' */
-                    // };
+                    //     size_t ss_len;               /* Size (in bytes) of object pointed to by
+                    // 'ss' */ };
                     Pointer_To_Struct,
                 ],
                 syscall_return: Numeric_Or_Errno,
@@ -932,15 +929,16 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::poll,
             Syscall_Shape {
-                types: &[Array_Of_Struct, Unsigned_Numeric, Numeric],
-                // It doesn’t tell you which elements (you still have to scan for that), it only tell you how many,
+                types:          &[Array_Of_Struct, Unsigned_Numeric, Numeric],
+                // It doesn’t tell you which elements (you still have to scan for that), it only
+                // tell you how many,
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::ppoll,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     Array_Of_Struct,
                     Unsigned_Numeric,
                     Pointer_To_Struct,
@@ -957,9 +955,10 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // the file descriptor returned by epoll_create() should be closed by using close(2)
             Sysno::epoll_create,
             Syscall_Shape {
-                types: &[
-                    // in the past this size parameter told the kernel how many fds the caller expects to add
-                    // the kerenl now however does not need that information and instead dynamically allocates space
+                types:          &[
+                    // in the past this size parameter told the kernel how many fds the caller
+                    // expects to add the kerenl now however does not need that
+                    // information and instead dynamically allocates space
                     // it is kept for backward compatibility
                     // and must be greater than zero
                     Unsigned_Numeric,
@@ -973,7 +972,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // epoll_create but with a bahviour customizing flag
             Sysno::epoll_create1,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     // if this argument is zero, this syscall is identical to epoll_create
                     General_Flag(EPollCreate1Flags),
                 ],
@@ -987,7 +986,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             //     • the timeout expires.
             Sysno::epoll_wait,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Pointer_To_Struct,
                     Unsigned_Numeric,
@@ -1004,7 +1003,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // similar to epoll_wait but also waits for specific signals
             Sysno::epoll_pwait,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Pointer_To_Struct,
                     Unsigned_Numeric,
@@ -1024,7 +1023,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // similar to epoll_pwait but has nanosend resolution
             Sysno::epoll_pwait2,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Pointer_To_Struct,
                     Unsigned_Numeric,
@@ -1043,7 +1042,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::epoll_ctl,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     General_Flag(EPollCTLOperationFlags),
                     File_Descriptor(""),
@@ -1079,10 +1078,10 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         //     Syscall_Shape {
         //         types: &[
         //             File_Descriptor(""),
-        //             // The returned information is truncated if the buffer provided is too small (addrlen small)
-        //             Pointer_To_Struct,
-        //             // upon return this pointer gets updated with the length of bytes written in the buffer
-        //             // but in this case of truncation
+        //             // The returned information is truncated if the buffer provided is too small
+        // (addrlen small)             Pointer_To_Struct,
+        //             // upon return this pointer gets updated with the length of bytes written in
+        // the buffer             // but in this case of truncation
         //             // it will return a value greater
         //             // than was supplied to the call.
         //             Pointer_To_Length_Of_Bytes_Specific,
@@ -1098,8 +1097,8 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         //             // The returned information is truncated
         //             // if the buffer provided is too small (addrlen small);
         //             Pointer_To_Struct,
-        //             // upon return this pointer gets updated with the length of bytes written in the buffer
-        //             // but in this case of truncation
+        //             // upon return this pointer gets updated with the length of bytes written in
+        // the buffer             // but in this case of truncation
         //             // it will return a value greater
         //             // than was supplied to the call.
         //             Pointer_To_Length_Of_Bytes_Specific,
@@ -1114,9 +1113,9 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         //             General_Flag(SocketFamily),
         //             General_Flag(SocketType),
         //             General_Flag(SocketProtocol),
-        //             // (ValueReturn(Pointer_To_File_Descriptor_Array(["", ""],syscall_return: Pointer_To_File_Descriptor_Array(["", ""]))
-        //             Pointer_To_File_Descriptor_Array(["", ""]),
-        //         ],
+        //             // (ValueReturn(Pointer_To_File_Descriptor_Array(["", ""],syscall_return:
+        // Pointer_To_File_Descriptor_Array(["", ""]))             
+        // Pointer_To_File_Descriptor_Array(["", ""]),         ],
         //         // on error sv is left unchanged
         //         syscall_return: Numeric_Or_Errno,
         //     },
@@ -1220,10 +1219,10 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         //             Length_Of_Bytes_Specific,
         //             General_Flag(SocketMessageFlag),
         //             // WILL BE USED if connection-less (like UDP)
-        //             // WILL BE IGNORED if connection-mode (like TCP, or SEQ) and must be null or 0
-        //             Pointer_To_Struct,
-        //             // IGNORED if connection-mode (like TCP, or SEQ) (UDP IS CONNECTIONLESS) and must be null or 0
-        //             Length_Of_Bytes_Specific,
+        //             // WILL BE IGNORED if connection-mode (like TCP, or SEQ) and must be null or
+        // 0             Pointer_To_Struct,
+        //             // IGNORED if connection-mode (like TCP, or SEQ) (UDP IS CONNECTIONLESS) and
+        // must be null or 0             Length_Of_Bytes_Specific,
         //         ],
         //         syscall_return: Length_Of_Bytes_Specific_Or_Errno,
         //     },
@@ -1254,8 +1253,8 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         //             // it means we do not care or want src_addr details
         //             // otherwise addrlen is value-result argument
         //             Pointer_To_Struct,
-        //             // value-result argument, will become the length of the buffer, and truncation rules apply
-        //             Pointer_To_Struct,
+        //             // value-result argument, will become the length of the buffer, and
+        // truncation rules apply             Pointer_To_Struct,
         //         ],
         //         syscall_return: Length_Of_Bytes_Specific_Or_Errno,
         //     },
@@ -1277,7 +1276,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::shutdown,
             Syscall_Shape {
-                types: &[File_Descriptor(""), General_Flag(SocketShutdownFlag)],
+                types:          &[File_Descriptor(""), General_Flag(SocketShutdownFlag)],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
@@ -1287,23 +1286,21 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::fcntl,
             Syscall_Shape {
-                types: &[
-                    File_Descriptor(""),
-                    General_Flag(FcntlFlags),
-                    Pointer_To_Struct,
-                ],
+                types:          &[File_Descriptor(""), General_Flag(FcntlFlags), Pointer_To_Struct],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::ioctl,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     Unsigned_Numeric,
-                    // The arg parameter to the ioctl is opaque at the generic vfs level (an opaque data type is a data type whose concrete data structure is not defined in an interface)
-                    // How to interpret it is up to the driver or filesystem that actually handles it
-                    // So it may be a pointer to userspace memory, or it could be an index, a flag, whatever
+                    // The arg parameter to the ioctl is opaque at the generic vfs level (an opaque
+                    // data type is a data type whose concrete data structure is not defined in an
+                    // interface) How to interpret it is up to the driver or
+                    // filesystem that actually handles it So it may be a
+                    // pointer to userspace memory, or it could be an index, a flag, whatever
                     // It might even be unused and conventionally passed in a 0
                     Pointer_To_Struct,
                 ],
@@ -1316,29 +1313,25 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::arch_prctl,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     General_Flag(ArchPrctlFlags),
-                    // TODO! this argument is a number for set operations and a pointer to a number for get operations
-                    // Pointer_To_Numeric_Or_Numeric is a special case for arch_prctl, because it depends on the op union
+                    // TODO! this argument is a number for set operations and a pointer to a number
+                    // for get operations Pointer_To_Numeric_Or_Numeric is a
+                    // special case for arch_prctl, because it depends on the op union
                     Pointer_To_Numeric_Or_Numeric(None),
                 ],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         // causes the calling thread to relinquish the CPU.
-        // The thread is moved to the end of the queue for its static priority and a new thread gets to run.
-        (
-            Sysno::sched_yield,
-            Syscall_Shape {
-                types: &[],
-                syscall_return: Numeric_Or_Errno,
-            },
-        ),
+        // The thread is moved to the end of the queue for its static priority and a new thread
+        // gets to run.
+        (Sysno::sched_yield, Syscall_Shape { types: &[], syscall_return: Numeric_Or_Errno }),
         (
             // change the action taken by a process on receipt of a specific signal
             Sysno::rt_sigaction,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     // can be any valid signal except SIGKILL and SIGSTOP.
                     General_Flag(Signal),
                     // new action
@@ -1355,7 +1348,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::rt_sigprocmask,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     General_Flag(SignalHow),
                     // If NULL, then the signal mask is unchanged.
                     Pointer_To_Struct,
@@ -1373,7 +1366,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // (its like what ptrace TRACE_ME does)
             Sysno::rt_sigsuspend,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     // SIGKILL or SIGSTOP can not be blocked
                     Pointer_To_Struct,
                     Length_Of_Bytes_Specific,
@@ -1389,7 +1382,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // It should be fairly large, to avoid any danger that it will overflow
             Sysno::sigaltstack,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     // can be null if dont want this part of the operation
                     Pointer_To_Struct,
                     // NULLABLE meaning we dont want it
@@ -1399,24 +1392,22 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             },
         ),
         (
-            // created to immediately run after signal handlers, to clean up and correct stack pointer/program counter
+            // created to immediately run after signal handlers, to clean up and correct stack
+            // pointer/program counter
             Sysno::rt_sigreturn,
-            Syscall_Shape {
-                types: &[],
-                syscall_return: Never_Returns,
-            },
+            Syscall_Shape { types: &[], syscall_return: Never_Returns },
         ),
         (
             Sysno::rt_sigpending,
             Syscall_Shape {
-                types: &[Pointer_To_Struct, Length_Of_Bytes_Specific],
+                types:          &[Pointer_To_Struct, Length_Of_Bytes_Specific],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::rt_sigtimedwait,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     Pointer_To_Struct,
                     // NULLABLE
                     Pointer_To_Struct,
@@ -1432,7 +1423,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // requires registering a handler first via sigaction
             Sysno::rt_sigqueueinfo,
             Syscall_Shape {
-                types: &[PID, General_Flag(Signal), Pointer_To_Struct],
+                types:          &[PID, General_Flag(Signal), Pointer_To_Struct],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
@@ -1441,14 +1432,14 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // requires registering a handler first via sigaction
             Sysno::rt_tgsigqueueinfo,
             Syscall_Shape {
-                types: &[PID, PID, General_Flag(Signal), Pointer_To_Struct],
+                types:          &[PID, PID, General_Flag(Signal), Pointer_To_Struct],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::signalfd,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     // fd of a file, or -1, let the kernel create a new file descriptor
                     File_Descriptor(""),
                     // It is not possible to receive SIGKILL or SIGSTOP
@@ -1461,7 +1452,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::signalfd4,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     // fd of a file, or -1, let the kernel create a new file descriptor
                     File_Descriptor(""),
                     // It is not possible to receive SIGKILL or SIGSTOP
@@ -1472,18 +1463,21 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
                 syscall_return: File_Descriptor_Or_Errno(""),
             },
         ),
-        // The pidfd_open syscall allows users to obtain a file descriptor referring to the PID of the specified process.
-        // This syscall is useful in situations where one process needs access to the PID of another process in order to send signals,
+        // The pidfd_open syscall allows users to obtain a file descriptor referring to the PID of
+        // the specified process. This syscall is useful in situations where one process
+        // needs access to the PID of another process in order to send signals,
         // retrieve information about the process, or similar operations.
-        // It can also be used to monitor the lifetime of the process, since the file descriptor is closed when the process terminates.
+        // It can also be used to monitor the lifetime of the process, since the file descriptor is
+        // closed when the process terminates.
         (
             Sysno::pidfd_send_signal,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     General_Flag(Signal),
-                    // if null, its equivalent to the struct version which is provided a signal is sent using kill
-                    // otherwise the buffer is equivalent to the info buffer specified by the rt_sigqueueinfo syscall
+                    // if null, its equivalent to the struct version which is provided a signal is
+                    // sent using kill otherwise the buffer is equivalent to
+                    // the info buffer specified by the rt_sigqueueinfo syscall
                     Pointer_To_Struct,
                     // reserved for future use, currently should be 0
                     General_Flag(ReservedForFutureUse),
@@ -1494,33 +1488,25 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             // always successful
             Sysno::gettid,
-            Syscall_Shape {
-                types: &[],
-                syscall_return: Always_Successful_Numeric,
-            },
+            Syscall_Shape { types: &[], syscall_return: Always_Successful_Numeric },
         ),
         // This is often used by routines that generate unique temporary filenames.
         (
             // always successful
             Sysno::getpid,
-            Syscall_Shape {
-                types: &[],
-                syscall_return: Always_Successful_Numeric,
-            },
+            Syscall_Shape { types: &[], syscall_return: Always_Successful_Numeric },
         ),
         (
             // always successful
             Sysno::getppid,
-            Syscall_Shape {
-                types: &[],
-                syscall_return: Always_Successful_Numeric,
-            },
+            Syscall_Shape { types: &[], syscall_return: Always_Successful_Numeric },
         ),
-        // These bytes can be used to seed user-space random number generators or for cryptographic purposes.
+        // These bytes can be used to seed user-space random number generators or for cryptographic
+        // purposes.
         (
             Sysno::getrandom,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     Pointer_To_Struct,
                     Length_Of_Bytes_Specific,
                     General_Flag(GetRandomFlags),
@@ -1531,14 +1517,14 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::setrlimit,
             Syscall_Shape {
-                types: &[General_Flag(ResourceFlags), Pointer_To_Struct],
+                types:          &[General_Flag(ResourceFlags), Pointer_To_Struct],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::getrlimit,
             Syscall_Shape {
-                types: &[General_Flag(ResourceFlags), Pointer_To_Struct],
+                types:          &[General_Flag(ResourceFlags), Pointer_To_Struct],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
@@ -1547,7 +1533,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // NULL when you dont want either
             Sysno::prlimit64,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     // if zero then operate on the calling process
                     PID,
                     General_Flag(ResourceFlags),
@@ -1585,21 +1571,21 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::sysinfo,
             Syscall_Shape {
-                types: &[Pointer_To_Struct],
+                types:          &[Pointer_To_Struct],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::times,
             Syscall_Shape {
-                types: &[Pointer_To_Struct],
+                types:          &[Pointer_To_Struct],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::sched_setaffinity,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     // if zero then the calling thread is the thread referred to
                     PID,
                     Length_Of_Bytes_Specific,
@@ -1611,7 +1597,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::sched_getaffinity,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     // if zero then the calling thread is the thread referred to
                     PID,
                     Length_Of_Bytes_Specific,
@@ -1623,29 +1609,19 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             // Any open file descriptors belonging to the process are closed.
             // Any children of the process are inherited by init(1)
-            // (or  by the nearest "subreaper" process as defined prctl(2) PR_SET_CHILD_SUBREAPER operation).
-            // The process's parent is sent a SIGCHLD signal.
+            // (or  by the nearest "subreaper" process as defined prctl(2) PR_SET_CHILD_SUBREAPER
+            // operation). The process's parent is sent a SIGCHLD signal.
             Sysno::exit,
-            Syscall_Shape {
-                types: &[Numeric],
-                syscall_return: Never_Returns,
-            },
+            Syscall_Shape { types: &[Numeric], syscall_return: Never_Returns },
         ),
-        (
-            Sysno::exit_group,
-            Syscall_Shape {
-                types: &[Numeric],
-                syscall_return: Never_Returns,
-            },
-        ),
+        (Sysno::exit_group, Syscall_Shape { types: &[Numeric], syscall_return: Never_Returns }),
         (
             // send a signal to a process
             Sysno::kill,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     // tgid specified as -1 makes the syscall equivalent to tkill()
-                    PID,
-                    Numeric,
+                    PID, Numeric,
                 ],
                 syscall_return: Numeric_Or_Errno,
             },
@@ -1654,7 +1630,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // send a signal to a specific thread in a specific thread group
             Sysno::tgkill,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     // tgid specified as -1 makes the syscall equivalent to tkill()
                     PID,
                     PID,
@@ -1665,28 +1641,32 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         ),
         (
             // a version of tgkill that doesnt specify the thread group
-            // in rare situations this results in the signal being sent to a wrong thread (true thread dies, and false thread recycles the same tid)
+            // in rare situations this results in the signal being sent to a wrong thread (true
+            // thread dies, and false thread recycles the same tid)
             Sysno::tkill,
             Syscall_Shape {
-                types: &[PID, General_Flag(Signal)],
+                types:          &[PID, General_Flag(Signal)],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
-            // pause the process until its interrupted by a signal that either triggers a signal handler or triggers a process termination
+            // pause the process until its interrupted by a signal that either triggers a signal
+            // handler or triggers a process termination
             Sysno::pause,
             Syscall_Shape {
-                types: &[],
-                // returns if the signal triggers a handler and the handler returns, in this case: returns -1, and errno is set to EINTR
-                // does not return if the signal causes termination
+                types:          &[],
+                // returns if the signal triggers a handler and the handler returns, in this case:
+                // returns -1, and errno is set to EINTR does not return if the
+                // signal causes termination
                 syscall_return: Always_Errors,
             },
         ),
         (
-            // pause the process until its interrupted by a signal that either triggers a signal handler or triggers a process termination
+            // pause the process until its interrupted by a signal that either triggers a signal
+            // handler or triggers a process termination
             Sysno::ptrace,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     // OP
                     General_Flag(PtraceOperation),
                     // PID
@@ -1698,8 +1678,9 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
                 ],
                 // On success
                 // the PTRACE_PEEK* operations return the requested data (one word)
-                // the PTRACE_SECCOMP_GET_FILTER operation returns the number of instructions in the BPF program
-                // the PTRACE_GET_SYSCALL_INFO operation returns the number of bytes available to be written by the kernel
+                // the PTRACE_SECCOMP_GET_FILTER operation returns the number of instructions in
+                // the BPF program the PTRACE_GET_SYSCALL_INFO operation returns
+                // the number of bytes available to be written by the kernel
                 // and other operations return zero
                 //
                 //
@@ -1712,15 +1693,15 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::rseq,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     // Only one rseq can be registered per thread,
                     Pointer_To_Struct,
                     Length_Of_Bytes_Specific,
                     // 0 for registration, and RSEQ FLAG UNREGISTER for unregistration
                     General_Flag(RSeqFlag),
                     // Each supported architecture provides a RSEQ_SIG macro in sys/rseq.h
-                    // which contains a signature. That signature is expected to be present in the code
-                    // before each restartable sequences abort handler.
+                    // which contains a signature. That signature is expected to be present in the
+                    // code before each restartable sequences abort handler.
                     // Failure to provide the expected signature may terminate the process
                     // with a segmentation fault.
                     Unsigned_Numeric,
@@ -1731,41 +1712,29 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::uname,
             Syscall_Shape {
-                types: &[Pointer_To_Struct],
+                types:          &[Pointer_To_Struct],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             // always successful
             Sysno::getuid,
-            Syscall_Shape {
-                types: &[],
-                syscall_return: Always_Successful_User_Group,
-            },
+            Syscall_Shape { types: &[], syscall_return: Always_Successful_User_Group },
         ),
         (
             // always successful
             Sysno::geteuid,
-            Syscall_Shape {
-                types: &[],
-                syscall_return: Always_Successful_User_Group,
-            },
+            Syscall_Shape { types: &[], syscall_return: Always_Successful_User_Group },
         ),
         (
             // always successful
             Sysno::getgid,
-            Syscall_Shape {
-                types: &[],
-                syscall_return: Always_Successful_User_Group,
-            },
+            Syscall_Shape { types: &[], syscall_return: Always_Successful_User_Group },
         ),
         (
             // always successful
             Sysno::getegid,
-            Syscall_Shape {
-                types: &[],
-                syscall_return: Always_Successful_User_Group,
-            },
+            Syscall_Shape { types: &[], syscall_return: Always_Successful_User_Group },
         ),
         // (
         //     // If the calling process is privileged (the process has the CAP_SETUID capability),
@@ -1776,22 +1745,22 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         //         // The user ID specified in uid is not valid in this user namespace.
         //         syscall_return: Numeric_Or_Errno,
         //     }, // The  user  is  not  privileged (does not have the CAP_SETUID capability)
-        //        // and uid does not match the real UID or saved set-user-ID of the calling process.
-        // ),
+        //        // and uid does not match the real UID or saved set-user-ID of the calling
+        // process. ),
         // (
         //     Sysno::setgid,
         //     Syscall_Shape {
         //         types: &[User_Group],
         //         // The calling process is not privileged (does not have the CAP_SETGID),
         //         syscall_return: Numeric_Or_Errno,
-        //     }, // and gid does not match the real group ID or saved set-group-ID of the calling process.
-        // ),
+        //     }, // and gid does not match the real group ID or saved set-group-ID of the calling
+        // process. ),
         (
-            // Before the introduction of futexes, system calls were required for locking and unlocking shared resources
-            // (for example semop).
+            // Before the introduction of futexes, system calls were required for locking and
+            // unlocking shared resources (for example semop).
             Sysno::futex,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     Pointer_To_Unsigned_Numeric,
                     General_Flag(FutexOpFlags),
                     Unsigned_Numeric,
@@ -1804,46 +1773,50 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         ),
         (
             // always successful
-            // When set_child_tid is set, the very first thing the new thread does is to write its thread ID at this address.
+            // When set_child_tid is set, the very first thing the new thread does is to write its
+            // thread ID at this address.
 
             // When a thread whose clear_child_tid is not NULL terminates, then,
-            // if the thread is sharing memory with other threads, then 0 is written at the address specified in
-            // clear_child_tid and the kernel performs the following operation:
-            // futex(clear_child_tid, FUTEX_WAKE, 1, NULL, NULL, 0);
-            // The effect of this operation is to wake a single thread that is performing a futex wait on the memory location.
-            // Errors from the futex wake operation are ignored.
+            // if the thread is sharing memory with other threads, then 0 is written at the address
+            // specified in clear_child_tid and the kernel performs the following
+            // operation: futex(clear_child_tid, FUTEX_WAKE, 1, NULL, NULL, 0);
+            // The effect of this operation is to wake a single thread that is performing a futex
+            // wait on the memory location. Errors from the futex wake operation are
+            // ignored.
             Sysno::set_tid_address,
             Syscall_Shape {
-                types: &[Pointer_To_Numeric(None)],
+                types:          &[Pointer_To_Numeric(None)],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::eventfd,
             Syscall_Shape {
-                types: &[Unsigned_Numeric],
+                types:          &[Unsigned_Numeric],
                 syscall_return: File_Descriptor_Or_Errno(""),
             },
         ),
         (
             Sysno::eventfd2,
             Syscall_Shape {
-                types: &[Unsigned_Numeric, General_Flag(EventfdFlag)],
+                types:          &[Unsigned_Numeric, General_Flag(EventfdFlag)],
                 syscall_return: File_Descriptor_Or_Errno(""),
             },
         ),
         (
             Sysno::wait4,
             Syscall_Shape {
-                types: &[
-                    // < -1  wait for any child process whose process group ID is equal to the absolute value of pid.
-                    // -1    wait for any child process.
-                    // 0     wait for any child process whose process group ID is equal to that of the calling process at the time of the call to waitpid().
+                types:          &[
+                    // < -1  wait for any child process whose process group ID is equal to the
+                    // absolute value of pid. -1    wait for any child process.
+                    // 0     wait for any child process whose process group ID is equal to that of
+                    // the calling process at the time of the call to waitpid().
                     // > 0   wait for the child whose process ID is equal to the value of pid.
                     User_Group,
-                    // If wstatus is not NULL, wait4() stores status information in the int to which it points.
-                    // This integer can be inspected with the following macros
-                    // (which take the integer itself as an argument, not a pointer to it (as is done in syscall))
+                    // If wstatus is not NULL, wait4() stores status information in the int to
+                    // which it points. This integer can be inspected with the
+                    // following macros (which take the integer itself as an
+                    // argument, not a pointer to it (as is done in syscall))
                     Pointer_To_Numeric(None),
                     General_Flag(WaitEventFlags),
                     // NULLABLE means do not want
@@ -1856,7 +1829,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::waitid,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     General_Flag(WaitIdTypeFlags),
                     User_Group,
                     Pointer_To_Struct,
@@ -1866,70 +1839,58 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
                     // child, in the same manner as wait4(2).
                     Pointer_To_Struct,
                 ],
-                // returns 0 on success or if WNOHANG was specified and no child(ren) specified by id has yet changed state
+                // returns 0 on success or if WNOHANG was specified and no child(ren) specified by
+                // id has yet changed state
                 syscall_return: Numeric_Or_Errno,
             },
         ),
-        //
         // (
         //     Sysno::eventfd2,
         // ),
-        //
         (
             // in linux every thread can have a list of "robust futexes"
-            // threads in programs use this list as a contingency plan in the case that they die unexpectedly
-            // given that they are in user-space, the kernel can't do anything in case a thread dies while holding the lock,
-            // in that case the only way for waiting threads to be stopped is by rebooting!
-            // to fix this, in linux, whever a thread exits (any thread) the kernel checks if it has a robust futex list
-            // if it does, then the kernel walks the list of futexes
+            // threads in programs use this list as a contingency plan in the case that they die
+            // unexpectedly given that they are in user-space, the kernel can't do
+            // anything in case a thread dies while holding the lock, in that case the
+            // only way for waiting threads to be stopped is by rebooting! to fix this,
+            // in linux, whever a thread exits (any thread) the kernel checks if it has a robust
+            // futex list if it does, then the kernel walks the list of futexes
             // and for every futex it cleans up and wakes any other waiter
             Sysno::set_robust_list,
-            Syscall_Shape {
-                types: &[Address, Numeric],
-                syscall_return: Numeric_Or_Errno,
-            },
+            Syscall_Shape { types: &[Address, Numeric], syscall_return: Numeric_Or_Errno },
         ),
         (
             // in linux every thread can have a list of "robust futexes"
-            // threads in programs use this list as a contingency plan in the case that they die unexpectedly
-            // given that they are in user-space, the kernel can't do anything in case a thread dies while holding the lock,
-            // in that case the only way for waiting threads to be stopped is by rebooting!
-            // to fix this, in linux, whever a thread exits (any thread) the kernel checks if it has a robust futex list
-            // if it does, then the kernel walks the list of futexes
+            // threads in programs use this list as a contingency plan in the case that they die
+            // unexpectedly given that they are in user-space, the kernel can't do
+            // anything in case a thread dies while holding the lock, in that case the
+            // only way for waiting threads to be stopped is by rebooting! to fix this,
+            // in linux, whever a thread exits (any thread) the kernel checks if it has a robust
+            // futex list if it does, then the kernel walks the list of futexes
             // and for every futex it cleans up and wakes any other waiter
             Sysno::get_robust_list,
             Syscall_Shape {
-                types: &[User_Group, Address, Pointer_To_Numeric(None)],
+                types:          &[User_Group, Address, Pointer_To_Numeric(None)],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::setpgid,
             Syscall_Shape {
-                types: &[User_Group, User_Group],
+                types:          &[User_Group, User_Group],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
-        (
-            Sysno::getpgid,
-            Syscall_Shape {
-                types: &[User_Group],
-                syscall_return: Numeric_Or_Errno,
-            },
-        ),
-        (
-            Sysno::getpgrp,
-            Syscall_Shape {
-                types: &[],
-                syscall_return: Numeric_Or_Errno,
-            },
-        ),
+        (Sysno::getpgid, Syscall_Shape { types: &[User_Group], syscall_return: Numeric_Or_Errno }),
+        (Sysno::getpgrp, Syscall_Shape { types: &[], syscall_return: Numeric_Or_Errno }),
         (
             // run in separate memory spaces.
             // At the time of fork() both memory spaces have the  same  content.
-            // Memory  writes,  file  mappings, unmappings, performed by one of the processes do not affect the other.
+            // Memory  writes,  file  mappings, unmappings, performed by one of the processes do
+            // not affect the other.
 
-            // The child process is an exact duplicate of the parent process except for the following points:
+            // The child process is an exact duplicate of the parent process except for the
+            // following points:
 
             // •  The child has its own unique process ID,
 
@@ -1937,25 +1898,33 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
 
             // •  The child does not inherit memory locks (mlock(2), mlockall(2)).
 
-            // •  Process resource utilizations (getrusage(2)) and CPU time counters (times(2)) are reset to zero in the child.
+            // •  Process resource utilizations (getrusage(2)) and CPU time counters (times(2)) are
+            // reset to zero in the child.
 
             // •  The child's set of pending signals is initially empty (sigpending(2)).
 
             // •  The child does not inherit semaphore adjustments from its parent (semop(2)).
 
-            // •  The  child  does  not  inherit  process-associated record locks from its parent (fcntl(2)).  (On the other hand, it does inherit fcntl(2) open file description locks and
-            //    flock(2) locks from its parent.)
+            // •  The  child  does  not  inherit  process-associated record locks from its parent
+            // (fcntl(2)).  (On the other hand, it does inherit fcntl(2) open file description
+            // locks and    flock(2) locks from its parent.)
 
-            // •  The child does not inherit timers from its parent (setitimer(2), alarm(2), timer_create(2)).
+            // •  The child does not inherit timers from its parent (setitimer(2), alarm(2),
+            // timer_create(2)).
 
-            // •  The child does not inherit outstanding (unresolved) asynchronous I/O operations from its parent (aio_read(3), aio_write(3), nor does it inherit any asynchronous  I/O  contexts  from
-            //    its parent (see io_setup(2)).
+            // •  The child does not inherit outstanding (unresolved) asynchronous I/O operations
+            // from its parent (aio_read(3), aio_write(3), nor does it inherit any asynchronous
+            // I/O  contexts  from    its parent (see io_setup(2)).
 
-            // The  process  attributes  in the preceding list are all specified in POSIX.1.  The parent and child also differ with respect to the following Linux-specific process attributes:
+            // The  process  attributes  in the preceding list are all specified in POSIX.1.  The
+            // parent and child also differ with respect to the following Linux-specific process
+            // attributes:
 
-            // •  The child does not inherit directory change notifications (dnotify) from its parent
+            // •  The child does not inherit directory change notifications (dnotify) from its
+            // parent
 
-            // •  The prctl(2) PR_SET_PDEATHSIG setting is reset so that the child does not receive a signal when its parent terminates.
+            // •  The prctl(2) PR_SET_PDEATHSIG setting is reset so that the child does not receive
+            // a signal when its parent terminates.
 
             // •  The default timer slack value is set to the parent's current timer slack value.
 
@@ -1965,29 +1934,39 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
 
             // •  The termination signal of the child is always SIGCHLD (see cl&2)).
 
-            // •  The port access permission bits set by ioperm(2) are not inherited by the child; the child must turn on any bits that it requires using ioperm(2).
+            // •  The port access permission bits set by ioperm(2) are not inherited by the child;
+            // the child must turn on any bits that it requires using ioperm(2).
 
             // Note the following further points:
 
-            // •  The  child  process is created with a single thread—the one that called fork().  The entire virtual address space of the parent is replicated in the child, including the
-            //    states of mutexes, condition variables, and other pthreads objects; the use of pthread_atfork(3) may be helpful for dealing with problems that this can cause.
+            // •  The  child  process is created with a single thread—the one that called fork().
+            // The entire virtual address space of the parent is replicated in the child, including
+            // the    states of mutexes, condition variables, and other pthreads
+            // objects; the use of pthread_atfork(3) may be helpful for dealing with problems that
+            // this can cause.
 
-            // •  After a fork() in a multithreaded program, the child can safely call only async-signal-safe functions (see signal-safety(7)) until such time as it calls execve(2).
+            // •  After a fork() in a multithreaded program, the child can safely call only
+            // async-signal-safe functions (see signal-safety(7)) until such time as it calls
+            // execve(2).
 
-            // •  The child inherits copies of the parent's set of open file descriptors.  Each file descriptor in the child refers to the same open file description (see open(2)) as  the
-            //    corresponding  file  descriptor in the parent.  This means that the two file descriptors share open file status flags, file offset, and signal-driven I/O attributes (see
-            //    the description of F_SETOWN and F_SETSIG in fcntl(2)).
+            // •  The child inherits copies of the parent's set of open file descriptors.  Each
+            // file descriptor in the child refers to the same open file description (see open(2))
+            // as  the    corresponding  file  descriptor in the parent.  This means
+            // that the two file descriptors share open file status flags, file offset, and
+            // signal-driven I/O attributes (see    the description of F_SETOWN and
+            // F_SETSIG in fcntl(2)).
 
-            // •  The child inherits copies of the parent's set of open message queue descriptors (see mq_overview(7)).  Each file descriptor in the child refers to the same open  message
-            //    queue description as the corresponding file descriptor in the parent.  This means that the two file descriptors share the same flags (mq_flags).
+            // •  The child inherits copies of the parent's set of open message queue descriptors
+            // (see mq_overview(7)).  Each file descriptor in the child refers to the same open
+            // message    queue description as the corresponding file descriptor in the
+            // parent.  This means that the two file descriptors share the same flags (mq_flags).
 
-            // •  The  child inherits copies of the parent's set of open directory streams (see opendir(3)).  POSIX.1 says that the corresponding directory streams in the parent and child
-            //    may share the directory stream positioning; on Linux/glibc they do not.
+            // •  The  child inherits copies of the parent's set of open directory streams (see
+            // opendir(3)).  POSIX.1 says that the corresponding directory streams in the parent
+            // and child    may share the directory stream positioning; on Linux/glibc
+            // they do not.
             Sysno::fork,
-            Syscall_Shape {
-                types: &[],
-                syscall_return: Numeric_Or_Errno,
-            },
+            Syscall_Shape { types: &[], syscall_return: Numeric_Or_Errno },
         ),
         (
             // 1- simpler version of the fork() system call.
@@ -1996,26 +1975,23 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             //      involved copying everything from the parent process, including address space,
             //      which was very inefficient.
             //
-            // 2- the calling thread is suspended until the child terminates or makes a call to execve
-            //      This is because both processes use the same address space,
+            // 2- the calling thread is suspended until the child terminates or makes a call to
+            // execve      This is because both processes use the same address space,
             //      which contains the stack, stack pointer, and instruction pointer.
             Sysno::vfork,
-            Syscall_Shape {
-                types: &[],
-                syscall_return: Numeric_Or_Errno,
-            },
+            Syscall_Shape { types: &[], syscall_return: Numeric_Or_Errno },
         ),
         (
             Sysno::clone3,
             Syscall_Shape {
-                types: &[Pointer_To_Struct, Unsigned_Numeric],
+                types:          &[Pointer_To_Struct, Unsigned_Numeric],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::clone,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     General_Flag(CloneFlags),
                     Address,
                     Pointer_To_Numeric(None),
@@ -2067,7 +2043,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::nanosleep,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     // The value of the nanoseconds field must be in the range [0, 999999999].
                     Pointer_To_Struct,
                     // NULLABLE means do not want
@@ -2079,7 +2055,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::execve,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     Pointer_To_Text(""),
                     // the first of these strings should be the filename of the file being executed
                     // terminated by a null pointer
@@ -2207,14 +2183,15 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // they are resources "virtualization" tools
             Sysno::landlock_create_ruleset,
             Syscall_Shape {
-                types: &[
-                    // these actions will by default be forbidden if no future rules explicitly allows them
-                    // Nullable
+                types:          &[
+                    // these actions will by default be forbidden if no future rules explicitly
+                    // allows them Nullable
                     Pointer_To_Struct,
                     Length_Of_Bytes_Specific,
                     // flags must be 0 if attr is used.
                     // for now only: LANDLOCK_CREATE_RULESET_VERSION flag available
-                    //      If attr is NULL and size is 0, then the returned value is the highest supported Landlock ABI version
+                    //      If attr is NULL and size is 0, then the returned value is the highest
+                    // supported Landlock ABI version
                     General_Flag(LandlockCreateFlag),
                 ],
                 syscall_return: File_Descriptor_Or_Errno(""),
@@ -2223,7 +2200,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::landlock_add_rule,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     // currently only LANDLOCK_RULE_PATH_BENEATH : bla is file hierarchy.
                     General_Flag(LandlockRuleTypeFlag),
@@ -2237,7 +2214,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             Sysno::landlock_restrict_self,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     // must be 0
                     General_Flag(LandlockRestrictFlag),
@@ -2248,7 +2225,8 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         (
             // A sparse file is a file that is mostly empty,
             // i.e. it contains large blocks of bytes whose value is 0 (zero).
-            // On the disk, the content of a file is stored in blocks of fixed size (usually 4 KiB or more).
+            // On the disk, the content of a file is stored in blocks of fixed size (usually 4 KiB
+            // or more).
             //
             // When all the bytes contained in such a block are 0,
             // a file system that supports sparse files will not store the block on disk,
@@ -2257,7 +2235,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // offset and len must be a multiple of the filesystem logical block size,
             Sysno::fallocate,
             Syscall_Shape {
-                types: &[
+                types:          &[
                     File_Descriptor(""),
                     General_Flag(FallocFlags),
                     Length_Of_Bytes_Specific,
@@ -2270,7 +2248,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // this is what runs behind the nice command
             Sysno::getpriority,
             Syscall_Shape {
-                types: &[General_Flag(PriorityWhich), Numeric],
+                types:          &[General_Flag(PriorityWhich), Numeric],
                 syscall_return: Priority_Or_Errno(MaybeUninit::<bool>::zeroed()),
             },
         ),
@@ -2278,14 +2256,14 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // this is what runs behind the nice command
             Sysno::setpriority,
             Syscall_Shape {
-                types: &[General_Flag(PriorityWhich), Numeric, Unsigned_Numeric],
+                types:          &[General_Flag(PriorityWhich), Numeric, Unsigned_Numeric],
                 syscall_return: Numeric_Or_Errno,
             },
         ),
         (
             Sysno::getdents,
             Syscall_Shape {
-                types: &[File_Descriptor(""), Pointer_To_Struct, Unsigned_Numeric],
+                types:          &[File_Descriptor(""), Pointer_To_Struct, Unsigned_Numeric],
                 // On end of directory, 0 is returned.
                 syscall_return: Length_Of_Bytes_Specific_Or_Errno,
             },
@@ -2294,7 +2272,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             // handle large filesystems and large file offsets.
             Sysno::getdents64,
             Syscall_Shape {
-                types: &[File_Descriptor(""), Pointer_To_Struct, Unsigned_Numeric],
+                types:          &[File_Descriptor(""), Pointer_To_Struct, Unsigned_Numeric],
                 // On end of directory, 0 is returned.
                 syscall_return: Length_Of_Bytes_Specific_Or_Errno,
             },
