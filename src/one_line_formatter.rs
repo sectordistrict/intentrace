@@ -87,7 +87,7 @@ impl SyscallObject {
     pub(crate) fn write_pid_sysname(&mut self) {
         use crate::syscall_object::SyscallState::*;
 
-        if FOLLOW_FORKS.load(Ordering::SeqCst) {
+        if *FOLLOW_FORKS {
             // multi-threaded: pid always blue
             if self.state == Entering {
                 // Colorized PID

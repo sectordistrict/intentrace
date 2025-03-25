@@ -32,13 +32,15 @@ use crate::{
 //
 // TODO! Time blocks feature
 // pub static TIME_BLOCKS: Cell<bool> = Cell::new(false);
-pub static FOLLOW_FORKS: AtomicBool = AtomicBool::new(false);
-pub static STRING_LIMIT: AtomicUsize = AtomicUsize::new(36);
-pub static FAILED_ONLY: AtomicBool = AtomicBool::new(false);
-pub static QUIET: AtomicBool = AtomicBool::new(false);
-pub static ANNOT: AtomicBool = AtomicBool::new(false);
-pub static ATTACH_PID: Mutex<Option<usize>> = Mutex::new(None);
 
+pub static INTENTRACE_ARGS : LazyLock<IntentraceArgs> = LazyLock::new(|| IntentraceArgs::parse());
+pub static FOLLOW_FORKS: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.follow_forks);
+pub static STRING_LIMIT: AtomicUsize = AtomicUsize::new(36);
+pub static FAILED_ONLY: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.failed_only);
+pub static QUIET: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.mute_stdout);
+pub static ANNOT: AtomicBool = AtomicBool::new(false);
+pub static ATTACH_PID: LazyLock<Option<usize>> = LazyLock::new(|| INTENTRACE_ARGS.pid);
+pub static BINARY_AND_ARGS : LazyLock<&'static [String]> = LazyLock::new(|| if let Some(Binary::Command(binary_and_args)) = INTENTRACE_ARGS.binary.as_ref() { binary_and_args } else { &[] });
 // COLORS
 //
 //
@@ -67,7 +69,7 @@ pub static PAGE_SIZE: LazyLock<usize> = LazyLock::new(page_size::get);
 pub static PRE_CALL_PROGRAM_BREAK_POINT: AtomicUsize = AtomicUsize::new(0);
 pub static REGISTERS: Mutex<[u64; 6]> = Mutex::new([0; 6]);
 
-pub static SUMMARY: AtomicBool = AtomicBool::new(false);
+pub static SUMMARY: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.summary);
 pub static HALT_TRACING: AtomicBool = AtomicBool::new(false);
 
 static WRITER_LAZY: LazyLock<Mutex<BufWriter<Stdout>>> = LazyLock::new(|| {
@@ -86,26 +88,9 @@ pub static SYSKELETON_MAP: LazyLock<HashMap<Sysno, Syscall_Shape>> =
 pub static SYSCATEGORIES_MAP: LazyLock<HashMap<Sysno, Category>> =
     LazyLock::new(|| initialize_categories_map());
 
-pub fn setup(args: IntentraceArgs) -> Vec<String> {
-    if args.summary {
-        SUMMARY.store(true, Ordering::SeqCst);
-    }
-    if args.follow_forks {
-        FOLLOW_FORKS.store(true, Ordering::SeqCst);
-    }
-    if args.mute_stdout {
-        QUIET.store(true, Ordering::SeqCst);
-    }
-    if args.pid.is_some() {
-        *ATTACH_PID.lock().unwrap() = args.pid;
-    }
-    if args.failed_only {
-        FAILED_ONLY.store(true, Ordering::SeqCst);
-    }
-    if let Some(Binary::Command(binary_and_args)) = args.binary { binary_and_args } else { vec![] }
-}
 
-use clap::{Parser, Subcommand};
+
+use clap::{builder::Str, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(

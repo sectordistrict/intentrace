@@ -129,7 +129,7 @@ impl SyscallObject_Annotations {
         let mut output = vec![];
         output.push("\n".dimmed());
         let eph_return = self.parse_return_value(1);
-        if FOLLOW_FORKS.load(Ordering::SeqCst) {
+        if *FOLLOW_FORKS {
             output.push(self.process_pid.to_string().bright_blue());
         } else {
             if eph_return.is_ok() {
