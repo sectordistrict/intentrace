@@ -35,10 +35,10 @@ use std::{
     env::args,
     error::Error,
     fmt::Debug,
-    mem::{self, MaybeUninit, transmute},
+    mem::{self, transmute, MaybeUninit},
     os::{raw::c_void, unix::process::CommandExt},
     path::PathBuf,
-    process::{Command, Stdio, exit},
+    process::{exit, Command, Stdio},
     ptr::null,
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
@@ -50,22 +50,22 @@ use colored::{ColoredString, Colorize};
 use errno::Errno as LibErrno;
 use nix::{
     errno::Errno,
-    libc::{ESRCH, sigaction, user_regs_struct},
+    libc::{sigaction, user_regs_struct, ESRCH},
     sys::{
         ptrace::{self},
-        signal::{Signal, kill},
+        signal::{kill, Signal},
         wait::waitpid,
     },
-    unistd::{ForkResult::*, Pid, fork},
+    unistd::{fork, ForkResult::*, Pid},
 };
 use pete::{Ptracer, Restart, Stop, Tracee};
 use procfs::process::{MMapPath, MemoryMap};
 use syscalls::Sysno;
 use utilities::{
-    ATTACH_PID, EXITED_BACKGROUND_COLOR, FAILED_ONLY, FOLLOW_FORKS, GENERAL_TEXT_COLOR,
-    HALT_TRACING, IntentraceArgs, PID_BACKGROUND_COLOR, QUIET, REGISTERS, STOPPED_COLOR, SUMMARY,
-    SYSKELETON_MAP, TABLE, TABLE_FOLLOW_FORKS, buffered_write, colorize_diverse,
-    display_unsupported, errno_check, flush_buffer, set_memory_break, setup,
+    buffered_write, colorize_diverse, display_unsupported, errno_check, flush_buffer,
+    set_memory_break, setup, IntentraceArgs, ATTACH_PID, EXITED_BACKGROUND_COLOR, FAILED_ONLY,
+    FOLLOW_FORKS, GENERAL_TEXT_COLOR, HALT_TRACING, PID_BACKGROUND_COLOR, QUIET, REGISTERS,
+    STOPPED_COLOR, SUMMARY, SYSKELETON_MAP, TABLE, TABLE_FOLLOW_FORKS,
 };
 
 mod syscall_annotations_map;
@@ -95,7 +95,7 @@ fn main() {
 }
 
 fn runner(command_line: Vec<String>) {
-    let attach_pid =  *ATTACH_PID.lock().unwrap();
+    let attach_pid = *ATTACH_PID.lock().unwrap();
     if FOLLOW_FORKS.load(Ordering::SeqCst) {
         match attach_pid {
             Some(_) => follow_forks(None),
@@ -162,7 +162,9 @@ fn follow_forks(command_to_run: Option<Vec<String>>) {
             if let Some(attach_pid) = *ATTACH_PID.lock().unwrap() {
                 let mut ptracer = Ptracer::new();
                 *ptracer.poll_delay_mut() = Duration::from_nanos(1);
-                let child = ptracer.attach(pete::Pid::from_raw(attach_pid as i32)).unwrap();
+                let child = ptracer
+                    .attach(pete::Pid::from_raw(attach_pid as i32))
+                    .unwrap();
                 ptrace_ptracer(ptracer, Pid::from_raw(attach_pid as i32));
             } else {
                 eprintln!("Usage: invalid arguments\n");
@@ -240,13 +242,13 @@ fn parent(child_or_attach: Option<Pid>) {
                                 start = None;
                                 end = None;
                                 *REGISTERS.lock().unwrap() = [
-                                        registers.rdi,
-                                        registers.rsi,
-                                        registers.rdx,
-                                        registers.r10,
-                                        registers.r8,
-                                        registers.r9,
-                                    ];
+                                    registers.rdi,
+                                    registers.rsi,
+                                    registers.rdx,
+                                    registers.r10,
+                                    registers.r8,
+                                    registers.r9,
+                                ];
                                 syscall_returned(&mut syscall, registers.rax)
                             }
                             Err(errno) => {
@@ -301,13 +303,13 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
                                     .or_insert(1);
                             }
                             *REGISTERS.lock().unwrap() = [
-                                        registers.rdi,
-                                        registers.rsi,
-                                        registers.rdx,
-                                        registers.r10,
-                                        registers.r8,
-                                        registers.r9,
-                                    ];
+                                registers.rdi,
+                                registers.rsi,
+                                registers.rdx,
+                                registers.r10,
+                                registers.r8,
+                                registers.r9,
+                            ];
                             syscall_will_run(&mut syscall);
                             // if syscall.is_exiting() {
                             //     break 'for_exiting;
@@ -326,13 +328,13 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
                 match nix::sys::ptrace::getregs(syscall_pid) {
                     Ok(registers) => {
                         *REGISTERS.lock().unwrap() = [
-                                        registers.rdi,
-                                        registers.rsi,
-                                        registers.rdx,
-                                        registers.r10,
-                                        registers.r8,
-                                        registers.r9,
-                                    ];
+                            registers.rdi,
+                            registers.rsi,
+                            registers.rdx,
+                            registers.r10,
+                            registers.r8,
+                            registers.r9,
+                        ];
                         if let Some(mut syscall) = pid_syscall_map.get_mut(&syscall_pid) {
                             syscall_returned(&mut syscall, registers.rax);
                             pid_syscall_map.remove(&syscall_pid).unwrap();
@@ -461,16 +463,19 @@ fn print_table() {
     } else {
         let mut output = TABLE.lock().unwrap();
         let mut vec = Vec::from_iter(output.iter());
-        vec.sort_by(|(_sysno, (count, duration)), (_sysno2, (count2, duration2))| {
-            duration2.cmp(duration)
-        });
+        vec.sort_by(
+            |(_sysno, (count, duration)), (_sysno2, (count2, duration2))| duration2.cmp(duration),
+        );
 
         use tabled::{builder::Builder, settings::Style};
         let mut builder = Builder::new();
 
         builder.push_record(["% time", "seconds", "usecs/call", "calls", "syscall"]);
         builder.push_record([""]);
-        let total_time = vec.iter().map(|(_, (_, time))| time.as_micros()).sum::<u128>();
+        let total_time = vec
+            .iter()
+            .map(|(_, (_, time))| time.as_micros())
+            .sum::<u128>();
         for (sys, (count, time)) in vec {
             let time_MICROS = time.as_micros() as f64;
             let time = time_MICROS / 1_000_000.0;

@@ -1644,8 +1644,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
             Syscall_Shape {
                 types: &[
                     // tgid specified as -1 makes the syscall equivalent to tkill()
-                    PID,
-                    Numeric,
+                    PID, Numeric,
                 ],
                 syscall_return: Numeric_Or_Errno,
             },

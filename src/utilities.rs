@@ -3,11 +3,11 @@ use std::{
     borrow::BorrowMut,
     cell::{Cell, LazyCell, OnceCell, RefCell},
     collections::HashMap,
-    io::{BufWriter, Stdout, Write, stdout},
+    io::{stdout, BufWriter, Stdout, Write},
     mem::MaybeUninit,
     sync::{
-        Arc, LazyLock, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
+        Arc, LazyLock, Mutex, OnceLock,
     },
     time::Duration,
 };
@@ -102,7 +102,11 @@ pub fn setup(args: IntentraceArgs) -> Vec<String> {
     if args.failed_only {
         FAILED_ONLY.store(true, Ordering::SeqCst);
     }
-    if let Some(Binary::Command(binary_and_args)) = args.binary { binary_and_args } else { vec![] }
+    if let Some(Binary::Command(binary_and_args)) = args.binary {
+        binary_and_args
+    } else {
+        vec![]
+    }
 }
 
 use clap::{Parser, Subcommand};
@@ -160,7 +164,9 @@ pub fn buffered_write(data: ColoredString) {
     write!(WRITER_LAZY.lock().unwrap(), "{}", data).unwrap();
 }
 
-pub fn flush_buffer() { WRITER_LAZY.lock().unwrap().flush().unwrap(); }
+pub fn flush_buffer() {
+    WRITER_LAZY.lock().unwrap().flush().unwrap();
+}
 
 #[inline(always)]
 pub fn colorize_general_text(arg: &str) {
@@ -220,15 +226,19 @@ pub fn set_memory_break(child: Pid) {
 pub fn where_in_childs_memory(child: Pid, address: u64) -> Option<MemoryMap> {
     let ptraced_process = procfs::process::Process::new(i32::from(child)).unwrap();
     let maps = ptraced_process.maps().unwrap().0;
-    maps.into_iter().find(|x| (address >= x.address.0) && (address <= x.address.1))
+    maps.into_iter()
+        .find(|x| (address >= x.address.0) && (address <= x.address.1))
 }
 
 pub fn get_child_memory_break(child: Pid) -> (usize, (u64, u64)) {
     let ptraced_process = procfs::process::Process::new(i32::from(child)).unwrap();
     let stat = ptraced_process.stat().unwrap();
     let aa = ptraced_process.maps().unwrap().0;
-    let c =
-        aa.into_iter().find(|x| x.pathname == MMapPath::Stack).map(|x| x.address).unwrap_or((0, 0));
+    let c = aa
+        .into_iter()
+        .find(|x| x.pathname == MMapPath::Stack)
+        .map(|x| x.address)
+        .unwrap_or((0, 0));
     (PRE_CALL_PROGRAM_BREAK_POINT.load(Ordering::SeqCst), c)
 }
 
@@ -439,4 +449,6 @@ pub fn errno_to_string(errno: Errno) -> &'static str {
     }
 }
 
-pub fn parse_register_as_address(register: u64) -> String { format!("{:p}", register as *const ()) }
+pub fn parse_register_as_address(register: u64) -> String {
+    format!("{:p}", register as *const ())
+}

@@ -229,11 +229,9 @@ impl SyscallObject {
                 File_Descriptor(ref mut file_descriptor) => {
                     let fd = register[index] as i32;
 
-                    let styled_fd = SyscallObject::style_file_descriptor(
-                        register[index],
-                        self.process_pid,
-                    )
-                    .unwrap_or(format!("ignored"));
+                    let styled_fd =
+                        SyscallObject::style_file_descriptor(register[index], self.process_pid)
+                            .unwrap_or(format!("ignored"));
                     *file_descriptor = styled_fd.leak();
                 }
                 File_Descriptor_openat(ref mut file_descriptor) => {
@@ -242,11 +240,8 @@ impl SyscallObject {
                     styled_fd = if fd == AT_FDCWD {
                         format!("{}", "AT_FDCWD -> Current Working Directory".bright_blue())
                     } else {
-                        SyscallObject::style_file_descriptor(
-                            register[index],
-                            self.process_pid,
-                        )
-                        .unwrap_or(format!("ignored"))
+                        SyscallObject::style_file_descriptor(register[index], self.process_pid)
+                            .unwrap_or(format!("ignored"))
                     };
                     *file_descriptor = styled_fd.leak();
                 }
@@ -271,10 +266,8 @@ impl SyscallObject {
                             continue;
                         }
                     }
-                    let styled_fd = SyscallObject::string_from_pointer(
-                        register[index],
-                        self.process_pid,
-                    );
+                    let styled_fd =
+                        SyscallObject::string_from_pointer(register[index], self.process_pid);
                     *text = styled_fd.leak();
                 }
                 Array_Of_Strings(ref mut text) => {
@@ -365,10 +358,7 @@ impl SyscallObject {
                         || (operation & ARCH_GET_FS) == ARCH_GET_FS
                         || (operation & ARCH_GET_GS) == ARCH_GET_GS
                     {
-                        match SyscallObject::read_word(
-                            register[index] as usize,
-                            self.process_pid,
-                        ) {
+                        match SyscallObject::read_word(register[index] as usize, self.process_pid) {
                             Some(pid_at_word) => {
                                 if self.sysno == Sysno::wait4 {
                                     self.skeleton[1] =
@@ -437,8 +427,10 @@ impl SyscallObject {
             }
 
             Address_Or_Errno_getcwd(data) => {
-                let styled_string =
-                    SyscallObject::string_from_pointer(REGISTERS.lock().unwrap()[0], self.process_pid);
+                let styled_string = SyscallObject::string_from_pointer(
+                    REGISTERS.lock().unwrap()[0],
+                    self.process_pid,
+                );
                 *data = styled_string.leak();
             }
             Priority_Or_Errno(errored) => {
