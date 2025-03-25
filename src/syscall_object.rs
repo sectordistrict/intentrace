@@ -38,7 +38,8 @@ use nix::{
 };
 
 use rustix::{
-    fs::StatxFlags, io::ReadWriteFlags, path::Arg, rand::GetRandomFlags, thread::FutexFlags,
+    fs::StatxFlags, io::ReadWriteFlags, path::Arg, rand::GetRandomFlags,
+    thread::futex::Flags as FutexFlags,
 };
 
 use std::{
@@ -1006,7 +1007,10 @@ impl SyscallObject {
         let cpu_set: cpu_set_t = unsafe { transmute(a) };
 
         let mut vec = Vec::new();
-        for cpu_number in 0..std::thread::available_parallelism().map(NonZeroUsize::get).unwrap_or(1) as usize {
+        for cpu_number in 0..std::thread::available_parallelism()
+            .map(NonZeroUsize::get)
+            .unwrap_or(1) as usize
+        {
             if unsafe { CPU_ISSET(cpu_number, &cpu_set) } {
                 vec.push(cpu_number)
             }

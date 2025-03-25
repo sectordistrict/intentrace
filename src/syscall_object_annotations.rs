@@ -38,7 +38,8 @@ use nix::{
 use syscalls::Sysno;
 
 use rustix::{
-    fs::StatxFlags, io::ReadWriteFlags, path::Arg, rand::GetRandomFlags, thread::FutexFlags,
+    fs::StatxFlags, io::ReadWriteFlags, path::Arg, rand::GetRandomFlags,
+    thread::futex::Flags as FutexFlags,
 };
 
 use std::{

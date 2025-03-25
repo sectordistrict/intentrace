@@ -22,7 +22,7 @@ nix = { version = "0.29.0", features = [
 ] }
 pete = { version = "0.12.0" }
 procfs = "0.17.0"
-rustix = { version = "0.38.35", features = ["mm", "net", "rand"] }
+rustix = { version = "1.0.3", features = ["mm", "net", "rand", "thread", "param", "fs"] }
 syscalls = "0.6.18"
 tabled = "0.18.0"
 termbg = "0.6.2"
