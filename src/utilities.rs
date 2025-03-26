@@ -55,21 +55,21 @@ pub static TERMINAL_THEME: LazyLock<termbg::Theme> = LazyLock::new(|| {
     termbg::theme(std::time::Duration::from_millis(10)).unwrap_or(termbg::Theme::Dark)
 });
 pub static PAGES_COLOR: LazyLock<CustomColor> =
-    LazyLock::new(|| color((0, 169, 233), (0, 169, 223)));
+    LazyLock::new(|| check_terminal_theme((0, 169, 233), (0, 169, 223)));
 pub static GENERAL_TEXT_COLOR: LazyLock<CustomColor> =
-    LazyLock::new(|| color((64, 64, 64), (160, 160, 160)));
+    LazyLock::new(|| check_terminal_theme((64, 64, 64), (160, 160, 160)));
 pub static PID_BACKGROUND_COLOR: LazyLock<CustomColor> =
-    LazyLock::new(|| color((146, 146, 168), (0, 0, 0)));
+    LazyLock::new(|| check_terminal_theme((146, 146, 168), (0, 0, 0)));
 pub static PID_NUMBER_COLOR: LazyLock<CustomColor> =
-    LazyLock::new(|| color((0, 0, 140), (0, 173, 216)));
+    LazyLock::new(|| check_terminal_theme((0, 0, 140), (0, 173, 216)));
 pub static EXITED_BACKGROUND_COLOR: LazyLock<CustomColor> =
-    LazyLock::new(|| color((250, 160, 160), (100, 0, 0)));
+    LazyLock::new(|| check_terminal_theme((250, 160, 160), (100, 0, 0)));
 pub static OUR_YELLOW: LazyLock<CustomColor> =
-    LazyLock::new(|| color((112, 127, 35), (187, 142, 35)));
+    LazyLock::new(|| check_terminal_theme((112, 127, 35), (187, 142, 35)));
 pub static CONTINUED_COLOR: LazyLock<CustomColor> =
-    LazyLock::new(|| color((188, 210, 230), (17, 38, 21)));
+    LazyLock::new(|| check_terminal_theme((188, 210, 230), (17, 38, 21)));
 pub static STOPPED_COLOR: LazyLock<CustomColor> =
-    LazyLock::new(|| color((82, 138, 174), (47, 86, 54)));
+    LazyLock::new(|| check_terminal_theme((82, 138, 174), (47, 86, 54)));
 
 //
 pub static PAGE_SIZE: LazyLock<usize> = LazyLock::new(rustix::param::page_size);
@@ -139,10 +139,13 @@ pub enum Binary {
     Command(Vec<String>),
 }
 
-fn color((l_r, l_g, l_b): (u8, u8, u8), (d_r, d_g, d_b): (u8, u8, u8)) -> CustomColor {
+fn check_terminal_theme(
+    (l_red, l_green, l_blue): (u8, u8, u8),
+    (d_red, d_green, d_blue): (u8, u8, u8),
+) -> CustomColor {
     match *TERMINAL_THEME {
-        termbg::Theme::Light => CustomColor::new(l_r, l_g, l_b),
-        termbg::Theme::Dark => CustomColor::new(d_r, d_g, d_b),
+        termbg::Theme::Light => CustomColor::new(l_red, l_green, l_blue),
+        termbg::Theme::Dark => CustomColor::new(d_red, d_green, d_blue),
     }
 }
 

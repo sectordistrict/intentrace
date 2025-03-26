@@ -102,11 +102,13 @@ fn runner(command_line: &[String]) {
         }
     } else {
         if attach_pid.is_some() {
-            parent(None);
+            let child = Pid::from_raw(ATTACH_PID.unwrap() as i32);
+            let _ = ptrace::attach(child).unwrap();
+            parent(child);
         } else {
             match unsafe { fork() }.expect("Error: Fork Failed") {
                 Parent { child } => {
-                    parent(Some(child));
+                    parent(child);
                 }
                 Child => {
                     child_trace_me(command_line);
@@ -172,19 +174,13 @@ fn follow_forks(command_to_run: Option<&[String]>) {
     }
 }
 
-fn parent(child_or_attach: Option<Pid>) {
-    let child = if child_or_attach.is_some() {
-        child_or_attach.unwrap()
-    } else {
-        let child = Pid::from_raw(ATTACH_PID.unwrap() as i32);
-        let _ = ptrace::attach(child).unwrap();
-        child
-    };
+fn parent(child: Pid) {
     // skip first execve
     let _res = waitpid(child, None).unwrap();
     let mut syscall_entering = true;
     let (mut start, mut end) = (None, None);
     let mut syscall = SyscallObject::default();
+    let mut supported = true;
     'main_loop: loop {
         match ptrace::syscall(child, None) {
             Ok(_void) => {
@@ -209,6 +205,8 @@ fn parent(child_or_attach: Option<Pid>) {
                                     if syscall.is_exiting() {
                                         break 'main_loop;
                                     }
+                                } else {
+                                    supported = false;
                                 }
                             }
                             Err(errno) => {
@@ -225,30 +223,36 @@ fn parent(child_or_attach: Option<Pid>) {
                     false => {
                         // SYSCALL RETURNED
                         end = Some(std::time::Instant::now());
-
                         match nix::sys::ptrace::getregs(child) {
                             Ok(registers) => {
-                                let mut table = TABLE.lock().unwrap();
-                                table
-                                    .entry(syscall.sysno)
-                                    .and_modify(|value| {
-                                        value.0 += 1;
-                                        value.1 = value.1.saturating_add(
+                                if supported {
+                                    let mut table = TABLE.lock().unwrap();
+                                    let sysno = Sysno::from(registers.orig_rax as i32);
+                                    table
+                                        .entry(syscall.sysno)
+                                        .and_modify(|value| {
+                                            value.0 += 1;
+                                            value.1 = value.1.saturating_add(
+                                                end.unwrap().duration_since(start.unwrap()),
+                                            );
+                                        })
+                                        .or_insert((
+                                            1,
                                             end.unwrap().duration_since(start.unwrap()),
-                                        );
-                                    })
-                                    .or_insert((1, end.unwrap().duration_since(start.unwrap())));
-                                start = None;
-                                end = None;
-                                *REGISTERS.lock().unwrap() = [
-                                    registers.rdi,
-                                    registers.rsi,
-                                    registers.rdx,
-                                    registers.r10,
-                                    registers.r8,
-                                    registers.r9,
-                                ];
-                                syscall_returned(&mut syscall, registers.rax)
+                                        ));
+                                    start = None;
+                                    end = None;
+                                    *REGISTERS.lock().unwrap() = [
+                                        registers.rdi,
+                                        registers.rsi,
+                                        registers.rdx,
+                                        registers.r10,
+                                        registers.r8,
+                                        registers.r9,
+                                    ];
+                                    syscall_returned(&mut syscall, registers.rax)
+                                }
+                                supported = true;
                             }
                             Err(errno) => {
                                 if errno == Errno::ESRCH {

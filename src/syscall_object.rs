@@ -134,7 +134,7 @@ impl SyscallObject {
                     0 => SyscallObject {
                         sysno,
                         category,
-                        skeleton: types.into_iter().cloned().collect(),
+                        skeleton: types.into_iter().copied().collect(),
                         result: (None, syscall_return),
                         process_pid: child,
                         errno: None,
@@ -143,7 +143,7 @@ impl SyscallObject {
                     1 => SyscallObject {
                         sysno,
                         category,
-                        skeleton: types.into_iter().cloned().collect(),
+                        skeleton: types.into_iter().copied().collect(),
                         result: (None, syscall_return),
                         process_pid: child,
                         errno: None,
@@ -152,7 +152,7 @@ impl SyscallObject {
                     2 => SyscallObject {
                         sysno,
                         category,
-                        skeleton: types.into_iter().cloned().collect(),
+                        skeleton: types.into_iter().copied().collect(),
                         result: (None, syscall_return),
                         process_pid: child,
                         errno: None,
@@ -161,7 +161,7 @@ impl SyscallObject {
                     3 => SyscallObject {
                         sysno,
                         category,
-                        skeleton: types.into_iter().cloned().collect(),
+                        skeleton: types.into_iter().copied().collect(),
                         result: (None, syscall_return),
                         process_pid: child,
                         errno: None,
@@ -170,7 +170,7 @@ impl SyscallObject {
                     4 => SyscallObject {
                         sysno,
                         category,
-                        skeleton: types.into_iter().cloned().collect(),
+                        skeleton: types.into_iter().copied().collect(),
                         result: (None, syscall_return),
                         process_pid: child,
                         errno: None,
@@ -179,7 +179,7 @@ impl SyscallObject {
                     5 => SyscallObject {
                         sysno,
                         category,
-                        skeleton: types.into_iter().cloned().collect(),
+                        skeleton: types.into_iter().copied().collect(),
                         result: (None, syscall_return),
                         process_pid: child,
                         errno: None,
@@ -188,7 +188,7 @@ impl SyscallObject {
                     _ => SyscallObject {
                         sysno,
                         category,
-                        skeleton: types.into_iter().cloned().collect(),
+                        skeleton: types.into_iter().copied().collect(),
                         result: (None, syscall_return),
                         process_pid: child,
                         errno: None,
@@ -198,19 +198,10 @@ impl SyscallObject {
             }
             None => {
                 return None;
-                // // unsafe {
-                // //     if !UNSUPPORTED.contains(&sysno.name()) {
-                // //         UNSUPPORTED.push(sysno.name());
-                // //     }
-                // // }
-                // SyscallObject {
-                //     sysno,
-                //     category: Category::Process,
-                //     args: vec![],
-                //     result: (None, SysReturn::File_Descriptor_Or_Errno("")),
-                //     process_pid: child,
-                //     errno: None,
-                //     ..Default::default()
+                // unsafe {
+                //     if !UNSUPPORTED.contains(&sysno.name()) {
+                //         UNSUPPORTED.push(sysno.name());
+                //     }
                 // }
             }
         };

@@ -77,7 +77,7 @@ type ADDRESS = &'static str;
 type SIGNAL = &'static str;
 type TEXT = &'static str;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub enum SysArg {
     Numeric,
     Unsigned_Numeric,
