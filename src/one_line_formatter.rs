@@ -62,7 +62,7 @@ use rustix::{
     io::{pwritev2, ReadWriteFlags},
     path::Arg,
     rand::GetRandomFlags,
-    thread::{futex, FutexFlags, FutexOperation},
+    thread::{futex, futex::Flags as FutexFlags},
 };
 use syscalls::Sysno;
 
