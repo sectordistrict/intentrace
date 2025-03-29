@@ -100,19 +100,17 @@ fn runner(command_line: &[String]) {
             Some(_) => follow_forks(None),
             None => follow_forks(Some(command_line)),
         }
+    } else if attach_pid.is_some() {
+        let child = Pid::from_raw(ATTACH_PID.unwrap() as i32);
+        ptrace::attach(child).unwrap();
+        parent(child);
     } else {
-        if attach_pid.is_some() {
-            let child = Pid::from_raw(ATTACH_PID.unwrap() as i32);
-            let _ = ptrace::attach(child).unwrap();
-            parent(child);
-        } else {
-            match unsafe { fork() }.expect("Error: Fork Failed") {
-                Parent { child } => {
-                    parent(child);
-                }
-                Child => {
-                    child_trace_me(command_line);
-                }
+        match unsafe { fork() }.expect("Error: Fork Failed") {
+            Parent { child } => {
+                parent(child);
+            }
+            Child => {
+                child_trace_me(command_line);
             }
         }
     }
@@ -133,7 +131,7 @@ fn child_trace_me(comm: &[String]) {
     }
 
     // TRACE ME
-    let _ = ptrace::traceme().unwrap();
+    ptrace::traceme().unwrap();
     // EXECUTE
     let res = command.exec();
 
@@ -163,7 +161,7 @@ fn follow_forks(command_to_run: Option<&[String]>) {
             if let Some(attach_pid) = *ATTACH_PID {
                 let mut ptracer = Ptracer::new();
                 *ptracer.poll_delay_mut() = Duration::from_nanos(1);
-                let child = ptracer
+                ptracer
                     .attach(pete::Pid::from_raw(attach_pid as i32))
                     .unwrap();
                 ptrace_ptracer(ptracer, Pid::from_raw(attach_pid as i32));
@@ -339,7 +337,7 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
                             registers.r9,
                         ];
                         if let Some(mut syscall) = pid_syscall_map.get_mut(&syscall_pid) {
-                            syscall_returned(&mut syscall, registers.rax);
+                            syscall_returned(syscall, registers.rax);
                             pid_syscall_map.remove(&syscall_pid).unwrap();
                         }
                     }
@@ -392,7 +390,7 @@ fn syscall_returned(syscall: &mut SyscallObject, return_value: u64) {
     syscall.get_postcall_data();
 
     if !*FOLLOW_FORKS {
-        if *FAILED_ONLY && !syscall.displayable_return_ol().is_err() {
+        if *FAILED_ONLY && syscall.displayable_return_ol().is_ok() {
             return;
         }
 

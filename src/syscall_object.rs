@@ -90,7 +90,7 @@ impl SyscallObject {
     pub fn format(&mut self) {
         let sysno = self.sysno;
 
-        if let Ok(_) = self.one_line_formatter() {
+        if self.one_line_formatter().is_ok() {
             // let mut string = String::new();
             // for string_portion in &mut self.one_line {
             //     string.push_str(&format!("{}", string_portion));
@@ -247,15 +247,12 @@ impl SyscallObject {
                     if self.sysno == Sysno::write
                         || self.sysno == Sysno::pwrite64 && register[2] < 20
                     {
-                        match SyscallObject::read_string_specific_length(
+                        if let Some(styled_fd) = SyscallObject::read_string_specific_length(
                             register[1] as usize,
                             self.process_pid,
                             register[2] as usize,
                         ) {
-                            Some(styled_fd) => {
-                                *text = styled_fd.leak();
-                            }
-                            None => (),
+                            *text = styled_fd.leak();
                         }
                         continue;
                     }
@@ -364,20 +361,17 @@ impl SyscallObject {
                         let size = self.result.0.unwrap();
                         if size > 0 {
                             if size > 100 {
-                                let size = -1 * (size as i32);
+                                let size = -(size as i32);
                                 let error = nix::errno::Errno::from_raw(size);
                             } else if (self.sysno == Sysno::readlink && index == 1)
                                 || (self.sysno == Sysno::readlinkat && index == 2)
                             {
-                                match SyscallObject::read_string_specific_length(
+                                if let Some(styled_fd) = SyscallObject::read_string_specific_length(
                                     register[index] as usize,
                                     self.process_pid,
                                     size as usize,
                                 ) {
-                                    Some(styled_fd) => {
-                                        self.replace_content(1, Pointer_To_Text(styled_fd.leak()))
-                                    }
-                                    None => (),
+                                    self.replace_content(1, Pointer_To_Text(styled_fd.leak()))
                                 }
                             }
                         }
@@ -460,7 +454,7 @@ impl SyscallObject {
             Array_Of_Strings(array) => {
                 let mut string = String::new();
                 for text in array {
-                    string.push_str(&text);
+                    string.push_str(text);
                     string.push(' ');
                 }
                 string
@@ -500,7 +494,7 @@ impl SyscallObject {
             }
             Address => {
                 let pointer = register_value as *const ();
-                if pointer == std::ptr::null() {
+                if pointer.is_null() {
                     format!("0xNull")
                 } else {
                     format!("{:p}", pointer)
@@ -557,12 +551,10 @@ impl SyscallObject {
             }
             Length_Of_Bytes_Specific_Or_Errno => {
                 let bytes = register_value as isize;
-                if self.sysno == Sysno::readlink
-                    || self.sysno == Sysno::readlinkat
+                if (self.sysno == Sysno::readlink || self.sysno == Sysno::readlinkat)
+                    && self.errno.is_some()
                 {
-                    if self.errno.is_some() {
-                        return Err(());
-                    }
+                    return Err(());
                 }
                 if bytes + 1 == -1 {
                     Err(())
@@ -580,7 +572,7 @@ impl SyscallObject {
             }
             Address_Or_MAP_FAILED_Errno(address) => {
                 let pointer = register_value as *mut c_void;
-                if pointer == MAP_FAILED {
+                if std::ptr::eq(pointer, MAP_FAILED) {
                     Err(())
                 } else {
                     Ok(format!("{:p}", pointer as *const ()))
@@ -631,8 +623,8 @@ impl SyscallObject {
             string.push("2 -> StdErr".bright_blue());
         } else {
             let file_info = procfs::process::FDInfo::from_raw_fd(child.into(), fd);
-            match file_info {
-                Ok(file) => match file.target {
+            if let Ok(file) = file_info {
+                match file.target {
                     procfs::process::FDTarget::Path(path) => {
                         string.push(format!("{} -> ", file.fd).bright_blue());
                         let mut formatted_path = vec![];
@@ -724,8 +716,7 @@ impl SyscallObject {
                     procfs::process::FDTarget::Other(first, second) => {
                         string.push(format!("{} -> Other", file.fd).bright_blue());
                     }
-                },
-                Err(_) => {}
+                }
             }
         }
         Some(String::from_iter(string.into_iter().map(|x| x.to_string())))

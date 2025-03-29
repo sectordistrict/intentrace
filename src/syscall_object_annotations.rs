@@ -98,15 +98,15 @@ impl From<&mut SyscallObject> for SyscallObject_Annotations {
         }: &mut SyscallObject,
     ) -> Self {
         if let Some(&(description, annotations_arg_containers, return_annotation)) =
-            SYSANNOT_MAP.get(&sysno)
+            SYSANNOT_MAP.get(sysno)
         {
-            let category = *SYSCATEGORIES_MAP.get(&sysno).unwrap();
+            let category = *SYSCATEGORIES_MAP.get(sysno).unwrap();
             SyscallObject_Annotations {
                 sysno: *sysno,
                 description,
                 category,
                 args_types: skeleton.clone(),
-                rich_args: annotations_arg_containers.into_iter().cloned().collect(),
+                rich_args: annotations_arg_containers.to_vec(),
                 result: (result.0, return_annotation, result.1),
                 process_pid: *process_pid,
                 errno: *errno,
@@ -133,12 +133,10 @@ impl SyscallObject_Annotations {
         let eph_return = self.parse_return_value(1);
         if *FOLLOW_FORKS {
             output.push(self.process_pid.to_string().bright_blue());
+        } else if eph_return.is_ok() {
+            output.push(self.process_pid.to_string().blue());
         } else {
-            if eph_return.is_ok() {
-                output.push(self.process_pid.to_string().blue());
-            } else {
-                output.push(self.process_pid.to_string().red());
-            }
+            output.push(self.process_pid.to_string().red());
         }
         output.extend(vec![
             " ".dimmed(),
@@ -346,7 +344,7 @@ impl SyscallObject_Annotations {
             Array_Of_Strings(array) => {
                 let mut string = String::new();
                 for text in array {
-                    string.push_str(&text);
+                    string.push_str(text);
                     string.push(' ');
                 }
                 string.yellow()
@@ -390,7 +388,7 @@ impl SyscallObject_Annotations {
                 if text.len() > 20 {
                     let portion = &text[..20];
                     format!("{:?}", format!("{}...", portion)).purple()
-                } else if text.len() == 0 {
+                } else if text.is_empty() {
                     format!("\"\"").bright_yellow()
                 } else {
                     format!("{:?}", format!("{}", text)).purple()
@@ -399,10 +397,10 @@ impl SyscallObject_Annotations {
 
             Pointer_To_Path(text) => {
                 if text.len() > 20 {
-                    let portion = &text[..];
+                    let portion = text;
 
                     format!("{:?}", format!("{}...", portion)).purple()
-                } else if text.len() == 0 {
+                } else if text.is_empty() {
                     format!("\"\"").bright_yellow()
                 } else {
                     format!("{:?}", format!("{}", text)).purple()
@@ -411,16 +409,14 @@ impl SyscallObject_Annotations {
 
             Address => {
                 let pointer = register_value as *const ();
-                if pointer == std::ptr::null() {
+                if pointer.is_null() {
                     format!("0xNull").bright_red()
                 } else {
                     format!("{:p}", pointer).yellow()
                 }
             }
 
-            Pointer_To_Length_Of_Bytes_Specific => {
-                ColoredString::from("did not handle this yet".yellow())
-            }
+            Pointer_To_Length_Of_Bytes_Specific => "did not handle this yet".yellow(),
             // should remove
             Multiple_Flags([flag1, flag2]) => {
                 SyscallObject_Annotations::handle_flag(register_value, flag1).yellow()
@@ -450,11 +446,7 @@ impl SyscallObject_Annotations {
                 output.push(": ".dimmed());
                 let numeric_return = register_value as isize;
                 if numeric_return == -1 {
-                    return Err(self
-                        .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
-                        .to_string()
-                        .red());
+                    return Err(self.errno.unwrap_or(Errno::UnknownErrno).to_string().red());
                 } else {
                     format!("{numeric_return}").yellow()
                 }
@@ -465,11 +457,7 @@ impl SyscallObject_Annotations {
                 output.push(": ".dimmed());
                 let signal_num = register_value as isize;
                 if signal_num == -1 {
-                    return Err(self
-                        .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
-                        .to_string()
-                        .red());
+                    return Err(self.errno.unwrap_or(Errno::UnknownErrno).to_string().red());
                 } else {
                     format!("{signal}").yellow()
                 }
@@ -477,11 +465,7 @@ impl SyscallObject_Annotations {
             Priority_Or_Errno(errored) => {
                 let priority = register_value as isize;
                 if unsafe { errored.assume_init() } {
-                    return Err(self
-                        .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
-                        .to_string()
-                        .red());
+                    return Err(self.errno.unwrap_or(Errno::UnknownErrno).to_string().red());
                 } else {
                     priority.to_string().yellow()
                 }
@@ -491,11 +475,7 @@ impl SyscallObject_Annotations {
                 output.push(": ".dimmed());
                 let fd_num = register_value as isize;
                 if fd_num == -1 {
-                    return Err(self
-                        .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
-                        .to_string()
-                        .red());
+                    return Err(self.errno.unwrap_or(Errno::UnknownErrno).to_string().red());
                 } else {
                     format!("{fd}").yellow()
                 }
@@ -505,11 +485,7 @@ impl SyscallObject_Annotations {
                 output.push(": ".dimmed());
                 let bytes = register_value as isize;
                 if bytes == -1 {
-                    return Err(self
-                        .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
-                        .to_string()
-                        .red());
+                    return Err(self.errno.unwrap_or(Errno::UnknownErrno).to_string().red());
                 } else {
                     format!("{bytes} Bytes").yellow()
                 }
@@ -520,11 +496,7 @@ impl SyscallObject_Annotations {
 
                 let pointer = register_value as isize;
                 if pointer == -1 {
-                    return Err(self
-                        .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
-                        .to_string()
-                        .red());
+                    return Err(self.errno.unwrap_or(Errno::UnknownErrno).to_string().red());
                 } else {
                     format!("{:p}", pointer as *const ()).yellow()
                 }
@@ -533,12 +505,8 @@ impl SyscallObject_Annotations {
                 output.push(annotation[which].dimmed());
                 output.push(": ".dimmed());
                 let pointer = register_value as *mut c_void;
-                if pointer == MAP_FAILED {
-                    return Err(self
-                        .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
-                        .to_string()
-                        .red());
+                if std::ptr::eq(pointer, MAP_FAILED) {
+                    return Err(self.errno.unwrap_or(Errno::UnknownErrno).to_string().red());
                 } else {
                     format!("{:p}", pointer as *const ()).yellow()
                 }
@@ -548,11 +516,7 @@ impl SyscallObject_Annotations {
                 output.push(": ".dimmed());
                 let pointer = register_value as *const ();
                 if pointer.is_null() {
-                    return Err(self
-                        .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
-                        .to_string()
-                        .red());
+                    return Err(self.errno.unwrap_or(Errno::UnknownErrno).to_string().red());
                 } else {
                     format!("{current_working_dir}").yellow()
                 }
@@ -568,21 +532,13 @@ impl SyscallObject_Annotations {
                 format!("").yellow()
             }
             Always_Errors => {
-                return Err(self
-                    .errno
-                    .unwrap_or_else(|| Errno::UnknownErrno)
-                    .to_string()
-                    .red());
+                return Err(self.errno.unwrap_or(Errno::UnknownErrno).to_string().red());
             }
             Ptrace_Diverse_Or_Errno => {
                 // a successful PTRACE_PEEK might return -1 so errno must be cleared before the call
                 let ptrace_return = register_value as i64;
                 if ptrace_return == -1 {
-                    return Err(self
-                        .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
-                        .to_string()
-                        .red());
+                    return Err(self.errno.unwrap_or(Errno::UnknownErrno).to_string().red());
                 } else {
                     format!("{ptrace_return}").yellow()
                 }
@@ -608,8 +564,8 @@ impl SyscallObject_Annotations {
             string.push("2 -> StdErr".custom_color(*PAGES_COLOR));
         } else {
             let file_info = procfs::process::FDInfo::from_raw_fd(child.into(), fd);
-            match file_info {
-                Ok(file) => match file.target {
+            if let Ok(file) = file_info {
+                match file.target {
                     procfs::process::FDTarget::Path(path) => {
                         string.push(format!("{} -> ", file.fd).custom_color(*PAGES_COLOR));
                         let mut formatted_path = vec![];
@@ -704,8 +660,7 @@ impl SyscallObject_Annotations {
                     procfs::process::FDTarget::Other(first, second) => {
                         string.push(format!("{} -> Other", file.fd).custom_color(*PAGES_COLOR));
                     }
-                },
-                Err(_) => {}
+                }
             }
         }
         Some(String::from_iter(string.into_iter().map(|x| x.to_string())))

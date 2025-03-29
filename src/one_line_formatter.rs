@@ -97,38 +97,34 @@ impl SyscallObject {
                     &self.category,
                 ));
                 self.write_text(" - ".dimmed());
-            } else {
-                if self.paused {
-                    // Colorized PID
-                    self.write_text(self.process_pid.to_string().bright_blue().dimmed());
-
-                    // Colorized Syscall Name
-                    self.write_text(" ".dimmed());
-                    self.write_text(
-                        SyscallObject::colorize_syscall_name(&self.sysno, &self.category).dimmed(),
-                    );
-                    self.write_text(" - ".dimmed());
-                    self.handle_pause_continue();
-                }
-            }
-        } else {
-            if self.state == Entering {
+            } else if self.paused {
                 // Colorized PID
-                // single-threaded: pid blue/red
-                if self.get_syscall_return().is_ok() {
-                    self.write_text(self.process_pid.to_string().blue());
-                } else {
-                    self.write_text(self.process_pid.to_string().red());
-                }
+                self.write_text(self.process_pid.to_string().bright_blue().dimmed());
 
                 // Colorized Syscall Name
                 self.write_text(" ".dimmed());
-                self.write_text(SyscallObject::colorize_syscall_name(
-                    &self.sysno,
-                    &self.category,
-                ));
+                self.write_text(
+                    SyscallObject::colorize_syscall_name(&self.sysno, &self.category).dimmed(),
+                );
                 self.write_text(" - ".dimmed());
+                self.handle_pause_continue();
             }
+        } else if self.state == Entering {
+            // Colorized PID
+            // single-threaded: pid blue/red
+            if self.get_syscall_return().is_ok() {
+                self.write_text(self.process_pid.to_string().blue());
+            } else {
+                self.write_text(self.process_pid.to_string().red());
+            }
+
+            // Colorized Syscall Name
+            self.write_text(" ".dimmed());
+            self.write_text(SyscallObject::colorize_syscall_name(
+                &self.sysno,
+                &self.category,
+            ));
+            self.write_text(" - ".dimmed());
         }
     }
 
@@ -512,7 +508,7 @@ impl SyscallObject {
                                     .custom_color(*OUR_YELLOW),
                             );
                         }
-                        if flag_directive.len() > 0 {
+                        if !flag_directive.is_empty() {
                             self.general_text(" (");
                             let mut flag_directive_iter = flag_directive.into_iter().peekable();
                             if flag_directive_iter.peek().is_some() {
@@ -549,16 +545,14 @@ impl SyscallObject {
                             // absolute pathname
                             // dirfd is ignored
                             self.write_path_file(pathname);
+                        } else if pathname.is_empty() && (flags_num & AT_EMPTY_PATH) > 0 {
+                            // the pathname is empty
+                            let dirfd_parsed = self.displayable_ol(0);
+                            // if pathname is empty and AT_EMPTY_PATH is given, dirfd is used
+                            self.write_path_file(dirfd_parsed);
                         } else {
-                            if pathname.is_empty() && (flags_num & AT_EMPTY_PATH) > 0 {
-                                // the pathname is empty
-                                let dirfd_parsed = self.displayable_ol(0);
-                                // if pathname is empty and AT_EMPTY_PATH is given, dirfd is used
-                                self.write_path_file(dirfd_parsed);
-                            } else {
-                                // A relative pathname, dirfd = CWD, or a normal directory
-                                self.possible_dirfd_file(dirfd, pathname);
-                            }
+                            // A relative pathname, dirfd = CWD, or a normal directory
+                            self.possible_dirfd_file(dirfd, pathname);
                         }
                         let mut flag_directive = vec![];
                         if (flags_num & AT_NO_AUTOMOUNT) == AT_NO_AUTOMOUNT {
@@ -633,16 +627,14 @@ impl SyscallObject {
                                 self.general_text(", and its group to ");
                                 self.write_text(group.green());
                             }
-                        } else {
-                            if group_given == -1 {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
-                                self.general_text("change the owner of the file: ");
-                                self.write_path_file(filename);
-                                self.general_text("to ");
-                                self.write_text(group.green());
-                            }
+                        } else if group_given == -1 {
+                            let get_user_by_uid = cache.get_user_by_uid(group_given as _);
+                            let user = get_user_by_uid.unwrap();
+                            let group = user.name().to_str().unwrap();
+                            self.general_text("change the owner of the file: ");
+                            self.write_path_file(filename);
+                            self.general_text("to ");
+                            self.write_text(group.green());
                         }
                     }
                     Exiting => {
@@ -682,17 +674,15 @@ impl SyscallObject {
                                 self.general_text(", and its group to ");
                                 self.write_text(group.green());
                             }
-                        } else {
-                            if group_given == -1 {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
-                                self.general_text("change the owner of the file: ");
-                                self.write_path_file(filename);
+                        } else if group_given == -1 {
+                            let get_user_by_uid = cache.get_user_by_uid(group_given as _);
+                            let user = get_user_by_uid.unwrap();
+                            let group = user.name().to_str().unwrap();
+                            self.general_text("change the owner of the file: ");
+                            self.write_path_file(filename);
 
-                                self.general_text("to ");
-                                self.write_text(group.green());
-                            }
+                            self.general_text("to ");
+                            self.write_text(group.green());
                         }
                     }
                     Exiting => {
@@ -732,16 +722,14 @@ impl SyscallObject {
                                 self.general_text(", and its group to ");
                                 self.write_text(group.green());
                             }
-                        } else {
-                            if group_given == -1 {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
-                                self.general_text("change the owner of the file: ");
-                                self.write_path_file(filename);
-                                self.general_text("to ");
-                                self.write_text(group.green());
-                            }
+                        } else if group_given == -1 {
+                            let get_user_by_uid = cache.get_user_by_uid(group_given as _);
+                            let user = get_user_by_uid.unwrap();
+                            let group = user.name().to_str().unwrap();
+                            self.general_text("change the owner of the file: ");
+                            self.write_path_file(filename);
+                            self.general_text("to ");
+                            self.write_text(group.green());
                         }
                     }
                     Exiting => {
@@ -783,16 +771,14 @@ impl SyscallObject {
                                 self.general_text(", and its group to ");
                                 self.write_text(group.green());
                             }
-                        } else {
-                            if group_given == -1 {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
-                                self.general_text("change the owner of the file: ");
-                                self.write_path_file(filename);
-                                self.general_text("to ");
-                                self.write_text(group.green());
-                            }
+                        } else if group_given == -1 {
+                            let get_user_by_uid = cache.get_user_by_uid(group_given as _);
+                            let user = get_user_by_uid.unwrap();
+                            let group = user.name().to_str().unwrap();
+                            self.general_text("change the owner of the file: ");
+                            self.write_path_file(filename);
+                            self.general_text("to ");
+                            self.write_text(group.green());
                         }
                     }
                     Exiting => {
@@ -998,7 +984,7 @@ impl SyscallObject {
                 let shared = (flags_num & MAP_SHARED) == MAP_SHARED;
                 let private = (flags_num & MAP_PRIVATE) == MAP_PRIVATE;
 
-                let shared_validate = (flags_num as i32 & MAP_SHARED_VALIDATE) > 0;
+                let shared_validate = (flags_num & MAP_SHARED_VALIDATE) > 0;
 
                 let anonymous = ((flags_num & MAP_ANON) == MAP_ANON)
                     || ((flags_num & MAP_ANONYMOUS) == MAP_ANONYMOUS);
@@ -1012,7 +998,7 @@ impl SyscallObject {
                 let no_reserve = (flags_num & MAP_NORESERVE) == MAP_NORESERVE;
                 let stack = (flags_num & MAP_STACK) == MAP_STACK;
 
-                let sync = (flags_num as i32 & MAP_SYNC) > 0;
+                let sync = (flags_num & MAP_SYNC) > 0;
 
                 let prot_flags: ProtFlags = unsafe { std::mem::transmute(registers[2] as u32) };
                 let bytes = self.displayable_ol(1);
@@ -1131,7 +1117,7 @@ impl SyscallObject {
                             );
                         }
 
-                        if others.len() > 0 {
+                        if !others.is_empty() {
                             self.general_text(" (");
                             self.vanilla_commas_handler(others);
                             self.general_text(")");
@@ -1331,36 +1317,34 @@ impl SyscallObject {
                             // of one page or larger. The guard page causes a segmentation fault upon any access.
                             self.general_text("prevent ");
                             self.write_text("all access".custom_color(*OUR_YELLOW));
-                        } else {
-                            if all_prots.intersects(prot_flags) {
-                                self.general_text("allow ");
-                                let mut flags = vec![];
-                                if prot_flags.contains(ProtFlags::PROT_READ) {
-                                    flags.push(ProtFlags::PROT_READ)
-                                }
-                                if prot_flags.contains(ProtFlags::PROT_WRITE) {
-                                    flags.push(ProtFlags::PROT_WRITE)
-                                }
-                                if prot_flags.contains(ProtFlags::PROT_EXEC) {
-                                    flags.push(ProtFlags::PROT_EXEC)
-                                }
-                                let len = flags.len();
-                                for (index, flag) in flags.iter().enumerate() {
-                                    match *flag {
-                                        ProtFlags::PROT_READ => {
-                                            self.write_text("reading".custom_color(*OUR_YELLOW));
-                                        }
-                                        ProtFlags::PROT_WRITE => {
-                                            self.write_text("writing".custom_color(*OUR_YELLOW));
-                                        }
-                                        ProtFlags::PROT_EXEC => {
-                                            self.write_text("execution".custom_color(*OUR_YELLOW));
-                                        }
-                                        _ => unreachable!(),
+                        } else if all_prots.intersects(prot_flags) {
+                            self.general_text("allow ");
+                            let mut flags = vec![];
+                            if prot_flags.contains(ProtFlags::PROT_READ) {
+                                flags.push(ProtFlags::PROT_READ)
+                            }
+                            if prot_flags.contains(ProtFlags::PROT_WRITE) {
+                                flags.push(ProtFlags::PROT_WRITE)
+                            }
+                            if prot_flags.contains(ProtFlags::PROT_EXEC) {
+                                flags.push(ProtFlags::PROT_EXEC)
+                            }
+                            let len = flags.len();
+                            for (index, flag) in flags.iter().enumerate() {
+                                match *flag {
+                                    ProtFlags::PROT_READ => {
+                                        self.write_text("reading".custom_color(*OUR_YELLOW));
                                     }
-                                    if index != len - 1 {
-                                        self.write_text(", ".custom_color(*OUR_YELLOW));
+                                    ProtFlags::PROT_WRITE => {
+                                        self.write_text("writing".custom_color(*OUR_YELLOW));
                                     }
+                                    ProtFlags::PROT_EXEC => {
+                                        self.write_text("execution".custom_color(*OUR_YELLOW));
+                                    }
+                                    _ => unreachable!(),
+                                }
+                                if index != len - 1 {
+                                    self.write_text(", ".custom_color(*OUR_YELLOW));
                                 }
                             }
                         }
@@ -1505,10 +1489,10 @@ impl SyscallObject {
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
-                        if eph_return.is_ok() {
+                        if let Ok(eph_return) = eph_return {
                             self.general_text(" |=> ");
                             self.write_text("new offset location: ".green());
-                            self.write_text(eph_return.unwrap().green());
+                            self.write_text(eph_return.green());
                         } else {
                             // TODO! granular
                             self.one_line_error();
@@ -1648,15 +1632,7 @@ impl SyscallObject {
                                 self.write_text(old_address.custom_color(*OUR_YELLOW));
                             }
                         }
-                        if flags.contains(MRemapFlags::MREMAP_FIXED)
-                            && flags.contains(MRemapFlags::MREMAP_MAYMOVE)
-                        {
-                            self.general_text(" (");
-                            self.write_text(                        "move the mapping to a different address if you can not expand at current address"
-                            .custom_color(*OUR_YELLOW),
-                    );
-                            self.general_text(")");
-                        } else if flags.contains(MRemapFlags::MREMAP_MAYMOVE) {
+                        if flags.contains(MRemapFlags::MREMAP_MAYMOVE) {
                             self.general_text(" (");
                             self.write_text(                        "move the mapping to a different address if you can not expand at current address"
                             .custom_color(*OUR_YELLOW),
@@ -2208,21 +2184,13 @@ impl SyscallObject {
                         let path_rust = PathBuf::from(path);
 
                         self.general_text("create a new directory ");
-                        self.write_text(
-                            path_rust
-                                .file_name()
-                                .unwrap()
-                                .to_string_lossy()
-                                .to_owned()
-                                .blue(),
-                        );
+                        self.write_text(path_rust.file_name().unwrap().to_string_lossy().blue());
                         self.general_text(" inside: ");
                         self.write_text(
                             path_rust
                                 .parent()
                                 .unwrap()
                                 .to_string_lossy()
-                                .to_owned()
                                 .custom_color(*OUR_YELLOW),
                         );
                     }
@@ -2245,10 +2213,10 @@ impl SyscallObject {
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
-                        if eph_return.is_ok() {
+                        if let Ok(eph_return) = eph_return {
                             self.general_text(" |=> ");
                             self.write_text("cwd: ".green());
-                            self.write_text(eph_return.unwrap().custom_color(*OUR_YELLOW));
+                            self.write_text(eph_return.custom_color(*OUR_YELLOW));
                         } else {
                             // TODO! granular
                             self.one_line_error();
@@ -2735,10 +2703,10 @@ impl SyscallObject {
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
-                        if eph_return.is_ok() {
+                        if let Ok(eph_return) = eph_return {
                             self.general_text(" |=> ");
                             self.write_text("created a new duplicate file descriptor: ".green());
-                            self.write_path_file(eph_return.unwrap());
+                            self.write_path_file(eph_return);
                         } else {
                             // TODO! granular
                             self.one_line_error();
@@ -3313,9 +3281,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("perform operation ");
-                        self.write_text(
-                            format!("#{}", registers[1].to_string()).custom_color(*OUR_YELLOW),
-                        );
+                        self.write_text(format!("#{}", registers[1]).custom_color(*OUR_YELLOW));
                         self.general_text(" on the device: ");
                         self.write_path_file(filename);
                     }
@@ -3336,9 +3302,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("perform operation ");
-                        self.write_text(
-                            format!("#{}", registers[1].to_string()).custom_color(*OUR_YELLOW),
-                        );
+                        self.write_text(format!("#{}", registers[1]).custom_color(*OUR_YELLOW));
                         self.general_text(" on the file: ");
                         self.write_path_file(filename);
                     }
@@ -3549,15 +3513,11 @@ impl SyscallObject {
                                             ", and retrieve the current signal handler",
                                         );
                                     }
+                                } else if !old_signal_action.is_null() {
+                                    self.general_text("retrieve the current signal handler");
                                 } else {
-                                    if !old_signal_action.is_null() {
-                                        self.general_text("retrieve the current signal handler");
-                                    } else {
-                                        self.general_text(
-                                            "check if the current machine supports: ",
-                                        );
-                                        self.write_text(signal_as_string.custom_color(*OUR_YELLOW));
-                                    }
+                                    self.general_text("check if the current machine supports: ");
+                                    self.write_text(signal_as_string.custom_color(*OUR_YELLOW));
                                 }
                             }
                             None => {
@@ -3582,13 +3542,11 @@ impl SyscallObject {
                                                 ", and current handler retrieved".green(),
                                             );
                                         }
+                                    } else if !old_signal_action.is_null() {
+                                        self.write_text("current handler retrieved".green());
                                     } else {
-                                        if !old_signal_action.is_null() {
-                                            self.write_text("current handler retrieved".green());
-                                        } else {
-                                            // TODO! citation needed, but very safe to assume correct
-                                            self.write_text("signal supported".green());
-                                        }
+                                        // TODO! citation needed, but very safe to assume correct
+                                        self.write_text("signal supported".green());
                                     }
                                 }
                                 None => {
@@ -4688,9 +4646,7 @@ impl SyscallObject {
                                     self.general_text(" to all processes that the calling process has permissions to send to");
                                 } else if pid < -1 {
                                     self.general_text(" to process group: ");
-                                    self.write_text(
-                                        (pid * -1).to_string().custom_color(*PAGES_COLOR),
-                                    );
+                                    self.write_text((-pid).to_string().custom_color(*PAGES_COLOR));
                                 }
                             }
                         }
@@ -5405,70 +5361,71 @@ impl SyscallObject {
                     Entering => {
                         // this gets rid of the options
                         let ops_only_mask = 0b01111111;
-                        if (futex_ops_num & ops_only_mask) == FUTEX_WAIT {
-                            self.write_text(
-                                "block and wait for FUTEX_WAKE if comparison succeeds"
-                                    .custom_color(*OUR_YELLOW),
-                            );
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_WAKE {
-                            self.general_text("wake a maximum of ");
-                            self.write_text(val.to_string().custom_color(*OUR_YELLOW));
-                            self.general_text(" waiters waiting on the futex at ");
-                            self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_FD {
-                            self.general_text("create a file descriptor for the futex at ");
-                            self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
-                            self.general_text(" to use with asynchronous syscalls");
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_CMP_REQUEUE {
-                            self.general_text("if comparison succeeds wake a maximum of ");
-                            self.write_text(val.to_string().custom_color(*OUR_YELLOW));
-                            self.general_text(" waiters waiting on the futex at ");
-                            self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
-                            self.general_text(" and requeue a maximum of ");
-                            self.write_text(val2.to_string().custom_color(*OUR_YELLOW));
-                            self.general_text(" from the remaining waiters to the futex at ");
-                            self.write_text(futex2_addr.custom_color(*OUR_YELLOW));
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_REQUEUE {
-                            self.general_text("without comparing wake a maximum of ");
-                            self.write_text(val.to_string().custom_color(*OUR_YELLOW));
-                            self.general_text(" waiters waiting on the futex at ");
-                            self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
-                            self.general_text(" and requeue a maximum of ");
-                            self.write_text(val2.to_string().custom_color(*OUR_YELLOW));
-                            self.general_text(" from the remaining waiters to the futex at ");
-                            self.write_text(futex2_addr.custom_color(*OUR_YELLOW));
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_WAKE_OP {
-                            self.general_text("operate on 2 futexes at the same time");
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_WAIT_BITSET {
-                            self.general_text("if comparison succeeds block and wait for FUTEX_WAKE and register a bitmask for selective waiting");
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_WAKE_BITSET {
-                            self.general_text("wake a maximum of ");
-                            self.write_text(val.to_string().custom_color(*OUR_YELLOW));
-                            self.general_text(" waiters waiting on the futex at ");
-                            self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
-                            self.write_text(
-                                " from the provided waiters bitmask".custom_color(*OUR_YELLOW),
-                            );
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_LOCK_PI {
-                            self.general_text("priority-inheritance futex operation ");
-                            self.write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_LOCK_PI2 {
-                            self.general_text("priority-inheritance futex operation ");
-                            self.write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_TRYLOCK_PI {
-                            self.general_text("priority-inheritance futex operation ");
-                            self.write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_UNLOCK_PI {
-                            self.general_text("priority-inheritance futex operation ");
-                            self.write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_CMP_REQUEUE_PI {
-                            self.general_text("priority-inheritance futex operation ");
-                            self.write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_WAIT_REQUEUE_PI {
-                            self.general_text("priority-inheritance futex operation ");
-                            self.write_text("[intentrace: needs granularity]".bright_black());
-                        } else {
-                            self.write_text("[intentrace: unknown flag]".bright_black());
+                        match futex_ops_num & ops_only_mask {
+                            FUTEX_WAIT => {
+                                self.write_text(
+                                    "block and wait for FUTEX_WAKE if comparison succeeds"
+                                        .custom_color(*OUR_YELLOW),
+                                );
+                            }
+                            FUTEX_WAKE => {
+                                self.general_text("wake a maximum of ");
+                                self.write_text(val.to_string().custom_color(*OUR_YELLOW));
+                                self.general_text(" waiters waiting on the futex at ");
+                                self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
+                            }
+                            FUTEX_FD => {
+                                self.general_text("create a file descriptor for the futex at ");
+                                self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
+                                self.general_text(" to use with asynchronous syscalls");
+                            }
+                            FUTEX_CMP_REQUEUE => {
+                                self.general_text("if comparison succeeds wake a maximum of ");
+                                self.write_text(val.to_string().custom_color(*OUR_YELLOW));
+                                self.general_text(" waiters waiting on the futex at ");
+                                self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
+                                self.general_text(" and requeue a maximum of ");
+                                self.write_text(val2.to_string().custom_color(*OUR_YELLOW));
+                                self.general_text(" from the remaining waiters to the futex at ");
+                                self.write_text(futex2_addr.custom_color(*OUR_YELLOW));
+                            }
+                            FUTEX_REQUEUE => {
+                                self.general_text("without comparing wake a maximum of ");
+                                self.write_text(val.to_string().custom_color(*OUR_YELLOW));
+                                self.general_text(" waiters waiting on the futex at ");
+                                self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
+                                self.general_text(" and requeue a maximum of ");
+                                self.write_text(val2.to_string().custom_color(*OUR_YELLOW));
+                                self.general_text(" from the remaining waiters to the futex at ");
+                                self.write_text(futex2_addr.custom_color(*OUR_YELLOW));
+                            }
+                            FUTEX_WAKE_OP => {
+                                self.general_text("operate on 2 futexes at the same time");
+                            }
+                            FUTEX_WAIT_BITSET => {
+                                self.general_text("if comparison succeeds block and wait for FUTEX_WAKE and register a bitmask for selective waiting");
+                            }
+                            FUTEX_WAKE_BITSET => {
+                                self.general_text("wake a maximum of ");
+                                self.write_text(val.to_string().custom_color(*OUR_YELLOW));
+                                self.general_text(" waiters waiting on the futex at ");
+                                self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
+                                self.write_text(
+                                    " from the provided waiters bitmask".custom_color(*OUR_YELLOW),
+                                );
+                            }
+                            FUTEX_LOCK_PI
+                            | FUTEX_LOCK_PI2
+                            | FUTEX_TRYLOCK_PI
+                            | FUTEX_UNLOCK_PI
+                            | FUTEX_CMP_REQUEUE_PI
+                            | FUTEX_WAIT_REQUEUE_PI => {
+                                self.general_text("priority-inheritance futex operation ");
+                                self.write_text("[intentrace: needs granularity]".bright_black());
+                            }
+                            _ => {
+                                self.write_text("[intentrace: unknown flag]".bright_black());
+                            }
                         }
                         // workarounds pending rustix deprecation of FutexOperation for Operations
                         // TODO! Priority-inheritance futexes
@@ -5514,10 +5471,10 @@ impl SyscallObject {
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
-                        if eph_return.is_ok() {
+                        if let Ok(eph_return) = eph_return {
                             self.general_text(" |=> ");
                             self.write_text("thread id of the calling thread: ".green());
-                            self.write_text(eph_return.unwrap().custom_color(*OUR_YELLOW));
+                            self.write_text(eph_return.custom_color(*OUR_YELLOW));
                         } else {
                             // TODO! granular
                             self.one_line_error();
@@ -5806,120 +5763,32 @@ impl SyscallObject {
                             self.general_text(" |=> ");
                             if wstatus == 0 {
                                 self.write_text("Successful".green());
-                            } else {
-                                if let Ok(wstatus_value) = self.displayable_ol(1).parse::<u64>() {
-                                    // TODO! this is a workaround because nix's waitstatus resolver errors with EINVAL very often
-                                    if nix::libc::WIFEXITED(wstatus_value as i32) {
-                                        let status = nix::libc::WEXITSTATUS(wstatus_value as i32);
-                                        self.write_text(
-                                            "process exited with status code: ".green(),
-                                        );
-                                        self.write_text(status.to_string().blue());
-                                    } else if nix::libc::WIFSIGNALED(wstatus_value as i32) {
-                                        let signal =
-                                            x86_signal_to_string(wstatus_value as u64).unwrap();
-                                        self.write_text("process was killed by ".green());
-                                        self.write_text(signal.to_string().blue());
-                                        if nix::libc::WCOREDUMP(wstatus_value as i32) {
-                                            self.general_text(" ");
-                                            self.write_text("(core dumped)".green());
-                                        }
-                                    } else if nix::libc::WIFSTOPPED(wstatus_value as i32) {
-                                        // TODO! Granularity needed here, this is currently a workaround
-                                        self.write_text("process was stopped".green());
-                                        // self.write_text("process was stopped by ".green());
-                                        // self.write_text(signal.to_string().blue());
-                                    } else {
-                                        self.write_text(
-                                            "process was resumed from a stop state by ".green(),
-                                        );
-                                        self.write_text("SIGCONT".blue());
+                            } else if let Ok(wstatus_value) = self.displayable_ol(1).parse::<u64>()
+                            {
+                                // TODO! this is a workaround because nix's waitstatus resolver errors with EINVAL very often
+                                if nix::libc::WIFEXITED(wstatus_value as i32) {
+                                    let status = nix::libc::WEXITSTATUS(wstatus_value as i32);
+                                    self.write_text("process exited with status code: ".green());
+                                    self.write_text(status.to_string().blue());
+                                } else if nix::libc::WIFSIGNALED(wstatus_value as i32) {
+                                    let signal = x86_signal_to_string(wstatus_value).unwrap();
+                                    self.write_text("process was killed by ".green());
+                                    self.write_text(signal.to_string().blue());
+                                    if nix::libc::WCOREDUMP(wstatus_value as i32) {
+                                        self.general_text(" ");
+                                        self.write_text("(core dumped)".green());
                                     }
+                                } else if nix::libc::WIFSTOPPED(wstatus_value as i32) {
+                                    // TODO! Granularity needed here, this is currently a workaround
+                                    self.write_text("process was stopped".green());
+                                    // self.write_text("process was stopped by ".green());
+                                    // self.write_text(signal.to_string().blue());
+                                } else {
+                                    self.write_text(
+                                        "process was resumed from a stop state by ".green(),
+                                    );
+                                    self.write_text("SIGCONT".blue());
                                 }
-                                // let wait_status = nix::sys::wait::WaitStatus::from_raw(
-                                //     Pid::from_raw(pid as i32),
-                                //     b as i32,
-                                // )
-                                // .unwrap();
-                                // match wait_status {
-                                //     /// The process exited normally (as with `exit()` or returning from
-                                //     /// `main`) with the given exit code. This case matches the C macro
-                                //     /// `WIFEXITED(status)`; the second field is `WEXITSTATUS(status)`.
-                                //     nix::sys::wait::WaitStatus::Exited(pid, status_code) => {
-                                //         self.one_line
-                                //             .push("process exited with status code: ".green());
-                                //         self.write_text(status_code.to_string().blue());
-                                //     }
-                                //     /// The process was killed by the given signal. The third field
-                                //     /// indicates whether the signal generated a core dump. This case
-                                //     /// matches the C macro `WIFSIGNALED(status)`; the last two fields
-                                //     /// correspond to `WTERMSIG(status)` and `WCOREDUMP(status)`.
-                                //     nix::sys::wait::WaitStatus::Signaled(
-                                //         pid,
-                                //         signal,
-                                //         core_dump,
-                                //     ) => {
-                                //         self.write_text("process was killed by ".green());
-                                //         self.write_text(signal.to_string().blue());
-                                //         if core_dump {
-                                //             general_text.push(" ");
-                                //             self.write_text("(core dumped)".green());
-                                //         }
-                                //     }
-                                //     /// The process is alive, but was stopped by the given signal. This
-                                //     /// is only reported if `WaitPidFlag::WUNTRACED` was passed. This
-                                //     /// case matches the C macro `WIFSTOPPED(status)`; the second field
-                                //     /// is `WSTOPSIG(status)`.
-                                //     nix::sys::wait::WaitStatus::Stopped(pid, signal) => {
-                                //         self.write_text("process was stopped by ".green());
-                                //         self.write_text(signal.to_string().blue());
-                                //     }
-                                //     /// The traced process was stopped by a `PTRACE_EVENT_*` event. See
-                                //     /// [`nix::sys::ptrace`] and [`ptrace`(2)] for more information. All
-                                //     /// currently-defined events use `SIGTRAP` as the signal; the third
-                                //     /// field is the `PTRACE_EVENT_*` value of the event.
-                                //     ///
-                                //     /// [`nix::sys::ptrace`]: ../ptrace/index.html
-                                //     /// [`ptrace`(2)]: https://man7.org/linux/man-pages/man2/ptrace.2.html
-                                //     nix::sys::wait::WaitStatus::PtraceEvent(
-                                //         pid,
-                                //         signal,
-                                //         ptrace_event,
-                                //     ) => {
-                                //         self.write_text("process was stopped by a ".green());
-                                //         self.write_text(signal.to_string().blue());
-                                //         general_text.push(" signal due to ");
-                                //         let ptrace: nix::sys::ptrace::Event =
-                                //             unsafe { mem::transmute(ptrace_event) };
-                                //         self.write_text(format!("{:?}", ptrace).green());
-                                //     }
-                                //     /// The traced process was stopped by execution of a system call,
-                                //     /// and `PTRACE_O_TRACESYSGOOD` is in effect. See [`ptrace`(2)] for
-                                //     /// more information.
-                                //     ///
-                                //     /// [`ptrace`(2)]: https://man7.org/linux/man-pages/man2/ptrace.2.html
-                                //     nix::sys::wait::WaitStatus::PtraceSyscall(pid) => {
-                                //         self.write_text("process stopped by ".green());
-                                //         self.write_text("PTRACE_O_TRACESYSGOOD".blue());
-                                //         self.write_text(" while executing a syscall".green());
-                                //     }
-                                //     /// The process was previously stopped but has resumed execution
-                                //     /// after receiving a `SIGCONT` signal. This is only reported if
-                                //     /// `WaitPidFlag::WCONTINUED` was passed. This case matches the C
-                                //     /// macro `WIFCONTINUED(status)`.
-                                //     nix::sys::wait::WaitStatus::Continued(pid) => {
-                                //         self.write_text(                                //             "process was resumed from a stop state by ".green(),
-                                //         );
-                                //         self.write_text("SIGCONT".blue());
-                                //     }
-                                //     /// There are currently no state changes to report in any awaited
-                                //     /// child process. This is only returned if `WaitPidFlag::WNOHANG`
-                                //     /// was used (otherwise `wait()` or `waitpid()` would block until
-                                //     /// there was something to report).
-                                //     nix::sys::wait::WaitStatus::StillAlive => {
-                                //         self.write_text("no state changes to report".green());
-                                //     }
-                                // }
                             }
                         } else {
                             // TODO! granular
@@ -6115,10 +5984,10 @@ impl SyscallObject {
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
-                        if eph_return.is_ok() {
+                        if let Ok(eph_return) = eph_return {
                             self.general_text(" |=> ");
                             self.write_text("thread id of the child: ".green());
-                            self.write_text(eph_return.unwrap().custom_color(*OUR_YELLOW));
+                            self.write_text(eph_return.custom_color(*OUR_YELLOW));
                             if clone_vm {
                                 self.write_text(new_thread());
                             } else {
@@ -6306,10 +6175,10 @@ impl SyscallObject {
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
-                        if eph_return.is_ok() {
+                        if let Ok(eph_return) = eph_return {
                             self.general_text(" |=> ");
                             self.write_text("thread id of the child: ".green());
-                            self.write_text(eph_return.unwrap().custom_color(*OUR_YELLOW));
+                            self.write_text(eph_return.custom_color(*OUR_YELLOW));
                             // TODO! fix occasional error (syscall returns -38)
                             if clone_vm {
                                 self.write_text(new_thread());
@@ -6626,10 +6495,10 @@ impl SyscallObject {
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
-                        if eph_return.is_ok() {
+                        if let Ok(eph_return) = eph_return {
                             self.general_text(" |=> ");
                             self.write_text("got the scheduling priority: ".green());
-                            self.write_text(eph_return.unwrap().custom_color(*OUR_YELLOW));
+                            self.write_text(eph_return.custom_color(*OUR_YELLOW));
                         } else {
                             // TODO! granular
                             self.one_line_error();
@@ -6902,7 +6771,7 @@ impl SyscallObject {
                 );
                 self.write_text("/".custom_color(*OUR_YELLOW));
                 let path_without_leading_relativeness =
-                    lose_relativity_on_path(file_path_buf.as_path().to_string_lossy().to_owned());
+                    lose_relativity_on_path(file_path_buf.as_path().to_string_lossy());
                 self.write_text(path_without_leading_relativeness.custom_color(*PAGES_COLOR));
             } else {
                 let file_info =
@@ -6913,9 +6782,8 @@ impl SyscallObject {
                         if !path.is_absolute() || path.len() != 1 {
                             self.write_text("/".custom_color(*OUR_YELLOW));
                         }
-                        let path_without_leading_relativeness = lose_relativity_on_path(
-                            file_path_buf.as_path().to_string_lossy().to_owned(),
-                        );
+                        let path_without_leading_relativeness =
+                            lose_relativity_on_path(file_path_buf.as_path().to_string_lossy());
                         self.write_text(
                             path_without_leading_relativeness.custom_color(*PAGES_COLOR),
                         );
@@ -6935,9 +6803,9 @@ impl SyscallObject {
             if dirfd == AT_FDCWD {
                 let cwd = procfs::process::Process::new(10).unwrap().cwd().unwrap();
                 string.push_str(&cwd.as_path().to_string_lossy());
-                string.push_str("/");
+                string.push('/');
                 let path_without_leading_relativeness =
-                    lose_relativity_on_path(file_path_buf.as_path().to_string_lossy().to_owned());
+                    lose_relativity_on_path(file_path_buf.as_path().to_string_lossy());
                 string.push_str(&path_without_leading_relativeness);
             } else {
                 let file_info =
@@ -6946,18 +6814,17 @@ impl SyscallObject {
                     procfs::process::FDTarget::Path(path) => {
                         self.write_text(path.as_path().to_string_lossy().custom_color(*OUR_YELLOW));
                         if !path.is_absolute() || path.len() != 1 {
-                            string.push_str("/");
+                            string.push('/');
                         }
-                        let path_without_leading_relativeness = lose_relativity_on_path(
-                            file_path_buf.as_path().to_string_lossy().to_owned(),
-                        );
+                        let path_without_leading_relativeness =
+                            lose_relativity_on_path(file_path_buf.as_path().to_string_lossy());
                         string.push_str(&path_without_leading_relativeness);
                     }
                     _ => unreachable!(),
                 }
             }
         } else {
-            string.push_str(&file_path_buf.as_path().to_string_lossy().to_owned());
+            string.push_str(&file_path_buf.as_path().to_string_lossy());
         }
         string
     }
