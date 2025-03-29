@@ -2190,7 +2190,6 @@ impl SyscallObject {
                                 .file_name()
                                 .unwrap()
                                 .to_string_lossy()
-                                .to_owned()
                                 .blue(),
                         );
                         self.general_text(" inside: ");
@@ -2199,7 +2198,6 @@ impl SyscallObject {
                                 .parent()
                                 .unwrap()
                                 .to_string_lossy()
-                                .to_owned()
                                 .custom_color(*OUR_YELLOW),
                         );
                     }
@@ -6786,7 +6784,7 @@ impl SyscallObject {
                 );
                 self.write_text("/".custom_color(*OUR_YELLOW));
                 let path_without_leading_relativeness =
-                    lose_relativity_on_path(file_path_buf.as_path().to_string_lossy().to_owned());
+                    lose_relativity_on_path(file_path_buf.as_path().to_string_lossy());
                 self.write_text(path_without_leading_relativeness.custom_color(*PAGES_COLOR));
             } else {
                 let file_info =
@@ -6798,7 +6796,7 @@ impl SyscallObject {
                             self.write_text("/".custom_color(*OUR_YELLOW));
                         }
                         let path_without_leading_relativeness = lose_relativity_on_path(
-                            file_path_buf.as_path().to_string_lossy().to_owned(),
+                            file_path_buf.as_path().to_string_lossy(),
                         );
                         self.write_text(
                             path_without_leading_relativeness.custom_color(*PAGES_COLOR),
@@ -6821,7 +6819,7 @@ impl SyscallObject {
                 string.push_str(&cwd.as_path().to_string_lossy());
                 string.push('/');
                 let path_without_leading_relativeness =
-                    lose_relativity_on_path(file_path_buf.as_path().to_string_lossy().to_owned());
+                    lose_relativity_on_path(file_path_buf.as_path().to_string_lossy());
                 string.push_str(&path_without_leading_relativeness);
             } else {
                 let file_info =
@@ -6833,7 +6831,7 @@ impl SyscallObject {
                             string.push('/');
                         }
                         let path_without_leading_relativeness = lose_relativity_on_path(
-                            file_path_buf.as_path().to_string_lossy().to_owned(),
+                            file_path_buf.as_path().to_string_lossy(),
                         );
                         string.push_str(&path_without_leading_relativeness);
                     }
@@ -6841,7 +6839,7 @@ impl SyscallObject {
                 }
             }
         } else {
-            string.push_str(&file_path_buf.as_path().to_string_lossy().to_owned());
+            string.push_str(&file_path_buf.as_path().to_string_lossy());
         }
         string
     }
