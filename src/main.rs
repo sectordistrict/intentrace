@@ -102,7 +102,7 @@ fn runner(command_line: &[String]) {
         }
     } else if attach_pid.is_some() {
         let child = Pid::from_raw(ATTACH_PID.unwrap() as i32);
-        let _ = ptrace::attach(child).unwrap();
+        ptrace::attach(child).unwrap();
         parent(child);
     } else {
         match unsafe { fork() }.expect("Error: Fork Failed") {
@@ -131,7 +131,7 @@ fn child_trace_me(comm: &[String]) {
     }
 
     // TRACE ME
-    let _ = ptrace::traceme().unwrap();
+    ptrace::traceme().unwrap();
     // EXECUTE
     let res = command.exec();
 
@@ -161,7 +161,7 @@ fn follow_forks(command_to_run: Option<&[String]>) {
             if let Some(attach_pid) = *ATTACH_PID {
                 let mut ptracer = Ptracer::new();
                 *ptracer.poll_delay_mut() = Duration::from_nanos(1);
-                let child = ptracer
+                ptracer
                     .attach(pete::Pid::from_raw(attach_pid as i32))
                     .unwrap();
                 ptrace_ptracer(ptracer, Pid::from_raw(attach_pid as i32));
