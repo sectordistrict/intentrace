@@ -460,7 +460,7 @@ impl SyscallObject {
             Array_Of_Strings(array) => {
                 let mut string = String::new();
                 for text in array {
-                    string.push_str(&text);
+                    string.push_str(text);
                     string.push(' ');
                 }
                 string

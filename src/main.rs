@@ -337,7 +337,7 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
                             registers.r9,
                         ];
                         if let Some(mut syscall) = pid_syscall_map.get_mut(&syscall_pid) {
-                            syscall_returned(&mut syscall, registers.rax);
+                            syscall_returned(syscall, registers.rax);
                             pid_syscall_map.remove(&syscall_pid).unwrap();
                         }
                     }

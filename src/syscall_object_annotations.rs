@@ -98,9 +98,9 @@ impl From<&mut SyscallObject> for SyscallObject_Annotations {
         }: &mut SyscallObject,
     ) -> Self {
         if let Some(&(description, annotations_arg_containers, return_annotation)) =
-            SYSANNOT_MAP.get(&sysno)
+            SYSANNOT_MAP.get(sysno)
         {
-            let category = *SYSCATEGORIES_MAP.get(&sysno).unwrap();
+            let category = *SYSCATEGORIES_MAP.get(sysno).unwrap();
             SyscallObject_Annotations {
                 sysno: *sysno,
                 description,
@@ -344,7 +344,7 @@ impl SyscallObject_Annotations {
             Array_Of_Strings(array) => {
                 let mut string = String::new();
                 for text in array {
-                    string.push_str(&text);
+                    string.push_str(text);
                     string.push(' ');
                 }
                 string.yellow()
