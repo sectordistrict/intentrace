@@ -984,7 +984,7 @@ impl SyscallObject {
                 let shared = (flags_num & MAP_SHARED) == MAP_SHARED;
                 let private = (flags_num & MAP_PRIVATE) == MAP_PRIVATE;
 
-                let shared_validate = (flags_num as i32 & MAP_SHARED_VALIDATE) > 0;
+                let shared_validate = (flags_num & MAP_SHARED_VALIDATE) > 0;
 
                 let anonymous = ((flags_num & MAP_ANON) == MAP_ANON)
                     || ((flags_num & MAP_ANONYMOUS) == MAP_ANONYMOUS);
@@ -998,7 +998,7 @@ impl SyscallObject {
                 let no_reserve = (flags_num & MAP_NORESERVE) == MAP_NORESERVE;
                 let stack = (flags_num & MAP_STACK) == MAP_STACK;
 
-                let sync = (flags_num as i32 & MAP_SYNC) > 0;
+                let sync = (flags_num & MAP_SYNC) > 0;
 
                 let prot_flags: ProtFlags = unsafe { std::mem::transmute(registers[2] as u32) };
                 let bytes = self.displayable_ol(1);
@@ -5786,7 +5786,7 @@ impl SyscallObject {
                                     self.write_text(status.to_string().blue());
                                 } else if nix::libc::WIFSIGNALED(wstatus_value as i32) {
                                     let signal =
-                                        x86_signal_to_string(wstatus_value as u64).unwrap();
+                                        x86_signal_to_string(wstatus_value).unwrap();
                                     self.write_text("process was killed by ".green());
                                     self.write_text(signal.to_string().blue());
                                     if nix::libc::WCOREDUMP(wstatus_value as i32) {
