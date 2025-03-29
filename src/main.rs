@@ -100,19 +100,17 @@ fn runner(command_line: &[String]) {
             Some(_) => follow_forks(None),
             None => follow_forks(Some(command_line)),
         }
+    } else if attach_pid.is_some() {
+        let child = Pid::from_raw(ATTACH_PID.unwrap() as i32);
+        let _ = ptrace::attach(child).unwrap();
+        parent(child);
     } else {
-        if attach_pid.is_some() {
-            let child = Pid::from_raw(ATTACH_PID.unwrap() as i32);
-            let _ = ptrace::attach(child).unwrap();
-            parent(child);
-        } else {
-            match unsafe { fork() }.expect("Error: Fork Failed") {
-                Parent { child } => {
-                    parent(child);
-                }
-                Child => {
-                    child_trace_me(command_line);
-                }
+        match unsafe { fork() }.expect("Error: Fork Failed") {
+            Parent { child } => {
+                parent(child);
+            }
+            Child => {
+                child_trace_me(command_line);
             }
         }
     }

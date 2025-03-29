@@ -97,38 +97,34 @@ impl SyscallObject {
                     &self.category,
                 ));
                 self.write_text(" - ".dimmed());
-            } else {
-                if self.paused {
-                    // Colorized PID
-                    self.write_text(self.process_pid.to_string().bright_blue().dimmed());
-
-                    // Colorized Syscall Name
-                    self.write_text(" ".dimmed());
-                    self.write_text(
-                        SyscallObject::colorize_syscall_name(&self.sysno, &self.category).dimmed(),
-                    );
-                    self.write_text(" - ".dimmed());
-                    self.handle_pause_continue();
-                }
-            }
-        } else {
-            if self.state == Entering {
+            } else if self.paused {
                 // Colorized PID
-                // single-threaded: pid blue/red
-                if self.get_syscall_return().is_ok() {
-                    self.write_text(self.process_pid.to_string().blue());
-                } else {
-                    self.write_text(self.process_pid.to_string().red());
-                }
+                self.write_text(self.process_pid.to_string().bright_blue().dimmed());
 
                 // Colorized Syscall Name
                 self.write_text(" ".dimmed());
-                self.write_text(SyscallObject::colorize_syscall_name(
-                    &self.sysno,
-                    &self.category,
-                ));
+                self.write_text(
+                    SyscallObject::colorize_syscall_name(&self.sysno, &self.category).dimmed(),
+                );
                 self.write_text(" - ".dimmed());
+                self.handle_pause_continue();
             }
+        } else if self.state == Entering {
+            // Colorized PID
+            // single-threaded: pid blue/red
+            if self.get_syscall_return().is_ok() {
+                self.write_text(self.process_pid.to_string().blue());
+            } else {
+                self.write_text(self.process_pid.to_string().red());
+            }
+
+            // Colorized Syscall Name
+            self.write_text(" ".dimmed());
+            self.write_text(SyscallObject::colorize_syscall_name(
+                &self.sysno,
+                &self.category,
+            ));
+            self.write_text(" - ".dimmed());
         }
     }
 
@@ -549,16 +545,14 @@ impl SyscallObject {
                             // absolute pathname
                             // dirfd is ignored
                             self.write_path_file(pathname);
+                        } else if pathname.is_empty() && (flags_num & AT_EMPTY_PATH) > 0 {
+                            // the pathname is empty
+                            let dirfd_parsed = self.displayable_ol(0);
+                            // if pathname is empty and AT_EMPTY_PATH is given, dirfd is used
+                            self.write_path_file(dirfd_parsed);
                         } else {
-                            if pathname.is_empty() && (flags_num & AT_EMPTY_PATH) > 0 {
-                                // the pathname is empty
-                                let dirfd_parsed = self.displayable_ol(0);
-                                // if pathname is empty and AT_EMPTY_PATH is given, dirfd is used
-                                self.write_path_file(dirfd_parsed);
-                            } else {
-                                // A relative pathname, dirfd = CWD, or a normal directory
-                                self.possible_dirfd_file(dirfd, pathname);
-                            }
+                            // A relative pathname, dirfd = CWD, or a normal directory
+                            self.possible_dirfd_file(dirfd, pathname);
                         }
                         let mut flag_directive = vec![];
                         if (flags_num & AT_NO_AUTOMOUNT) == AT_NO_AUTOMOUNT {
@@ -633,16 +627,14 @@ impl SyscallObject {
                                 self.general_text(", and its group to ");
                                 self.write_text(group.green());
                             }
-                        } else {
-                            if group_given == -1 {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
-                                self.general_text("change the owner of the file: ");
-                                self.write_path_file(filename);
-                                self.general_text("to ");
-                                self.write_text(group.green());
-                            }
+                        } else if group_given == -1 {
+                            let get_user_by_uid = cache.get_user_by_uid(group_given as _);
+                            let user = get_user_by_uid.unwrap();
+                            let group = user.name().to_str().unwrap();
+                            self.general_text("change the owner of the file: ");
+                            self.write_path_file(filename);
+                            self.general_text("to ");
+                            self.write_text(group.green());
                         }
                     }
                     Exiting => {
@@ -682,17 +674,15 @@ impl SyscallObject {
                                 self.general_text(", and its group to ");
                                 self.write_text(group.green());
                             }
-                        } else {
-                            if group_given == -1 {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
-                                self.general_text("change the owner of the file: ");
-                                self.write_path_file(filename);
+                        } else if group_given == -1 {
+                            let get_user_by_uid = cache.get_user_by_uid(group_given as _);
+                            let user = get_user_by_uid.unwrap();
+                            let group = user.name().to_str().unwrap();
+                            self.general_text("change the owner of the file: ");
+                            self.write_path_file(filename);
 
-                                self.general_text("to ");
-                                self.write_text(group.green());
-                            }
+                            self.general_text("to ");
+                            self.write_text(group.green());
                         }
                     }
                     Exiting => {
@@ -732,16 +722,14 @@ impl SyscallObject {
                                 self.general_text(", and its group to ");
                                 self.write_text(group.green());
                             }
-                        } else {
-                            if group_given == -1 {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
-                                self.general_text("change the owner of the file: ");
-                                self.write_path_file(filename);
-                                self.general_text("to ");
-                                self.write_text(group.green());
-                            }
+                        } else if group_given == -1 {
+                            let get_user_by_uid = cache.get_user_by_uid(group_given as _);
+                            let user = get_user_by_uid.unwrap();
+                            let group = user.name().to_str().unwrap();
+                            self.general_text("change the owner of the file: ");
+                            self.write_path_file(filename);
+                            self.general_text("to ");
+                            self.write_text(group.green());
                         }
                     }
                     Exiting => {
@@ -783,16 +771,14 @@ impl SyscallObject {
                                 self.general_text(", and its group to ");
                                 self.write_text(group.green());
                             }
-                        } else {
-                            if group_given == -1 {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
-                                self.general_text("change the owner of the file: ");
-                                self.write_path_file(filename);
-                                self.general_text("to ");
-                                self.write_text(group.green());
-                            }
+                        } else if group_given == -1 {
+                            let get_user_by_uid = cache.get_user_by_uid(group_given as _);
+                            let user = get_user_by_uid.unwrap();
+                            let group = user.name().to_str().unwrap();
+                            self.general_text("change the owner of the file: ");
+                            self.write_path_file(filename);
+                            self.general_text("to ");
+                            self.write_text(group.green());
                         }
                     }
                     Exiting => {
@@ -1331,36 +1317,34 @@ impl SyscallObject {
                             // of one page or larger. The guard page causes a segmentation fault upon any access.
                             self.general_text("prevent ");
                             self.write_text("all access".custom_color(*OUR_YELLOW));
-                        } else {
-                            if all_prots.intersects(prot_flags) {
-                                self.general_text("allow ");
-                                let mut flags = vec![];
-                                if prot_flags.contains(ProtFlags::PROT_READ) {
-                                    flags.push(ProtFlags::PROT_READ)
-                                }
-                                if prot_flags.contains(ProtFlags::PROT_WRITE) {
-                                    flags.push(ProtFlags::PROT_WRITE)
-                                }
-                                if prot_flags.contains(ProtFlags::PROT_EXEC) {
-                                    flags.push(ProtFlags::PROT_EXEC)
-                                }
-                                let len = flags.len();
-                                for (index, flag) in flags.iter().enumerate() {
-                                    match *flag {
-                                        ProtFlags::PROT_READ => {
-                                            self.write_text("reading".custom_color(*OUR_YELLOW));
-                                        }
-                                        ProtFlags::PROT_WRITE => {
-                                            self.write_text("writing".custom_color(*OUR_YELLOW));
-                                        }
-                                        ProtFlags::PROT_EXEC => {
-                                            self.write_text("execution".custom_color(*OUR_YELLOW));
-                                        }
-                                        _ => unreachable!(),
+                        } else if all_prots.intersects(prot_flags) {
+                            self.general_text("allow ");
+                            let mut flags = vec![];
+                            if prot_flags.contains(ProtFlags::PROT_READ) {
+                                flags.push(ProtFlags::PROT_READ)
+                            }
+                            if prot_flags.contains(ProtFlags::PROT_WRITE) {
+                                flags.push(ProtFlags::PROT_WRITE)
+                            }
+                            if prot_flags.contains(ProtFlags::PROT_EXEC) {
+                                flags.push(ProtFlags::PROT_EXEC)
+                            }
+                            let len = flags.len();
+                            for (index, flag) in flags.iter().enumerate() {
+                                match *flag {
+                                    ProtFlags::PROT_READ => {
+                                        self.write_text("reading".custom_color(*OUR_YELLOW));
                                     }
-                                    if index != len - 1 {
-                                        self.write_text(", ".custom_color(*OUR_YELLOW));
+                                    ProtFlags::PROT_WRITE => {
+                                        self.write_text("writing".custom_color(*OUR_YELLOW));
                                     }
+                                    ProtFlags::PROT_EXEC => {
+                                        self.write_text("execution".custom_color(*OUR_YELLOW));
+                                    }
+                                    _ => unreachable!(),
+                                }
+                                if index != len - 1 {
+                                    self.write_text(", ".custom_color(*OUR_YELLOW));
                                 }
                             }
                         }
@@ -3549,15 +3533,13 @@ impl SyscallObject {
                                             ", and retrieve the current signal handler",
                                         );
                                     }
+                                } else if !old_signal_action.is_null() {
+                                    self.general_text("retrieve the current signal handler");
                                 } else {
-                                    if !old_signal_action.is_null() {
-                                        self.general_text("retrieve the current signal handler");
-                                    } else {
-                                        self.general_text(
-                                            "check if the current machine supports: ",
-                                        );
-                                        self.write_text(signal_as_string.custom_color(*OUR_YELLOW));
-                                    }
+                                    self.general_text(
+                                        "check if the current machine supports: ",
+                                    );
+                                    self.write_text(signal_as_string.custom_color(*OUR_YELLOW));
                                 }
                             }
                             None => {
@@ -3582,13 +3564,11 @@ impl SyscallObject {
                                                 ", and current handler retrieved".green(),
                                             );
                                         }
+                                    } else if !old_signal_action.is_null() {
+                                        self.write_text("current handler retrieved".green());
                                     } else {
-                                        if !old_signal_action.is_null() {
-                                            self.write_text("current handler retrieved".green());
-                                        } else {
-                                            // TODO! citation needed, but very safe to assume correct
-                                            self.write_text("signal supported".green());
-                                        }
+                                        // TODO! citation needed, but very safe to assume correct
+                                        self.write_text("signal supported".green());
                                     }
                                 }
                                 None => {
@@ -5806,120 +5786,34 @@ impl SyscallObject {
                             self.general_text(" |=> ");
                             if wstatus == 0 {
                                 self.write_text("Successful".green());
-                            } else {
-                                if let Ok(wstatus_value) = self.displayable_ol(1).parse::<u64>() {
-                                    // TODO! this is a workaround because nix's waitstatus resolver errors with EINVAL very often
-                                    if nix::libc::WIFEXITED(wstatus_value as i32) {
-                                        let status = nix::libc::WEXITSTATUS(wstatus_value as i32);
-                                        self.write_text(
-                                            "process exited with status code: ".green(),
-                                        );
-                                        self.write_text(status.to_string().blue());
-                                    } else if nix::libc::WIFSIGNALED(wstatus_value as i32) {
-                                        let signal =
-                                            x86_signal_to_string(wstatus_value as u64).unwrap();
-                                        self.write_text("process was killed by ".green());
-                                        self.write_text(signal.to_string().blue());
-                                        if nix::libc::WCOREDUMP(wstatus_value as i32) {
-                                            self.general_text(" ");
-                                            self.write_text("(core dumped)".green());
-                                        }
-                                    } else if nix::libc::WIFSTOPPED(wstatus_value as i32) {
-                                        // TODO! Granularity needed here, this is currently a workaround
-                                        self.write_text("process was stopped".green());
-                                        // self.write_text("process was stopped by ".green());
-                                        // self.write_text(signal.to_string().blue());
-                                    } else {
-                                        self.write_text(
-                                            "process was resumed from a stop state by ".green(),
-                                        );
-                                        self.write_text("SIGCONT".blue());
+                            } else if let Ok(wstatus_value) = self.displayable_ol(1).parse::<u64>() {
+                                // TODO! this is a workaround because nix's waitstatus resolver errors with EINVAL very often
+                                if nix::libc::WIFEXITED(wstatus_value as i32) {
+                                    let status = nix::libc::WEXITSTATUS(wstatus_value as i32);
+                                    self.write_text(
+                                        "process exited with status code: ".green(),
+                                    );
+                                    self.write_text(status.to_string().blue());
+                                } else if nix::libc::WIFSIGNALED(wstatus_value as i32) {
+                                    let signal =
+                                        x86_signal_to_string(wstatus_value as u64).unwrap();
+                                    self.write_text("process was killed by ".green());
+                                    self.write_text(signal.to_string().blue());
+                                    if nix::libc::WCOREDUMP(wstatus_value as i32) {
+                                        self.general_text(" ");
+                                        self.write_text("(core dumped)".green());
                                     }
+                                } else if nix::libc::WIFSTOPPED(wstatus_value as i32) {
+                                    // TODO! Granularity needed here, this is currently a workaround
+                                    self.write_text("process was stopped".green());
+                                    // self.write_text("process was stopped by ".green());
+                                    // self.write_text(signal.to_string().blue());
+                                } else {
+                                    self.write_text(
+                                        "process was resumed from a stop state by ".green(),
+                                    );
+                                    self.write_text("SIGCONT".blue());
                                 }
-                                // let wait_status = nix::sys::wait::WaitStatus::from_raw(
-                                //     Pid::from_raw(pid as i32),
-                                //     b as i32,
-                                // )
-                                // .unwrap();
-                                // match wait_status {
-                                //     /// The process exited normally (as with `exit()` or returning from
-                                //     /// `main`) with the given exit code. This case matches the C macro
-                                //     /// `WIFEXITED(status)`; the second field is `WEXITSTATUS(status)`.
-                                //     nix::sys::wait::WaitStatus::Exited(pid, status_code) => {
-                                //         self.one_line
-                                //             .push("process exited with status code: ".green());
-                                //         self.write_text(status_code.to_string().blue());
-                                //     }
-                                //     /// The process was killed by the given signal. The third field
-                                //     /// indicates whether the signal generated a core dump. This case
-                                //     /// matches the C macro `WIFSIGNALED(status)`; the last two fields
-                                //     /// correspond to `WTERMSIG(status)` and `WCOREDUMP(status)`.
-                                //     nix::sys::wait::WaitStatus::Signaled(
-                                //         pid,
-                                //         signal,
-                                //         core_dump,
-                                //     ) => {
-                                //         self.write_text("process was killed by ".green());
-                                //         self.write_text(signal.to_string().blue());
-                                //         if core_dump {
-                                //             general_text.push(" ");
-                                //             self.write_text("(core dumped)".green());
-                                //         }
-                                //     }
-                                //     /// The process is alive, but was stopped by the given signal. This
-                                //     /// is only reported if `WaitPidFlag::WUNTRACED` was passed. This
-                                //     /// case matches the C macro `WIFSTOPPED(status)`; the second field
-                                //     /// is `WSTOPSIG(status)`.
-                                //     nix::sys::wait::WaitStatus::Stopped(pid, signal) => {
-                                //         self.write_text("process was stopped by ".green());
-                                //         self.write_text(signal.to_string().blue());
-                                //     }
-                                //     /// The traced process was stopped by a `PTRACE_EVENT_*` event. See
-                                //     /// [`nix::sys::ptrace`] and [`ptrace`(2)] for more information. All
-                                //     /// currently-defined events use `SIGTRAP` as the signal; the third
-                                //     /// field is the `PTRACE_EVENT_*` value of the event.
-                                //     ///
-                                //     /// [`nix::sys::ptrace`]: ../ptrace/index.html
-                                //     /// [`ptrace`(2)]: https://man7.org/linux/man-pages/man2/ptrace.2.html
-                                //     nix::sys::wait::WaitStatus::PtraceEvent(
-                                //         pid,
-                                //         signal,
-                                //         ptrace_event,
-                                //     ) => {
-                                //         self.write_text("process was stopped by a ".green());
-                                //         self.write_text(signal.to_string().blue());
-                                //         general_text.push(" signal due to ");
-                                //         let ptrace: nix::sys::ptrace::Event =
-                                //             unsafe { mem::transmute(ptrace_event) };
-                                //         self.write_text(format!("{:?}", ptrace).green());
-                                //     }
-                                //     /// The traced process was stopped by execution of a system call,
-                                //     /// and `PTRACE_O_TRACESYSGOOD` is in effect. See [`ptrace`(2)] for
-                                //     /// more information.
-                                //     ///
-                                //     /// [`ptrace`(2)]: https://man7.org/linux/man-pages/man2/ptrace.2.html
-                                //     nix::sys::wait::WaitStatus::PtraceSyscall(pid) => {
-                                //         self.write_text("process stopped by ".green());
-                                //         self.write_text("PTRACE_O_TRACESYSGOOD".blue());
-                                //         self.write_text(" while executing a syscall".green());
-                                //     }
-                                //     /// The process was previously stopped but has resumed execution
-                                //     /// after receiving a `SIGCONT` signal. This is only reported if
-                                //     /// `WaitPidFlag::WCONTINUED` was passed. This case matches the C
-                                //     /// macro `WIFCONTINUED(status)`.
-                                //     nix::sys::wait::WaitStatus::Continued(pid) => {
-                                //         self.write_text(                                //             "process was resumed from a stop state by ".green(),
-                                //         );
-                                //         self.write_text("SIGCONT".blue());
-                                //     }
-                                //     /// There are currently no state changes to report in any awaited
-                                //     /// child process. This is only returned if `WaitPidFlag::WNOHANG`
-                                //     /// was used (otherwise `wait()` or `waitpid()` would block until
-                                //     /// there was something to report).
-                                //     nix::sys::wait::WaitStatus::StillAlive => {
-                                //         self.write_text("no state changes to report".green());
-                                //     }
-                                // }
                             }
                         } else {
                             // TODO! granular

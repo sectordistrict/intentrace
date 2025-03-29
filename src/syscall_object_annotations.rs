@@ -133,12 +133,10 @@ impl SyscallObject_Annotations {
         let eph_return = self.parse_return_value(1);
         if *FOLLOW_FORKS {
             output.push(self.process_pid.to_string().bright_blue());
+        } else if eph_return.is_ok() {
+            output.push(self.process_pid.to_string().blue());
         } else {
-            if eph_return.is_ok() {
-                output.push(self.process_pid.to_string().blue());
-            } else {
-                output.push(self.process_pid.to_string().red());
-            }
+            output.push(self.process_pid.to_string().red());
         }
         output.extend(vec![
             " ".dimmed(),
