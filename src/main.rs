@@ -390,7 +390,7 @@ fn syscall_returned(syscall: &mut SyscallObject, return_value: u64) {
     syscall.get_postcall_data();
 
     if !*FOLLOW_FORKS {
-        if *FAILED_ONLY && !syscall.displayable_return_ol().is_err() {
+        if *FAILED_ONLY && syscall.displayable_return_ol().is_ok() {
             return;
         }
 
