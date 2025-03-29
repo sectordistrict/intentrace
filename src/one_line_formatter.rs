@@ -6554,7 +6554,8 @@ impl SyscallObject {
                                 );
                                 self.general_text(")");
                             }
-                        } else if mode.contains(nix::fcntl::FallocateFlags::FALLOC_FL_ZERO_RANGE) {
+                        } else if mode.contains(nix::fcntl::FallocateFlags::FALLOC_FL_INSERT_RANGE)
+                        {
                             self.write_text("insert ".magenta());
                             self.write_text(bytes.custom_color(*OUR_YELLOW));
                             self.write_text(" of holes".magenta());
