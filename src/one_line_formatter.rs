@@ -1632,8 +1632,7 @@ impl SyscallObject {
                                 self.write_text(old_address.custom_color(*OUR_YELLOW));
                             }
                         }
-                        if flags.contains(MRemapFlags::MREMAP_MAYMOVE)
-                        {
+                        if flags.contains(MRemapFlags::MREMAP_MAYMOVE) {
                             self.general_text(" (");
                             self.write_text(                        "move the mapping to a different address if you can not expand at current address"
                             .custom_color(*OUR_YELLOW),
@@ -2185,13 +2184,7 @@ impl SyscallObject {
                         let path_rust = PathBuf::from(path);
 
                         self.general_text("create a new directory ");
-                        self.write_text(
-                            path_rust
-                                .file_name()
-                                .unwrap()
-                                .to_string_lossy()
-                                .blue(),
-                        );
+                        self.write_text(path_rust.file_name().unwrap().to_string_lossy().blue());
                         self.general_text(" inside: ");
                         self.write_text(
                             path_rust
@@ -3288,9 +3281,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("perform operation ");
-                        self.write_text(
-                            format!("#{}", registers[1]).custom_color(*OUR_YELLOW),
-                        );
+                        self.write_text(format!("#{}", registers[1]).custom_color(*OUR_YELLOW));
                         self.general_text(" on the device: ");
                         self.write_path_file(filename);
                     }
@@ -3311,9 +3302,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("perform operation ");
-                        self.write_text(
-                            format!("#{}", registers[1]).custom_color(*OUR_YELLOW),
-                        );
+                        self.write_text(format!("#{}", registers[1]).custom_color(*OUR_YELLOW));
                         self.general_text(" on the file: ");
                         self.write_path_file(filename);
                     }
@@ -3527,9 +3516,7 @@ impl SyscallObject {
                                 } else if !old_signal_action.is_null() {
                                     self.general_text("retrieve the current signal handler");
                                 } else {
-                                    self.general_text(
-                                        "check if the current machine supports: ",
-                                    );
+                                    self.general_text("check if the current machine supports: ");
                                     self.write_text(signal_as_string.custom_color(*OUR_YELLOW));
                                 }
                             }
@@ -4659,9 +4646,7 @@ impl SyscallObject {
                                     self.general_text(" to all processes that the calling process has permissions to send to");
                                 } else if pid < -1 {
                                     self.general_text(" to process group: ");
-                                    self.write_text(
-                                        (-pid).to_string().custom_color(*PAGES_COLOR),
-                                    );
+                                    self.write_text((-pid).to_string().custom_color(*PAGES_COLOR));
                                 }
                             }
                         }
@@ -5429,8 +5414,12 @@ impl SyscallObject {
                                     " from the provided waiters bitmask".custom_color(*OUR_YELLOW),
                                 );
                             }
-                            FUTEX_LOCK_PI | FUTEX_LOCK_PI2 | FUTEX_TRYLOCK_PI | 
-                            FUTEX_UNLOCK_PI | FUTEX_CMP_REQUEUE_PI | FUTEX_WAIT_REQUEUE_PI => {
+                            FUTEX_LOCK_PI
+                            | FUTEX_LOCK_PI2
+                            | FUTEX_TRYLOCK_PI
+                            | FUTEX_UNLOCK_PI
+                            | FUTEX_CMP_REQUEUE_PI
+                            | FUTEX_WAIT_REQUEUE_PI => {
                                 self.general_text("priority-inheritance futex operation ");
                                 self.write_text("[intentrace: needs granularity]".bright_black());
                             }
@@ -5774,17 +5763,15 @@ impl SyscallObject {
                             self.general_text(" |=> ");
                             if wstatus == 0 {
                                 self.write_text("Successful".green());
-                            } else if let Ok(wstatus_value) = self.displayable_ol(1).parse::<u64>() {
+                            } else if let Ok(wstatus_value) = self.displayable_ol(1).parse::<u64>()
+                            {
                                 // TODO! this is a workaround because nix's waitstatus resolver errors with EINVAL very often
                                 if nix::libc::WIFEXITED(wstatus_value as i32) {
                                     let status = nix::libc::WEXITSTATUS(wstatus_value as i32);
-                                    self.write_text(
-                                        "process exited with status code: ".green(),
-                                    );
+                                    self.write_text("process exited with status code: ".green());
                                     self.write_text(status.to_string().blue());
                                 } else if nix::libc::WIFSIGNALED(wstatus_value as i32) {
-                                    let signal =
-                                        x86_signal_to_string(wstatus_value).unwrap();
+                                    let signal = x86_signal_to_string(wstatus_value).unwrap();
                                     self.write_text("process was killed by ".green());
                                     self.write_text(signal.to_string().blue());
                                     if nix::libc::WCOREDUMP(wstatus_value as i32) {
@@ -6795,9 +6782,8 @@ impl SyscallObject {
                         if !path.is_absolute() || path.len() != 1 {
                             self.write_text("/".custom_color(*OUR_YELLOW));
                         }
-                        let path_without_leading_relativeness = lose_relativity_on_path(
-                            file_path_buf.as_path().to_string_lossy(),
-                        );
+                        let path_without_leading_relativeness =
+                            lose_relativity_on_path(file_path_buf.as_path().to_string_lossy());
                         self.write_text(
                             path_without_leading_relativeness.custom_color(*PAGES_COLOR),
                         );
@@ -6830,9 +6816,8 @@ impl SyscallObject {
                         if !path.is_absolute() || path.len() != 1 {
                             string.push('/');
                         }
-                        let path_without_leading_relativeness = lose_relativity_on_path(
-                            file_path_buf.as_path().to_string_lossy(),
-                        );
+                        let path_without_leading_relativeness =
+                            lose_relativity_on_path(file_path_buf.as_path().to_string_lossy());
                         string.push_str(&path_without_leading_relativeness);
                     }
                     _ => unreachable!(),
