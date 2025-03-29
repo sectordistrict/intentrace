@@ -106,7 +106,7 @@ impl From<&mut SyscallObject> for SyscallObject_Annotations {
                 description,
                 category,
                 args_types: skeleton.clone(),
-                rich_args: annotations_arg_containers.into_iter().cloned().collect(),
+                rich_args: annotations_arg_containers.to_vec(),
                 result: (result.0, return_annotation, result.1),
                 process_pid: *process_pid,
                 errno: *errno,
@@ -388,7 +388,7 @@ impl SyscallObject_Annotations {
                 if text.len() > 20 {
                     let portion = &text[..20];
                     format!("{:?}", format!("{}...", portion)).purple()
-                } else if text.len() == 0 {
+                } else if text.is_empty() {
                     format!("\"\"").bright_yellow()
                 } else {
                     format!("{:?}", format!("{}", text)).purple()
@@ -397,10 +397,10 @@ impl SyscallObject_Annotations {
 
             Pointer_To_Path(text) => {
                 if text.len() > 20 {
-                    let portion = &text[..];
+                    let portion = text;
 
                     format!("{:?}", format!("{}...", portion)).purple()
-                } else if text.len() == 0 {
+                } else if text.is_empty() {
                     format!("\"\"").bright_yellow()
                 } else {
                     format!("{:?}", format!("{}", text)).purple()
@@ -409,7 +409,7 @@ impl SyscallObject_Annotations {
 
             Address => {
                 let pointer = register_value as *const ();
-                if pointer == std::ptr::null() {
+                if pointer.is_null() {
                     format!("0xNull").bright_red()
                 } else {
                     format!("{:p}", pointer).yellow()
@@ -417,7 +417,7 @@ impl SyscallObject_Annotations {
             }
 
             Pointer_To_Length_Of_Bytes_Specific => {
-                ColoredString::from("did not handle this yet".yellow())
+                "did not handle this yet".yellow()
             }
             // should remove
             Multiple_Flags([flag1, flag2]) => {
@@ -450,7 +450,7 @@ impl SyscallObject_Annotations {
                 if numeric_return == -1 {
                     return Err(self
                         .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
+                        .unwrap_or(Errno::UnknownErrno)
                         .to_string()
                         .red());
                 } else {
@@ -465,7 +465,7 @@ impl SyscallObject_Annotations {
                 if signal_num == -1 {
                     return Err(self
                         .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
+                        .unwrap_or(Errno::UnknownErrno)
                         .to_string()
                         .red());
                 } else {
@@ -477,7 +477,7 @@ impl SyscallObject_Annotations {
                 if unsafe { errored.assume_init() } {
                     return Err(self
                         .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
+                        .unwrap_or(Errno::UnknownErrno)
                         .to_string()
                         .red());
                 } else {
@@ -491,7 +491,7 @@ impl SyscallObject_Annotations {
                 if fd_num == -1 {
                     return Err(self
                         .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
+                        .unwrap_or(Errno::UnknownErrno)
                         .to_string()
                         .red());
                 } else {
@@ -505,7 +505,7 @@ impl SyscallObject_Annotations {
                 if bytes == -1 {
                     return Err(self
                         .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
+                        .unwrap_or(Errno::UnknownErrno)
                         .to_string()
                         .red());
                 } else {
@@ -520,7 +520,7 @@ impl SyscallObject_Annotations {
                 if pointer == -1 {
                     return Err(self
                         .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
+                        .unwrap_or(Errno::UnknownErrno)
                         .to_string()
                         .red());
                 } else {
@@ -531,10 +531,10 @@ impl SyscallObject_Annotations {
                 output.push(annotation[which].dimmed());
                 output.push(": ".dimmed());
                 let pointer = register_value as *mut c_void;
-                if pointer == MAP_FAILED {
+                if std::ptr::eq(pointer, MAP_FAILED) {
                     return Err(self
                         .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
+                        .unwrap_or(Errno::UnknownErrno)
                         .to_string()
                         .red());
                 } else {
@@ -548,7 +548,7 @@ impl SyscallObject_Annotations {
                 if pointer.is_null() {
                     return Err(self
                         .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
+                        .unwrap_or(Errno::UnknownErrno)
                         .to_string()
                         .red());
                 } else {
@@ -568,7 +568,7 @@ impl SyscallObject_Annotations {
             Always_Errors => {
                 return Err(self
                     .errno
-                    .unwrap_or_else(|| Errno::UnknownErrno)
+                    .unwrap_or(Errno::UnknownErrno)
                     .to_string()
                     .red());
             }
@@ -578,7 +578,7 @@ impl SyscallObject_Annotations {
                 if ptrace_return == -1 {
                     return Err(self
                         .errno
-                        .unwrap_or_else(|| Errno::UnknownErrno)
+                        .unwrap_or(Errno::UnknownErrno)
                         .to_string()
                         .red());
                 } else {

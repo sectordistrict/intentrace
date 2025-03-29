@@ -90,7 +90,7 @@ impl SyscallObject {
     pub fn format(&mut self) {
         let sysno = self.sysno;
 
-        if let Ok(_) = self.one_line_formatter() {
+        if self.one_line_formatter().is_ok() {
             // let mut string = String::new();
             // for string_portion in &mut self.one_line {
             //     string.push_str(&format!("{}", string_portion));
@@ -494,7 +494,7 @@ impl SyscallObject {
             }
             Address => {
                 let pointer = register_value as *const ();
-                if pointer == std::ptr::null() {
+                if pointer.is_null() {
                     format!("0xNull")
                 } else {
                     format!("{:p}", pointer)
@@ -551,12 +551,8 @@ impl SyscallObject {
             }
             Length_Of_Bytes_Specific_Or_Errno => {
                 let bytes = register_value as isize;
-                if self.sysno == Sysno::readlink
-                    || self.sysno == Sysno::readlinkat
-                {
-                    if self.errno.is_some() {
-                        return Err(());
-                    }
+                if (self.sysno == Sysno::readlink || self.sysno == Sysno::readlinkat) && self.errno.is_some() {
+                    return Err(());
                 }
                 if bytes + 1 == -1 {
                     Err(())
@@ -574,7 +570,7 @@ impl SyscallObject {
             }
             Address_Or_MAP_FAILED_Errno(address) => {
                 let pointer = register_value as *mut c_void;
-                if pointer == MAP_FAILED {
+                if std::ptr::eq(pointer, MAP_FAILED) {
                     Err(())
                 } else {
                     Ok(format!("{:p}", pointer as *const ()))

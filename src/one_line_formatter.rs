@@ -508,7 +508,7 @@ impl SyscallObject {
                                     .custom_color(*OUR_YELLOW),
                             );
                         }
-                        if flag_directive.len() > 0 {
+                        if !flag_directive.is_empty() {
                             self.general_text(" (");
                             let mut flag_directive_iter = flag_directive.into_iter().peekable();
                             if flag_directive_iter.peek().is_some() {
@@ -1117,7 +1117,7 @@ impl SyscallObject {
                             );
                         }
 
-                        if others.len() > 0 {
+                        if !others.is_empty() {
                             self.general_text(" (");
                             self.vanilla_commas_handler(others);
                             self.general_text(")");
@@ -3291,7 +3291,7 @@ impl SyscallObject {
                     Entering => {
                         self.general_text("perform operation ");
                         self.write_text(
-                            format!("#{}", registers[1].to_string()).custom_color(*OUR_YELLOW),
+                            format!("#{}", registers[1]).custom_color(*OUR_YELLOW),
                         );
                         self.general_text(" on the device: ");
                         self.write_path_file(filename);
@@ -3314,7 +3314,7 @@ impl SyscallObject {
                     Entering => {
                         self.general_text("perform operation ");
                         self.write_text(
-                            format!("#{}", registers[1].to_string()).custom_color(*OUR_YELLOW),
+                            format!("#{}", registers[1]).custom_color(*OUR_YELLOW),
                         );
                         self.general_text(" on the file: ");
                         self.write_path_file(filename);
@@ -6819,7 +6819,7 @@ impl SyscallObject {
             if dirfd == AT_FDCWD {
                 let cwd = procfs::process::Process::new(10).unwrap().cwd().unwrap();
                 string.push_str(&cwd.as_path().to_string_lossy());
-                string.push_str("/");
+                string.push('/');
                 let path_without_leading_relativeness =
                     lose_relativity_on_path(file_path_buf.as_path().to_string_lossy().to_owned());
                 string.push_str(&path_without_leading_relativeness);
@@ -6830,7 +6830,7 @@ impl SyscallObject {
                     procfs::process::FDTarget::Path(path) => {
                         self.write_text(path.as_path().to_string_lossy().custom_color(*OUR_YELLOW));
                         if !path.is_absolute() || path.len() != 1 {
-                            string.push_str("/");
+                            string.push('/');
                         }
                         let path_without_leading_relativeness = lose_relativity_on_path(
                             file_path_buf.as_path().to_string_lossy().to_owned(),
