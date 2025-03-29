@@ -1632,15 +1632,8 @@ impl SyscallObject {
                                 self.write_text(old_address.custom_color(*OUR_YELLOW));
                             }
                         }
-                        if flags.contains(MRemapFlags::MREMAP_FIXED)
-                            && flags.contains(MRemapFlags::MREMAP_MAYMOVE)
+                        if flags.contains(MRemapFlags::MREMAP_MAYMOVE)
                         {
-                            self.general_text(" (");
-                            self.write_text(                        "move the mapping to a different address if you can not expand at current address"
-                            .custom_color(*OUR_YELLOW),
-                    );
-                            self.general_text(")");
-                        } else if flags.contains(MRemapFlags::MREMAP_MAYMOVE) {
                             self.general_text(" (");
                             self.write_text(                        "move the mapping to a different address if you can not expand at current address"
                             .custom_color(*OUR_YELLOW),
@@ -5385,70 +5378,67 @@ impl SyscallObject {
                     Entering => {
                         // this gets rid of the options
                         let ops_only_mask = 0b01111111;
-                        if (futex_ops_num & ops_only_mask) == FUTEX_WAIT {
-                            self.write_text(
-                                "block and wait for FUTEX_WAKE if comparison succeeds"
-                                    .custom_color(*OUR_YELLOW),
-                            );
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_WAKE {
-                            self.general_text("wake a maximum of ");
-                            self.write_text(val.to_string().custom_color(*OUR_YELLOW));
-                            self.general_text(" waiters waiting on the futex at ");
-                            self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_FD {
-                            self.general_text("create a file descriptor for the futex at ");
-                            self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
-                            self.general_text(" to use with asynchronous syscalls");
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_CMP_REQUEUE {
-                            self.general_text("if comparison succeeds wake a maximum of ");
-                            self.write_text(val.to_string().custom_color(*OUR_YELLOW));
-                            self.general_text(" waiters waiting on the futex at ");
-                            self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
-                            self.general_text(" and requeue a maximum of ");
-                            self.write_text(val2.to_string().custom_color(*OUR_YELLOW));
-                            self.general_text(" from the remaining waiters to the futex at ");
-                            self.write_text(futex2_addr.custom_color(*OUR_YELLOW));
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_REQUEUE {
-                            self.general_text("without comparing wake a maximum of ");
-                            self.write_text(val.to_string().custom_color(*OUR_YELLOW));
-                            self.general_text(" waiters waiting on the futex at ");
-                            self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
-                            self.general_text(" and requeue a maximum of ");
-                            self.write_text(val2.to_string().custom_color(*OUR_YELLOW));
-                            self.general_text(" from the remaining waiters to the futex at ");
-                            self.write_text(futex2_addr.custom_color(*OUR_YELLOW));
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_WAKE_OP {
-                            self.general_text("operate on 2 futexes at the same time");
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_WAIT_BITSET {
-                            self.general_text("if comparison succeeds block and wait for FUTEX_WAKE and register a bitmask for selective waiting");
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_WAKE_BITSET {
-                            self.general_text("wake a maximum of ");
-                            self.write_text(val.to_string().custom_color(*OUR_YELLOW));
-                            self.general_text(" waiters waiting on the futex at ");
-                            self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
-                            self.write_text(
-                                " from the provided waiters bitmask".custom_color(*OUR_YELLOW),
-                            );
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_LOCK_PI {
-                            self.general_text("priority-inheritance futex operation ");
-                            self.write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_LOCK_PI2 {
-                            self.general_text("priority-inheritance futex operation ");
-                            self.write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_TRYLOCK_PI {
-                            self.general_text("priority-inheritance futex operation ");
-                            self.write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_UNLOCK_PI {
-                            self.general_text("priority-inheritance futex operation ");
-                            self.write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_CMP_REQUEUE_PI {
-                            self.general_text("priority-inheritance futex operation ");
-                            self.write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_ops_num & ops_only_mask) == FUTEX_WAIT_REQUEUE_PI {
-                            self.general_text("priority-inheritance futex operation ");
-                            self.write_text("[intentrace: needs granularity]".bright_black());
-                        } else {
-                            self.write_text("[intentrace: unknown flag]".bright_black());
+                        match futex_ops_num & ops_only_mask {
+                            FUTEX_WAIT => {
+                                self.write_text(
+                                    "block and wait for FUTEX_WAKE if comparison succeeds"
+                                        .custom_color(*OUR_YELLOW),
+                                );
+                            }
+                            FUTEX_WAKE => {
+                                self.general_text("wake a maximum of ");
+                                self.write_text(val.to_string().custom_color(*OUR_YELLOW));
+                                self.general_text(" waiters waiting on the futex at ");
+                                self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
+                            }
+                            FUTEX_FD => {
+                                self.general_text("create a file descriptor for the futex at ");
+                                self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
+                                self.general_text(" to use with asynchronous syscalls");
+                            }
+                            FUTEX_CMP_REQUEUE => {
+                                self.general_text("if comparison succeeds wake a maximum of ");
+                                self.write_text(val.to_string().custom_color(*OUR_YELLOW));
+                                self.general_text(" waiters waiting on the futex at ");
+                                self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
+                                self.general_text(" and requeue a maximum of ");
+                                self.write_text(val2.to_string().custom_color(*OUR_YELLOW));
+                                self.general_text(" from the remaining waiters to the futex at ");
+                                self.write_text(futex2_addr.custom_color(*OUR_YELLOW));
+                            }
+                            FUTEX_REQUEUE => {
+                                self.general_text("without comparing wake a maximum of ");
+                                self.write_text(val.to_string().custom_color(*OUR_YELLOW));
+                                self.general_text(" waiters waiting on the futex at ");
+                                self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
+                                self.general_text(" and requeue a maximum of ");
+                                self.write_text(val2.to_string().custom_color(*OUR_YELLOW));
+                                self.general_text(" from the remaining waiters to the futex at ");
+                                self.write_text(futex2_addr.custom_color(*OUR_YELLOW));
+                            }
+                            FUTEX_WAKE_OP => {
+                                self.general_text("operate on 2 futexes at the same time");
+                            }
+                            FUTEX_WAIT_BITSET => {
+                                self.general_text("if comparison succeeds block and wait for FUTEX_WAKE and register a bitmask for selective waiting");
+                            }
+                            FUTEX_WAKE_BITSET => {
+                                self.general_text("wake a maximum of ");
+                                self.write_text(val.to_string().custom_color(*OUR_YELLOW));
+                                self.general_text(" waiters waiting on the futex at ");
+                                self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
+                                self.write_text(
+                                    " from the provided waiters bitmask".custom_color(*OUR_YELLOW),
+                                );
+                            }
+                            FUTEX_LOCK_PI | FUTEX_LOCK_PI2 | FUTEX_TRYLOCK_PI | 
+                            FUTEX_UNLOCK_PI | FUTEX_CMP_REQUEUE_PI | FUTEX_WAIT_REQUEUE_PI => {
+                                self.general_text("priority-inheritance futex operation ");
+                                self.write_text("[intentrace: needs granularity]".bright_black());
+                            }
+                            _ => {
+                                self.write_text("[intentrace: unknown flag]".bright_black());
+                            }
                         }
                         // workarounds pending rustix deprecation of FutexOperation for Operations
                         // TODO! Priority-inheritance futexes
