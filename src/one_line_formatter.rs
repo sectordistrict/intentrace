@@ -1489,10 +1489,10 @@ impl SyscallObject {
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
-                        if eph_return.is_ok() {
+                        if let Ok(eph_return) = eph_return {
                             self.general_text(" |=> ");
                             self.write_text("new offset location: ".green());
-                            self.write_text(eph_return.unwrap().green());
+                            self.write_text(eph_return.green());
                         } else {
                             // TODO! granular
                             self.one_line_error();
@@ -2222,10 +2222,10 @@ impl SyscallObject {
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
-                        if eph_return.is_ok() {
+                        if let Ok(eph_return) = eph_return {
                             self.general_text(" |=> ");
                             self.write_text("cwd: ".green());
-                            self.write_text(eph_return.unwrap().custom_color(*OUR_YELLOW));
+                            self.write_text(eph_return.custom_color(*OUR_YELLOW));
                         } else {
                             // TODO! granular
                             self.one_line_error();
@@ -2712,10 +2712,10 @@ impl SyscallObject {
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
-                        if eph_return.is_ok() {
+                        if let Ok(eph_return) = eph_return {
                             self.general_text(" |=> ");
                             self.write_text("created a new duplicate file descriptor: ".green());
-                            self.write_path_file(eph_return.unwrap());
+                            self.write_path_file(eph_return);
                         } else {
                             // TODO! granular
                             self.one_line_error();
@@ -5484,10 +5484,10 @@ impl SyscallObject {
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
-                        if eph_return.is_ok() {
+                        if let Ok(eph_return) = eph_return {
                             self.general_text(" |=> ");
                             self.write_text("thread id of the calling thread: ".green());
-                            self.write_text(eph_return.unwrap().custom_color(*OUR_YELLOW));
+                            self.write_text(eph_return.custom_color(*OUR_YELLOW));
                         } else {
                             // TODO! granular
                             self.one_line_error();
@@ -5999,10 +5999,10 @@ impl SyscallObject {
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
-                        if eph_return.is_ok() {
+                        if let Ok(eph_return) = eph_return {
                             self.general_text(" |=> ");
                             self.write_text("thread id of the child: ".green());
-                            self.write_text(eph_return.unwrap().custom_color(*OUR_YELLOW));
+                            self.write_text(eph_return.custom_color(*OUR_YELLOW));
                             if clone_vm {
                                 self.write_text(new_thread());
                             } else {
@@ -6190,10 +6190,10 @@ impl SyscallObject {
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
-                        if eph_return.is_ok() {
+                        if let Ok(eph_return) = eph_return {
                             self.general_text(" |=> ");
                             self.write_text("thread id of the child: ".green());
-                            self.write_text(eph_return.unwrap().custom_color(*OUR_YELLOW));
+                            self.write_text(eph_return.custom_color(*OUR_YELLOW));
                             // TODO! fix occasional error (syscall returns -38)
                             if clone_vm {
                                 self.write_text(new_thread());
@@ -6510,10 +6510,10 @@ impl SyscallObject {
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
-                        if eph_return.is_ok() {
+                        if let Ok(eph_return) = eph_return {
                             self.general_text(" |=> ");
                             self.write_text("got the scheduling priority: ".green());
-                            self.write_text(eph_return.unwrap().custom_color(*OUR_YELLOW));
+                            self.write_text(eph_return.custom_color(*OUR_YELLOW));
                         } else {
                             // TODO! granular
                             self.one_line_error();
