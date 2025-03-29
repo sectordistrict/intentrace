@@ -606,105 +606,102 @@ impl SyscallObject_Annotations {
             string.push("2 -> StdErr".custom_color(*PAGES_COLOR));
         } else {
             let file_info = procfs::process::FDInfo::from_raw_fd(child.into(), fd);
-            match file_info {
-                Ok(file) => match file.target {
-                    procfs::process::FDTarget::Path(path) => {
-                        string.push(format!("{} -> ", file.fd).custom_color(*PAGES_COLOR));
-                        let mut formatted_path = vec![];
-                        static_handle_path_file(
-                            path.to_string_lossy().into_owned(),
-                            &mut formatted_path,
-                        );
-                        for path_part in formatted_path {
-                            string.push(path_part);
-                        }
+            if let Ok(file) = file_info { match file.target {
+                procfs::process::FDTarget::Path(path) => {
+                    string.push(format!("{} -> ", file.fd).custom_color(*PAGES_COLOR));
+                    let mut formatted_path = vec![];
+                    static_handle_path_file(
+                        path.to_string_lossy().into_owned(),
+                        &mut formatted_path,
+                    );
+                    for path_part in formatted_path {
+                        string.push(path_part);
                     }
-                    procfs::process::FDTarget::Socket(socket_number) => {
-                        use procfs;
-                        let mut tcp = procfs::net::tcp().unwrap();
-                        tcp.extend(procfs::net::tcp6().unwrap());
-                        let mut udp = procfs::net::udp().unwrap();
-                        udp.extend(procfs::net::udp6().unwrap());
-                        let unix = procfs::net::unix().unwrap();
-                        'lookup: {
-                            for entry in &tcp {
-                                if entry.inode == socket_number {
-                                    if entry.remote_address.ip().is_loopback() {
-                                        string.push(
-                                            format!(
-                                                "{} -> localhost:{}",
-                                                file.fd,
-                                                entry.remote_address.port()
-                                            )
-                                            .custom_color(*PAGES_COLOR),
-                                        );
-                                    } else {
-                                        string.push(
-                                            format!(
-                                                "{} -> {:?}:{}",
-                                                file.fd,
-                                                entry.remote_address.ip(),
-                                                entry.remote_address.port()
-                                            )
-                                            .custom_color(*PAGES_COLOR),
-                                        );
-                                    }
-                                    break 'lookup;
-                                }
-                            }
-                            for entry in &udp {
-                                if entry.inode == socket_number {
-                                    // println!("UDP {:?}", entry);
-                                    break 'lookup;
-                                }
-                            }
-                            for entry in &unix {
-                                if entry.inode == socket_number {
+                }
+                procfs::process::FDTarget::Socket(socket_number) => {
+                    use procfs;
+                    let mut tcp = procfs::net::tcp().unwrap();
+                    tcp.extend(procfs::net::tcp6().unwrap());
+                    let mut udp = procfs::net::udp().unwrap();
+                    udp.extend(procfs::net::udp6().unwrap());
+                    let unix = procfs::net::unix().unwrap();
+                    'lookup: {
+                        for entry in &tcp {
+                            if entry.inode == socket_number {
+                                if entry.remote_address.ip().is_loopback() {
                                     string.push(
-                                        format!("{} -> Unix Domain Socket", file.fd)
-                                            .custom_color(*PAGES_COLOR),
+                                        format!(
+                                            "{} -> localhost:{}",
+                                            file.fd,
+                                            entry.remote_address.port()
+                                        )
+                                        .custom_color(*PAGES_COLOR),
                                     );
-                                    break 'lookup;
+                                } else {
+                                    string.push(
+                                        format!(
+                                            "{} -> {:?}:{}",
+                                            file.fd,
+                                            entry.remote_address.ip(),
+                                            entry.remote_address.port()
+                                        )
+                                        .custom_color(*PAGES_COLOR),
+                                    );
                                 }
+                                break 'lookup;
+                            }
+                        }
+                        for entry in &udp {
+                            if entry.inode == socket_number {
+                                // println!("UDP {:?}", entry);
+                                break 'lookup;
+                            }
+                        }
+                        for entry in &unix {
+                            if entry.inode == socket_number {
+                                string.push(
+                                    format!("{} -> Unix Domain Socket", file.fd)
+                                        .custom_color(*PAGES_COLOR),
+                                );
+                                break 'lookup;
                             }
                         }
                     }
-                    procfs::process::FDTarget::Net(net) => {
-                        // println!("net: {}", net);
-                        string.push(format!("NET").bright_magenta())
-                    }
-                    procfs::process::FDTarget::Pipe(pipe) => {
-                        string.push(format!("{} -> Unix Pipe", file.fd).custom_color(*PAGES_COLOR));
-                    }
-                    procfs::process::FDTarget::AnonInode(anon_inode) => {
-                        // anon_inode is basically a file that has no corresponding inode
-                        // anon_inode could've been something that was a file but is no longer on the disk
-                        // For file descriptors that have no corresponding inode
-                        // (e.g., file descriptors produced by
-                        // epoll_create(2), eventfd(2), inotify_init(2), signalfd(2), and timerfd(2)),
-                        // the entry will be a symbolic link with contents "anon_inode:<file-type>"
-                        // An anon_inode shows that there's a file descriptor which has no referencing inode
+                }
+                procfs::process::FDTarget::Net(net) => {
+                    // println!("net: {}", net);
+                    string.push(format!("NET").bright_magenta())
+                }
+                procfs::process::FDTarget::Pipe(pipe) => {
+                    string.push(format!("{} -> Unix Pipe", file.fd).custom_color(*PAGES_COLOR));
+                }
+                procfs::process::FDTarget::AnonInode(anon_inode) => {
+                    // anon_inode is basically a file that has no corresponding inode
+                    // anon_inode could've been something that was a file but is no longer on the disk
+                    // For file descriptors that have no corresponding inode
+                    // (e.g., file descriptors produced by
+                    // epoll_create(2), eventfd(2), inotify_init(2), signalfd(2), and timerfd(2)),
+                    // the entry will be a symbolic link with contents "anon_inode:<file-type>"
+                    // An anon_inode shows that there's a file descriptor which has no referencing inode
 
-                        // At least in some contexts, an anonymous inode is
-                        // an inode without an attached directory entry.
-                        // The easiest way to create such an inode is as such:
-                        //          int fd = open( "/tmp/file", O_CREAT | O_RDWR, 0666 );
-                        //          unlink( "/tmp/file" );
-                        // Note that the descriptor fd now points to an inode that has no filesystem entry; you
-                        // can still write to it, fstat() it, etc. but you can't find it in the filesystem.
-                        string.push(
-                            format!("{} -> Anonymous Inode", file.fd).custom_color(*PAGES_COLOR),
-                        );
-                    }
-                    procfs::process::FDTarget::MemFD(mem_fd) => {
-                        string.push(format!("{} -> MemFD", file.fd).custom_color(*PAGES_COLOR));
-                    }
-                    procfs::process::FDTarget::Other(first, second) => {
-                        string.push(format!("{} -> Other", file.fd).custom_color(*PAGES_COLOR));
-                    }
-                },
-                Err(_) => {}
-            }
+                    // At least in some contexts, an anonymous inode is
+                    // an inode without an attached directory entry.
+                    // The easiest way to create such an inode is as such:
+                    //          int fd = open( "/tmp/file", O_CREAT | O_RDWR, 0666 );
+                    //          unlink( "/tmp/file" );
+                    // Note that the descriptor fd now points to an inode that has no filesystem entry; you
+                    // can still write to it, fstat() it, etc. but you can't find it in the filesystem.
+                    string.push(
+                        format!("{} -> Anonymous Inode", file.fd).custom_color(*PAGES_COLOR),
+                    );
+                }
+                procfs::process::FDTarget::MemFD(mem_fd) => {
+                    string.push(format!("{} -> MemFD", file.fd).custom_color(*PAGES_COLOR));
+                }
+                procfs::process::FDTarget::Other(first, second) => {
+                    string.push(format!("{} -> Other", file.fd).custom_color(*PAGES_COLOR));
+                }
+            } }
         }
         Some(String::from_iter(string.into_iter().map(|x| x.to_string())))
     }
