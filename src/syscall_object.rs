@@ -134,7 +134,7 @@ impl SyscallObject {
                     0 => SyscallObject {
                         sysno,
                         category,
-                        skeleton: types.into_iter().copied().collect(),
+                        skeleton: types.to_vec(),
                         result: (None, syscall_return),
                         process_pid: child,
                         errno: None,
@@ -143,7 +143,7 @@ impl SyscallObject {
                     1 => SyscallObject {
                         sysno,
                         category,
-                        skeleton: types.into_iter().copied().collect(),
+                        skeleton: types.to_vec(),
                         result: (None, syscall_return),
                         process_pid: child,
                         errno: None,
@@ -152,7 +152,7 @@ impl SyscallObject {
                     2 => SyscallObject {
                         sysno,
                         category,
-                        skeleton: types.into_iter().copied().collect(),
+                        skeleton: types.to_vec(),
                         result: (None, syscall_return),
                         process_pid: child,
                         errno: None,
@@ -161,7 +161,7 @@ impl SyscallObject {
                     3 => SyscallObject {
                         sysno,
                         category,
-                        skeleton: types.into_iter().copied().collect(),
+                        skeleton: types.to_vec(),
                         result: (None, syscall_return),
                         process_pid: child,
                         errno: None,
@@ -170,7 +170,7 @@ impl SyscallObject {
                     4 => SyscallObject {
                         sysno,
                         category,
-                        skeleton: types.into_iter().copied().collect(),
+                        skeleton: types.to_vec(),
                         result: (None, syscall_return),
                         process_pid: child,
                         errno: None,
@@ -179,7 +179,7 @@ impl SyscallObject {
                     5 => SyscallObject {
                         sysno,
                         category,
-                        skeleton: types.into_iter().copied().collect(),
+                        skeleton: types.to_vec(),
                         result: (None, syscall_return),
                         process_pid: child,
                         errno: None,
@@ -188,7 +188,7 @@ impl SyscallObject {
                     _ => SyscallObject {
                         sysno,
                         category,
-                        skeleton: types.into_iter().copied().collect(),
+                        skeleton: types.to_vec(),
                         result: (None, syscall_return),
                         process_pid: child,
                         errno: None,
@@ -244,20 +244,20 @@ impl SyscallObject {
                     if self.sysno == Sysno::execve {
                         continue;
                     }
-                    if self.sysno == Sysno::write || self.sysno == Sysno::pwrite64 {
-                        if register[2] < 20 {
-                            match SyscallObject::read_string_specific_length(
-                                register[1] as usize,
-                                self.process_pid,
-                                register[2] as usize,
-                            ) {
-                                Some(styled_fd) => {
-                                    *text = styled_fd.leak();
-                                }
-                                None => (),
+                    if self.sysno == Sysno::write
+                        || self.sysno == Sysno::pwrite64 && register[2] < 20
+                    {
+                        match SyscallObject::read_string_specific_length(
+                            register[1] as usize,
+                            self.process_pid,
+                            register[2] as usize,
+                        ) {
+                            Some(styled_fd) => {
+                                *text = styled_fd.leak();
                             }
-                            continue;
+                            None => (),
                         }
+                        continue;
                     }
                     let styled_fd =
                         SyscallObject::string_from_pointer(register[index], self.process_pid);
@@ -316,21 +316,11 @@ impl SyscallObject {
                         }
                     }
                 }
-                Pointer_To_Numeric(ref mut pid) => {
-                    match SyscallObject::read_word(
+                Pointer_To_Numeric(ref mut numeric) => {
+                    *numeric = SyscallObject::read_word(
                         REGISTERS.lock().unwrap()[index] as usize,
                         self.process_pid,
-                    ) {
-                        Some(pid_at_word) => {
-                            if self.sysno == Sysno::wait4 {
-                                self.skeleton[1] = Pointer_To_Numeric(Some(pid_at_word))
-                                // self.skeleton[1] = Pointer_To_Numeric(Some(pid_at_word));
-                            }
-                        }
-                        None => {
-                            // p!("reading numeric failed");
-                        }
-                    }
+                    );
                 }
                 Pointer_To_Numeric_Or_Numeric(ref mut pid) => {
                     // this is only available for arch_prctl
@@ -376,27 +366,18 @@ impl SyscallObject {
                             if size > 100 {
                                 let size = -1 * (size as i32);
                                 let error = nix::errno::Errno::from_raw(size);
-                            } else {
-                                if self.sysno == Sysno::readlink && index == 1 {
-                                    match SyscallObject::read_string_specific_length(
-                                        register[index] as usize,
-                                        self.process_pid,
-                                        size as usize,
-                                    ) {
-                                        Some(styled_fd) => self
-                                            .replace_content(1, Pointer_To_Text(styled_fd.leak())),
-                                        None => (),
+                            } else if (self.sysno == Sysno::readlink && index == 1)
+                                || (self.sysno == Sysno::readlinkat && index == 2)
+                            {
+                                match SyscallObject::read_string_specific_length(
+                                    register[index] as usize,
+                                    self.process_pid,
+                                    size as usize,
+                                ) {
+                                    Some(styled_fd) => {
+                                        self.replace_content(1, Pointer_To_Text(styled_fd.leak()))
                                     }
-                                } else if self.sysno == Sysno::readlinkat && index == 2 {
-                                    match SyscallObject::read_string_specific_length(
-                                        register[index] as usize,
-                                        self.process_pid,
-                                        size as usize,
-                                    ) {
-                                        Some(styled_fd) => self
-                                            .replace_content(1, Pointer_To_Text(styled_fd.leak())),
-                                        None => (),
-                                    }
+                                    None => (),
                                 }
                             }
                         }
@@ -489,18 +470,10 @@ impl SyscallObject {
                 let pointer = register_value as *const ();
                 format!("{:p}", pointer)
             }
-            Pointer_To_Numeric(pid) => {
-                let pointer = register_value as *const ();
-                if pointer.is_null() {
-                    format!("0xNull")
-                } else {
-                    let pid = pid.unwrap();
-                    format!("{pid}")
-                    // format!("{pointer:p} -> {pid}")
-                }
-                // let pointer = register_value as *const i64;
-                // let reference: &i64 = unsafe { transmute(pointer) };
-            }
+            Pointer_To_Numeric(numeric) => match numeric {
+                Some(number) => format!("{number}"),
+                None => format!("0xNull"),
+            },
             Pointer_To_Numeric_Or_Numeric(numeric) => {
                 if numeric.is_none() {
                     format!("")
@@ -584,7 +557,9 @@ impl SyscallObject {
             }
             Length_Of_Bytes_Specific_Or_Errno => {
                 let bytes = register_value as isize;
-                if self.sysno == Sysno::readlink || self.sysno == Sysno::readlinkat {
+                if self.sysno == Sysno::readlink
+                    || self.sysno == Sysno::readlinkat
+                {
                     if self.errno.is_some() {
                         return Err(());
                     }
@@ -1288,12 +1263,10 @@ impl SyscallObject {
                 // TODO! was this flag nullable? check later
                 //
                 let which = register_value as u32;
-                if (which & PRIO_PROCESS) == PRIO_PROCESS {
+                if which == PRIO_PROCESS {
                     format!("PRIO_PROCESS")
-                } else if (which & PRIO_PGRP) == PRIO_PGRP {
+                } else if which == PRIO_PGRP {
                     format!("PRIO_PGRP")
-
-                // } else if (which & PRIO_USER) == PRIO_USER {
                 } else {
                     format!("PRIO_USER")
                 }

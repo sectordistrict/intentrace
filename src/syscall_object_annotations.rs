@@ -189,7 +189,7 @@ impl SyscallObject_Annotations {
                     0 => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: category,
+                        category,
                         rich_args: vec![],
                         result: (None, *return_annotation, *syscall_return),
                         process_pid: child,
@@ -199,7 +199,7 @@ impl SyscallObject_Annotations {
                     1 => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: category,
+                        category,
                         rich_args: vec![annotations_arg_containers[0]],
                         result: (None, *return_annotation, *syscall_return),
                         process_pid: child,
@@ -209,7 +209,7 @@ impl SyscallObject_Annotations {
                     2 => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: category,
+                        category,
                         rich_args: vec![
                             annotations_arg_containers[0],
                             annotations_arg_containers[1],
@@ -222,7 +222,7 @@ impl SyscallObject_Annotations {
                     3 => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: category,
+                        category,
                         rich_args: vec![
                             annotations_arg_containers[0],
                             annotations_arg_containers[1],
@@ -236,7 +236,7 @@ impl SyscallObject_Annotations {
                     4 => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: category,
+                        category,
                         rich_args: vec![
                             annotations_arg_containers[0],
                             annotations_arg_containers[1],
@@ -251,7 +251,7 @@ impl SyscallObject_Annotations {
                     5 => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: category,
+                        category,
                         rich_args: vec![
                             annotations_arg_containers[0],
                             annotations_arg_containers[1],
@@ -267,7 +267,7 @@ impl SyscallObject_Annotations {
                     _ => SyscallObject_Annotations {
                         sysno,
                         description: syscall_description,
-                        category: category,
+                        category,
                         rich_args: vec![
                             annotations_arg_containers[0],
                             annotations_arg_containers[1],
@@ -1025,12 +1025,10 @@ impl SyscallObject_Annotations {
                 // TODO! was this flag nullable? check later
                 //
                 let which = register_value as u32;
-                if (which & PRIO_PROCESS) == PRIO_PROCESS {
+                if which == PRIO_PROCESS {
                     format!("PRIO_PROCESS")
-                } else if (which & PRIO_PGRP) == PRIO_PGRP {
+                } else if which == PRIO_PGRP {
                     format!("PRIO_PGRP")
-
-                // } else if (which & PRIO_USER) == PRIO_USER {
                 } else {
                     format!("PRIO_USER")
                 }

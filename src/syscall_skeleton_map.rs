@@ -1839,7 +1839,7 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
                     // -1    wait for any child process.
                     // 0     wait for any child process whose process group ID is equal to that of the calling process at the time of the call to waitpid().
                     // > 0   wait for the child whose process ID is equal to the value of pid.
-                    User_Group,
+                    PID,
                     // If wstatus is not NULL, wait4() stores status information in the int to which it points.
                     // This integer can be inspected with the following macros
                     // (which take the integer itself as an argument, not a pointer to it (as is done in syscall))

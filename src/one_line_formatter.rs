@@ -32,16 +32,16 @@ use nix::{
         MADV_DODUMP, MADV_DOFORK, MADV_DONTDUMP, MADV_DONTFORK, MADV_DONTNEED, MADV_FREE,
         MADV_HUGEPAGE, MADV_HWPOISON, MADV_KEEPONFORK, MADV_MERGEABLE, MADV_NOHUGEPAGE,
         MADV_NORMAL, MADV_PAGEOUT, MADV_POPULATE_READ, MADV_POPULATE_WRITE, MADV_RANDOM,
-        MADV_REMOVE, MADV_SEQUENTIAL, MADV_UNMERGEABLE, MADV_WILLNEED, MADV_WIPEONFORK, MAP_ANON,
-        MAP_ANONYMOUS, MAP_FIXED, MAP_FIXED_NOREPLACE, MAP_GROWSDOWN, MAP_HUGETLB, MAP_HUGE_16GB,
-        MAP_HUGE_16MB, MAP_HUGE_1GB, MAP_HUGE_1MB, MAP_HUGE_256MB, MAP_HUGE_2GB, MAP_HUGE_2MB,
-        MAP_HUGE_32MB, MAP_HUGE_512KB, MAP_HUGE_512MB, MAP_HUGE_64KB, MAP_HUGE_8MB, MAP_LOCKED,
-        MAP_NONBLOCK, MAP_NORESERVE, MAP_POPULATE, MAP_PRIVATE, MAP_SHARED, MAP_SHARED_VALIDATE,
-        MAP_STACK, MAP_SYNC, MCL_CURRENT, MCL_FUTURE, MCL_ONFAULT, O_APPEND, O_ASYNC, O_CLOEXEC,
-        O_CREAT, O_DIRECT, O_DIRECTORY, O_DSYNC, O_EXCL, O_LARGEFILE, O_NDELAY, O_NOATIME,
-        O_NOCTTY, O_NOFOLLOW, O_NONBLOCK, O_PATH, O_SYNC, O_TMPFILE, O_TRUNC, PRIO_PGRP,
-        PRIO_PROCESS, PRIO_USER, P_ALL, P_PGID, P_PID, P_PIDFD, RENAME_EXCHANGE, RENAME_NOREPLACE,
-        RENAME_WHITEOUT, SA_SIGINFO,
+        MADV_REMOVE, MADV_SEQUENTIAL, MADV_SOFT_OFFLINE, MADV_UNMERGEABLE, MADV_WILLNEED,
+        MADV_WIPEONFORK, MAP_ANON, MAP_ANONYMOUS, MAP_FIXED, MAP_FIXED_NOREPLACE, MAP_GROWSDOWN,
+        MAP_HUGETLB, MAP_HUGE_16GB, MAP_HUGE_16MB, MAP_HUGE_1GB, MAP_HUGE_1MB, MAP_HUGE_256MB,
+        MAP_HUGE_2GB, MAP_HUGE_2MB, MAP_HUGE_32MB, MAP_HUGE_512KB, MAP_HUGE_512MB, MAP_HUGE_64KB,
+        MAP_HUGE_8MB, MAP_LOCKED, MAP_NONBLOCK, MAP_NORESERVE, MAP_POPULATE, MAP_PRIVATE,
+        MAP_SHARED, MAP_SHARED_VALIDATE, MAP_STACK, MAP_SYNC, MCL_CURRENT, MCL_FUTURE, MCL_ONFAULT,
+        O_APPEND, O_ASYNC, O_CLOEXEC, O_CREAT, O_DIRECT, O_DIRECTORY, O_DSYNC, O_EXCL, O_LARGEFILE,
+        O_NDELAY, O_NOATIME, O_NOCTTY, O_NOFOLLOW, O_NONBLOCK, O_PATH, O_SYNC, O_TMPFILE, O_TRUNC,
+        PRIO_PGRP, PRIO_PROCESS, PRIO_USER, P_ALL, P_PGID, P_PID, P_PIDFD, RENAME_EXCHANGE,
+        RENAME_NOREPLACE, RENAME_WHITEOUT, SA_SIGINFO,
     },
     sys::{
         eventfd,
@@ -136,8 +136,7 @@ impl SyscallObject {
         use crate::syscall_object::SyscallState::*;
         self.write_pid_sysname();
         //
-        //======================
-        //
+        //===============        //
         let registers = *REGISTERS.lock().unwrap();
         match self.sysno {
             // TODO! unimplemented syscalls
@@ -279,7 +278,7 @@ impl SyscallObject {
                         // an unnamed inode will be created in that directory's filesystem.
                         // Anything written to the resulting file will be lost
                         // when the last file descriptor is closed, unless the file is given a name.
-                        if (flags_num & O_TMPFILE) > 0 {
+                        if (flags_num & O_TMPFILE) == O_TMPFILE {
                             self.general_text("create an unnamed temporary file in the path: ");
                         } else {
                             self.general_text("open the file: ");
@@ -300,66 +299,68 @@ impl SyscallObject {
                                     .custom_color(*OUR_YELLOW),
                             );
                         }
-                        if (flags_num & O_CREAT) > 0 {
+                        if (flags_num & O_CREAT) == O_CREAT {
                             directives.push(
                                 "create the file if it does not exist".custom_color(*OUR_YELLOW),
                             );
                         }
-                        if (flags_num & O_DIRECT) > 0 {
+                        if (flags_num & O_DIRECT) == O_DIRECT {
                             directives.push("use direct file I/O".custom_color(*OUR_YELLOW));
                         }
-                        if (flags_num & O_DIRECTORY) > 0 {
+                        if (flags_num & O_DIRECTORY) == O_DIRECTORY {
                             directives.push(
                                 "fail if the path is not a directory".custom_color(*OUR_YELLOW),
                             );
                         }
-                        if (flags_num & O_DSYNC) > 0 {
+                        if (flags_num & O_DSYNC) == O_DSYNC {
                             directives.push("ensure writes are completely teransferred to hardware before return".custom_color(*OUR_YELLOW));
                         }
-                        if (flags_num & O_EXCL) > 0 {
+                        if (flags_num & O_EXCL) == O_EXCL {
                             directives.push("ensure O_CREAT fails if the file already exists or is a symbolic link".custom_color(*OUR_YELLOW));
                         }
-                        if (flags_num & O_LARGEFILE) > 0 {
+                        if flags_num == O_LARGEFILE {
                             directives.push(
                                 "allow files larger than `off_t` and up to `off64_t`"
                                     .custom_color(*OUR_YELLOW),
                             );
                         }
-                        if (flags_num & O_NOATIME) > 0 {
+                        if (flags_num & O_NOATIME) == O_NOATIME {
                             directives.push(
                                 "do not update the file last access time on read"
                                     .custom_color(*OUR_YELLOW),
                             );
                         }
-                        if (flags_num & O_NOCTTY) > 0 {
+                        if (flags_num & O_NOCTTY) == O_NOCTTY {
                             directives
                                 .push("do not use the file as the process's controlling terminal if its a terminal device".custom_color(*OUR_YELLOW));
                         }
-                        if (flags_num & O_NOFOLLOW) > 0 {
+                        if (flags_num & O_NOFOLLOW) == O_NOFOLLOW {
                             // TODO! change this to have better wording, change `base`
                             directives.push(
                                 "fail if the base of the file is a symbolic link"
                                     .custom_color(*OUR_YELLOW),
                             );
                         }
-                        if (flags_num & O_NONBLOCK) > 0 || (flags_num & O_NDELAY) > 0 {
+                        if (flags_num & O_NONBLOCK) == O_NONBLOCK
+                            || (flags_num & O_NDELAY) == O_NDELAY
+                        {
                             // TODO! change this to have better wording, change `base`
                             directives.push(
                                 "open the file in non-blocking mode".custom_color(*OUR_YELLOW),
                             );
                         }
-                        if (flags_num & O_PATH) > 0 {
+                        if (flags_num & O_PATH) == O_PATH {
                             // TODO! change this to have better wording, change `base`
                             directives.push(
                                 "return a `shallow` file descriptor".custom_color(*OUR_YELLOW),
                             );
                         }
-                        if (flags_num & O_SYNC) > 0 {
+                        if (flags_num & O_SYNC) == O_SYNC {
                             directives.push("ensure writes are completely teransferred to hardware before return".custom_color(*OUR_YELLOW));
                         }
                         self.directives_handler(directives);
 
-                        if (flags_num & O_TRUNC) > 0 {
+                        if (flags_num & O_TRUNC) == O_TRUNC {
                             self.write_text(
                                 "truncate the file's length to zero".custom_color(*OUR_YELLOW),
                             );
@@ -560,27 +561,27 @@ impl SyscallObject {
                             }
                         }
                         let mut flag_directive = vec![];
-                        if (flags_num & AT_NO_AUTOMOUNT) > 0 {
+                        if (flags_num & AT_NO_AUTOMOUNT) == AT_NO_AUTOMOUNT {
                             flag_directive.push("don't automount the basename of the path if its an automount directory".custom_color(*OUR_YELLOW));
                         }
-                        if (flags_num & AT_SYMLINK_NOFOLLOW) > 0 {
+                        if (flags_num & AT_SYMLINK_NOFOLLOW) == AT_SYMLINK_NOFOLLOW {
                             flag_directive.push(
                                 "if the path is a symbolic link, get its stats, do not recurse it"
                                     .custom_color(*OUR_YELLOW),
                             );
                         }
-                        if (flags_num & AT_STATX_SYNC_AS_STAT) > 0 {
+                        if flags_num == AT_STATX_SYNC_AS_STAT {
                             flag_directive.push(
                                 "behave similar to the `stat` syscall".custom_color(*OUR_YELLOW),
                             );
                         }
-                        if (flags_num & AT_STATX_FORCE_SYNC) > 0 {
+                        if (flags_num & AT_STATX_FORCE_SYNC) == AT_STATX_FORCE_SYNC {
                             flag_directive.push(
                                 "force synchronization / guarantee up to date information"
                                     .custom_color(*OUR_YELLOW),
                             );
                         }
-                        if (flags_num & AT_STATX_DONT_SYNC) > 0 {
+                        if (flags_num & AT_STATX_DONT_SYNC) == AT_STATX_DONT_SYNC {
                             flag_directive.push("don't force synchronization / retrieve whatever information is cached".custom_color(*OUR_YELLOW));
                         }
                         // if flags.contains(rustix::fs::AtFlags::EACCESS) {
@@ -813,49 +814,49 @@ impl SyscallObject {
                 let advice = registers[2] as i32;
                 match self.state {
                     Entering => {
-                        if (advice & MADV_NORMAL) == MADV_NORMAL {
+                        if advice == MADV_NORMAL {
                             self.general_text("provide default treatment for ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
-                        } else if (advice & MADV_RANDOM) == MADV_RANDOM {
+                        } else if advice == MADV_RANDOM {
                             self.general_text("expect ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
                             self.general_text(" to be referenced in random order");
-                        } else if (advice & MADV_SEQUENTIAL) == MADV_SEQUENTIAL {
+                        } else if advice == MADV_SEQUENTIAL {
                             self.general_text("expect ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
                             self.general_text(" to be referenced in sequential order");
-                        } else if (advice & MADV_WILLNEED) == MADV_WILLNEED {
+                        } else if advice == MADV_WILLNEED {
                             self.general_text("expect ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
                             self.general_text(" to be accessed in the future");
-                        } else if (advice & MADV_DONTNEED) == MADV_DONTNEED {
+                        } else if advice == MADV_DONTNEED {
                             self.write_text("do not expect the".custom_color(*OUR_YELLOW));
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
                             self.general_text(" to be accessed in the future");
-                        } else if (advice & MADV_REMOVE) == MADV_REMOVE {
+                        } else if advice == MADV_REMOVE {
                             // equivalent to punching a hole in the corresponding range
                             self.general_text("free");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
-                        } else if (advice & MADV_DONTFORK) == MADV_DONTFORK {
+                        } else if advice == MADV_DONTFORK {
                             self.general_text("do not allow ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
                             self.general_text(" to be available to children from ");
                             self.write_text("fork()".blue());
-                        } else if (advice & MADV_DOFORK) == MADV_DOFORK {
+                        } else if advice == MADV_DOFORK {
                             self.general_text("allow ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
@@ -864,71 +865,77 @@ impl SyscallObject {
                             self.write_text("fork()".blue());
                             self.general_text(" ");
                             self.write_text("(Undo MADV_DONTFORK)".custom_color(*OUR_YELLOW));
-                        } else if (advice & MADV_HWPOISON) == MADV_HWPOISON {
+                        } else if advice == MADV_HWPOISON {
                             // treat subsequent references to those pages like a hardware memory corruption
                             self.general_text("poison ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
-                        } else if (advice & MADV_MERGEABLE) == MADV_MERGEABLE {
+                        } else if advice == MADV_MERGEABLE {
                             // KSM merges only private anonymous pages
                             self.general_text("enable KSM (Kernel Samepage Merging) for ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
-                        } else if (advice & MADV_UNMERGEABLE) == MADV_UNMERGEABLE {
+                        } else if advice == MADV_UNMERGEABLE {
                             self.general_text(
                                 "unmerge all previous KSM merges from MADV_MERGEABLE in ",
                             );
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
-                        } else if (advice & MADV_HUGEPAGE) == MADV_HUGEPAGE {
+                        } else if advice == MADV_SOFT_OFFLINE {
+                            self.write_text("migrate".custom_color(*OUR_YELLOW));
+                            self.write_text(len.custom_color(*OUR_YELLOW));
+                            self.general_text(" of memory starting from ");
+                            self.write_text(addr.custom_color(*OUR_YELLOW));
+                            self.general_text(" to new healthy pages (soft-offline the memory)");
+                        } else if advice == MADV_HUGEPAGE {
                             self.write_text("enable".custom_color(*OUR_YELLOW));
                             self.general_text(" transparent huge pages (THP) on ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
-                        } else if (advice & MADV_NOHUGEPAGE) == MADV_NOHUGEPAGE {
+                        } else if advice == MADV_NOHUGEPAGE {
                             self.write_text("disable".custom_color(*OUR_YELLOW));
                             self.general_text(" transparent huge pages (THP) on ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
-                        } else if (advice & MADV_COLLAPSE) == MADV_COLLAPSE {
+                        } else if advice == MADV_COLLAPSE {
                             // TODO! citation needed
                             self.general_text("perform a synchronous collapse of ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
                             self.general_text(" that's mapped into transparent huge pages (THP)");
-                        } else if (advice & MADV_DONTDUMP) == MADV_DONTDUMP {
+                        } else if advice == MADV_DONTDUMP {
                             self.general_text("exclude ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
                             self.general_text(" from core dumps");
-                        } else if (advice & MADV_DODUMP) == MADV_DODUMP {
+                        } else if advice == MADV_DODUMP {
                             self.general_text("include ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
                             self.general_text(" in core dumps ");
                             self.write_text("(Undo MADV_DONTDUMP)".custom_color(*OUR_YELLOW));
-                        } else if (advice & MADV_FREE) == MADV_FREE {
+                        } else if advice == MADV_FREE {
                             self.general_text("the range of ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
                             self.general_text(" is no longer required and is ok to free");
-                        } else if (advice & MADV_WIPEONFORK) == MADV_WIPEONFORK {
+                        } else if advice == MADV_WIPEONFORK {
                             self.general_text("zero-fill the range of ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
                             self.general_text(" to any child from ");
                             self.write_text("fork()".blue());
-                        } else if (advice & MADV_KEEPONFORK) == MADV_KEEPONFORK {
+                        } else if advice == MADV_KEEPONFORK {
                             self.general_text("keep the range of ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
@@ -937,14 +944,14 @@ impl SyscallObject {
                             self.write_text("fork()".blue());
                             self.general_text(" ");
                             self.write_text("(Undo MADV_WIPEONFORK)".custom_color(*OUR_YELLOW));
-                        } else if (advice & MADV_COLD) == MADV_COLD {
+                        } else if advice == MADV_COLD {
                             // This makes the pages a more probable reclaim target during memory pressure
                             self.general_text("deactivate ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
                             self.general_text("  (make more probable to reclaim)");
-                        } else if (advice & MADV_PAGEOUT) == MADV_PAGEOUT {
+                        } else if advice == MADV_PAGEOUT {
                             // This is done to free up memory occupied by these pages.
                             // If a page is anonymous, it will be swapped out.
                             // If a page  is  file-backed and dirty, it will be written back to the backing storage
@@ -953,14 +960,14 @@ impl SyscallObject {
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
-                        } else if (advice & MADV_POPULATE_READ) == MADV_POPULATE_READ {
+                        } else if advice == MADV_POPULATE_READ {
                             self.general_text("prefault ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
                             self.write_text(addr.custom_color(*OUR_YELLOW));
                             self.general_text(" while avoiding memory access ");
                             self.write_text("(simulate reading)".custom_color(*OUR_YELLOW));
-                        } else if (advice & MADV_POPULATE_WRITE) == MADV_POPULATE_WRITE {
+                        } else if advice == MADV_POPULATE_WRITE {
                             self.general_text("prefault ");
                             self.write_text(len.custom_color(*OUR_YELLOW));
                             self.general_text(" of memory starting from ");
@@ -5352,17 +5359,17 @@ impl SyscallObject {
                     unsafe { std::mem::transmute(registers[1] as u32) };
                 match self.state {
                     Entering => {
-                        if (shutdown_how_num & 0) == 0 {
+                        if shutdown_how_num == 0 {
                             // SHUT_RD = 0
                             self.general_text("stop incoming reception of data into the socket: ");
                             self.write_text(socket.custom_color(*OUR_YELLOW));
-                        } else if (shutdown_how_num & 1) == 1 {
+                        } else if shutdown_how_num == 1 {
                             // SHUT_WR = 1
                             self.general_text(
                                 "stop outgoing transmission of data from the socket: ",
                             );
                             self.write_text(socket.custom_color(*OUR_YELLOW));
-                        } else if (shutdown_how_num & 2) == 2 {
+                        } else if shutdown_how_num == 2 {
                             // SHUT_RDWR = 2
                             self.general_text("terminate incoming and outgoing data communication with the socket: ");
                             self.write_text(socket.custom_color(*OUR_YELLOW));
@@ -5396,21 +5403,23 @@ impl SyscallObject {
                 // OPERATION
                 match self.state {
                     Entering => {
-                        if (futex_ops_num & FUTEX_WAIT) == FUTEX_WAIT {
+                        // this gets rid of the options
+                        let ops_only_mask = 0b01111111;
+                        if (futex_ops_num & ops_only_mask) == FUTEX_WAIT {
                             self.write_text(
                                 "block and wait for FUTEX_WAKE if comparison succeeds"
                                     .custom_color(*OUR_YELLOW),
                             );
-                        } else if (futex_ops_num & FUTEX_WAKE) == FUTEX_WAKE {
+                        } else if (futex_ops_num & ops_only_mask) == FUTEX_WAKE {
                             self.general_text("wake a maximum of ");
                             self.write_text(val.to_string().custom_color(*OUR_YELLOW));
                             self.general_text(" waiters waiting on the futex at ");
                             self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
-                        } else if (futex_ops_num & FUTEX_FD) == FUTEX_FD {
+                        } else if (futex_ops_num & ops_only_mask) == FUTEX_FD {
                             self.general_text("create a file descriptor for the futex at ");
                             self.write_text(futex1_addr.custom_color(*OUR_YELLOW));
                             self.general_text(" to use with asynchronous syscalls");
-                        } else if (futex_ops_num & FUTEX_CMP_REQUEUE) == FUTEX_CMP_REQUEUE {
+                        } else if (futex_ops_num & ops_only_mask) == FUTEX_CMP_REQUEUE {
                             self.general_text("if comparison succeeds wake a maximum of ");
                             self.write_text(val.to_string().custom_color(*OUR_YELLOW));
                             self.general_text(" waiters waiting on the futex at ");
@@ -5419,7 +5428,7 @@ impl SyscallObject {
                             self.write_text(val2.to_string().custom_color(*OUR_YELLOW));
                             self.general_text(" from the remaining waiters to the futex at ");
                             self.write_text(futex2_addr.custom_color(*OUR_YELLOW));
-                        } else if (futex_ops_num & FUTEX_REQUEUE) == FUTEX_REQUEUE {
+                        } else if (futex_ops_num & ops_only_mask) == FUTEX_REQUEUE {
                             self.general_text("without comparing wake a maximum of ");
                             self.write_text(val.to_string().custom_color(*OUR_YELLOW));
                             self.general_text(" waiters waiting on the futex at ");
@@ -5428,11 +5437,11 @@ impl SyscallObject {
                             self.write_text(val2.to_string().custom_color(*OUR_YELLOW));
                             self.general_text(" from the remaining waiters to the futex at ");
                             self.write_text(futex2_addr.custom_color(*OUR_YELLOW));
-                        } else if (futex_ops_num & FUTEX_WAKE_OP) == FUTEX_WAKE_OP {
+                        } else if (futex_ops_num & ops_only_mask) == FUTEX_WAKE_OP {
                             self.general_text("operate on 2 futexes at the same time");
-                        } else if (futex_ops_num & FUTEX_WAIT_BITSET) == FUTEX_WAIT_BITSET {
+                        } else if (futex_ops_num & ops_only_mask) == FUTEX_WAIT_BITSET {
                             self.general_text("if comparison succeeds block and wait for FUTEX_WAKE and register a bitmask for selective waiting");
-                        } else if (futex_ops_num & FUTEX_WAKE_BITSET) == FUTEX_WAKE_BITSET {
+                        } else if (futex_ops_num & ops_only_mask) == FUTEX_WAKE_BITSET {
                             self.general_text("wake a maximum of ");
                             self.write_text(val.to_string().custom_color(*OUR_YELLOW));
                             self.general_text(" waiters waiting on the futex at ");
@@ -5440,25 +5449,22 @@ impl SyscallObject {
                             self.write_text(
                                 " from the provided waiters bitmask".custom_color(*OUR_YELLOW),
                             );
-                        } else if (futex_ops_num & FUTEX_LOCK_PI) == FUTEX_LOCK_PI {
+                        } else if (futex_ops_num & ops_only_mask) == FUTEX_LOCK_PI {
                             self.general_text("priority-inheritance futex operation ");
                             self.write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_ops_num & FUTEX_LOCK_PI2) == FUTEX_LOCK_PI2 {
+                        } else if (futex_ops_num & ops_only_mask) == FUTEX_LOCK_PI2 {
                             self.general_text("priority-inheritance futex operation ");
                             self.write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_ops_num & FUTEX_TRYLOCK_PI) == FUTEX_TRYLOCK_PI {
+                        } else if (futex_ops_num & ops_only_mask) == FUTEX_TRYLOCK_PI {
                             self.general_text("priority-inheritance futex operation ");
                             self.write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_ops_num & FUTEX_UNLOCK_PI) == FUTEX_UNLOCK_PI {
+                        } else if (futex_ops_num & ops_only_mask) == FUTEX_UNLOCK_PI {
                             self.general_text("priority-inheritance futex operation ");
                             self.write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_ops_num & FUTEX_CMP_REQUEUE_PI) == FUTEX_CMP_REQUEUE_PI {
+                        } else if (futex_ops_num & ops_only_mask) == FUTEX_CMP_REQUEUE_PI {
                             self.general_text("priority-inheritance futex operation ");
                             self.write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_ops_num & FUTEX_WAIT_REQUEUE_PI) == FUTEX_WAIT_REQUEUE_PI {
-                            self.general_text("priority-inheritance futex operation ");
-                            self.write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_ops_num & FUTEX_WAIT_REQUEUE_PI) == FUTEX_WAIT_REQUEUE_PI {
+                        } else if (futex_ops_num & ops_only_mask) == FUTEX_WAIT_REQUEUE_PI {
                             self.general_text("priority-inheritance futex operation ");
                             self.write_text("[intentrace: needs granularity]".bright_black());
                         } else {
@@ -5483,18 +5489,7 @@ impl SyscallObject {
                                 "measure timeout using CLOCK_MONOTONIC".custom_color(*OUR_YELLOW),
                             );
                         }
-                        if !directives.is_empty() {
-                            self.general_text(" (");
-                            let mut directives_iter = directives.into_iter().peekable();
-                            if directives_iter.peek().is_some() {
-                                self.write_text(directives_iter.next().unwrap());
-                            }
-                            for entry in directives_iter {
-                                self.general_text(", ");
-                                self.write_text(entry);
-                            }
-                            self.general_text(")");
-                        }
+                        self.directives_handler(directives);
                     }
                     Exiting => {
                         let eph_return = self.get_syscall_return();
@@ -5812,31 +5807,34 @@ impl SyscallObject {
                             if wstatus == 0 {
                                 self.write_text("Successful".green());
                             } else {
-                                let wstatus_value = self.displayable_ol(1).parse::<u64>().unwrap();
-                                // TODO! this is a workaround because nix's waitstatus resolver errors with EINVAL very often
-                                if nix::libc::WIFEXITED(wstatus_value as i32) {
-                                    let status = nix::libc::WEXITSTATUS(wstatus_value as i32);
-                                    self.write_text("process exited with status code: ".green());
-                                    self.write_text(status.to_string().blue());
-                                } else if nix::libc::WIFSIGNALED(wstatus_value as i32) {
-                                    let signal =
-                                        x86_signal_to_string(wstatus_value as u64).unwrap();
-                                    self.write_text("process was killed by ".green());
-                                    self.write_text(signal.to_string().blue());
-                                    if nix::libc::WCOREDUMP(wstatus_value as i32) {
-                                        self.general_text(" ");
-                                        self.write_text("(core dumped)".green());
+                                if let Ok(wstatus_value) = self.displayable_ol(1).parse::<u64>() {
+                                    // TODO! this is a workaround because nix's waitstatus resolver errors with EINVAL very often
+                                    if nix::libc::WIFEXITED(wstatus_value as i32) {
+                                        let status = nix::libc::WEXITSTATUS(wstatus_value as i32);
+                                        self.write_text(
+                                            "process exited with status code: ".green(),
+                                        );
+                                        self.write_text(status.to_string().blue());
+                                    } else if nix::libc::WIFSIGNALED(wstatus_value as i32) {
+                                        let signal =
+                                            x86_signal_to_string(wstatus_value as u64).unwrap();
+                                        self.write_text("process was killed by ".green());
+                                        self.write_text(signal.to_string().blue());
+                                        if nix::libc::WCOREDUMP(wstatus_value as i32) {
+                                            self.general_text(" ");
+                                            self.write_text("(core dumped)".green());
+                                        }
+                                    } else if nix::libc::WIFSTOPPED(wstatus_value as i32) {
+                                        // TODO! Granularity needed here, this is currently a workaround
+                                        self.write_text("process was stopped".green());
+                                        // self.write_text("process was stopped by ".green());
+                                        // self.write_text(signal.to_string().blue());
+                                    } else {
+                                        self.write_text(
+                                            "process was resumed from a stop state by ".green(),
+                                        );
+                                        self.write_text("SIGCONT".blue());
                                     }
-                                } else if nix::libc::WIFSTOPPED(wstatus_value as i32) {
-                                    // TODO! Granularity needed here, this is currently a workaround
-                                    self.write_text("process was stopped".green());
-                                    // self.write_text("process was stopped by ".green());
-                                    // self.write_text(signal.to_string().blue());
-                                } else {
-                                    self.write_text(
-                                        "process was resumed from a stop state by ".green(),
-                                    );
-                                    self.write_text("SIGCONT".blue());
                                 }
                                 // let wait_status = nix::sys::wait::WaitStatus::from_raw(
                                 //     Pid::from_raw(pid as i32),
@@ -5932,6 +5930,7 @@ impl SyscallObject {
             }
             Sysno::clone3 => {
                 let size_of_cl_args = registers[1];
+                // sometimes this register isn't a pointer, investigate later
                 let cl_args = SyscallObject::read_bytes_as_struct::<88, clone3::CloneArgs>(
                     registers[0] as usize,
                     self.process_pid as _,
@@ -6568,9 +6567,7 @@ impl SyscallObject {
                                 self.general_text(" from the beginning of the file: ");
                             }
                             self.write_path_file(file_descriptor);
-                            self.general_text(
-                                " without overwriting existing data (displace data instead)",
-                            );
+                            self.general_text(" and displace any existing data");
                         }
                     }
                     Exiting => {
@@ -6593,7 +6590,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("get the scheduling priority ");
-                        if (which & PRIO_PROCESS) == PRIO_PROCESS {
+                        if which == PRIO_PROCESS {
                             self.general_text("of ");
                             if process == 0 {
                                 self.write_text("the calling process".custom_color(*OUR_YELLOW));
@@ -6601,7 +6598,7 @@ impl SyscallObject {
                                 self.write_text("process: ".custom_color(*OUR_YELLOW));
                                 self.write_text(process.to_string().custom_color(*OUR_YELLOW));
                             }
-                        } else if (which & PRIO_PGRP) == PRIO_PGRP {
+                        } else if which == PRIO_PGRP {
                             self.general_text("of ");
                             if process == 0 {
                                 self.write_text(
@@ -6612,7 +6609,7 @@ impl SyscallObject {
                                 self.write_text("process group: ".custom_color(*OUR_YELLOW));
                                 self.write_text(process.to_string().custom_color(*OUR_YELLOW));
                             }
-                        } else if (which & PRIO_USER) == PRIO_USER {
+                        } else if which == PRIO_USER {
                             self.general_text("for ");
                             if process == 0 {
                                 self.write_text(
@@ -6648,7 +6645,7 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         self.general_text("set the scheduling priority ");
-                        if (which & PRIO_PROCESS) == PRIO_PROCESS {
+                        if which == PRIO_PROCESS {
                             self.general_text("of ");
                             if process == 0 {
                                 self.write_text("the calling process".custom_color(*OUR_YELLOW));
@@ -6658,7 +6655,7 @@ impl SyscallObject {
                             }
                             self.general_text(" to ");
                             self.write_text(prio.custom_color(*OUR_YELLOW));
-                        } else if (which & PRIO_PGRP) == PRIO_PGRP {
+                        } else if which == PRIO_PGRP {
                             self.general_text("of ");
                             if process == 0 {
                                 self.write_text(
@@ -6671,7 +6668,7 @@ impl SyscallObject {
                             }
                             self.general_text(" to ");
                             self.write_text(prio.custom_color(*OUR_YELLOW));
-                        } else if (which & PRIO_USER) == PRIO_USER {
+                        } else if which == PRIO_USER {
                             self.general_text("for ");
                             if process == 0 {
                                 self.write_text(
@@ -7032,6 +7029,7 @@ impl SyscallObject {
     }
 
     pub fn resource_matcher(&mut self, resource: Resource) {
+        // TODO! fix segmentation fault here
         match resource {
             Resource::RLIMIT_AS => {
                 self.write_text("maximum virtual memory size".custom_color(*OUR_YELLOW));
