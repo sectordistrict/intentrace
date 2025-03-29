@@ -225,9 +225,9 @@ fn parent(child: Pid) {
                         end = Some(std::time::Instant::now());
                         match nix::sys::ptrace::getregs(child) {
                             Ok(registers) => {
+                                let sysno = Sysno::from(registers.orig_rax as i32);
                                 if supported {
                                     let mut table = TABLE.lock().unwrap();
-                                    let sysno = Sysno::from(registers.orig_rax as i32);
                                     table
                                         .entry(syscall.sysno)
                                         .and_modify(|value| {
@@ -251,6 +251,21 @@ fn parent(child: Pid) {
                                         registers.r9,
                                     ];
                                     syscall_returned(&mut syscall, registers.rax)
+                                } else {
+                                    // HACK make fake syscall object to use for helper functions
+                                    let mut fake_syscall = SyscallObject {
+                                        sysno,
+                                        category: types::Category::Memory,
+                                        skeleton: vec![],
+                                        result: (Some(0), types::SysReturn::Always_Errors),
+                                        process_pid: child,
+                                        errno: None,
+                                        ..Default::default()
+                                    };
+                                    fake_syscall.write_pid_sysname();
+                                    buffered_write(
+                                        format!("WARN: unhandled syscall {}\n", sysno).red(),
+                                    );
                                 }
                                 supported = true;
                             }
