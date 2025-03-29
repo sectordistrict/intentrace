@@ -33,7 +33,7 @@ use crate::{
 // TODO! Time blocks feature
 // pub static TIME_BLOCKS: Cell<bool> = Cell::new(false);
 
-pub static INTENTRACE_ARGS: LazyLock<IntentraceArgs> = LazyLock::new(|| IntentraceArgs::parse());
+pub static INTENTRACE_ARGS: LazyLock<IntentraceArgs> = LazyLock::new(IntentraceArgs::parse);
 pub static FOLLOW_FORKS: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.follow_forks);
 pub static STRING_LIMIT: AtomicUsize = AtomicUsize::new(36);
 pub static FAILED_ONLY: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.failed_only);
@@ -89,11 +89,11 @@ pub static TABLE_FOLLOW_FORKS: LazyLock<Mutex<HashMap<Sysno, usize>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub static SYSANNOT_MAP: LazyLock<HashMap<Sysno, SysAnnotations>> =
-    LazyLock::new(|| initialize_annotations_map());
+    LazyLock::new(initialize_annotations_map);
 pub static SYSKELETON_MAP: LazyLock<HashMap<Sysno, Syscall_Shape>> =
-    LazyLock::new(|| initialize_skeletons_map());
+    LazyLock::new(initialize_skeletons_map);
 pub static SYSCATEGORIES_MAP: LazyLock<HashMap<Sysno, Category>> =
-    LazyLock::new(|| initialize_categories_map());
+    LazyLock::new(initialize_categories_map);
 
 use clap::{Parser, Subcommand};
 
