@@ -361,7 +361,7 @@ impl SyscallObject {
                         let size = self.result.0.unwrap();
                         if size > 0 {
                             if size > 100 {
-                                let size = -1 * (size as i32);
+                                let size = -(size as i32);
                                 let error = nix::errno::Errno::from_raw(size);
                             } else if (self.sysno == Sysno::readlink && index == 1)
                                 || (self.sysno == Sysno::readlinkat && index == 2)

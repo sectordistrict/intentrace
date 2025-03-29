@@ -4669,7 +4669,7 @@ impl SyscallObject {
                                 } else if pid < -1 {
                                     self.general_text(" to process group: ");
                                     self.write_text(
-                                        (pid * -1).to_string().custom_color(*PAGES_COLOR),
+                                        (-pid).to_string().custom_color(*PAGES_COLOR),
                                     );
                                 }
                             }
