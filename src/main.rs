@@ -62,10 +62,7 @@ use pete::{Ptracer, Restart, Stop, Tracee};
 use procfs::process::{MMapPath, MemoryMap};
 use syscalls::Sysno;
 use utilities::{
-    buffered_write, colorize_diverse, display_unsupported, errno_check, flush_buffer,
-    set_memory_break, IntentraceArgs, ATTACH_PID, BINARY_AND_ARGS, EXITED_BACKGROUND_COLOR,
-    FAILED_ONLY, FOLLOW_FORKS, GENERAL_TEXT_COLOR, HALT_TRACING, PID_BACKGROUND_COLOR, QUIET,
-    REGISTERS, STOPPED_COLOR, SUMMARY, SYSKELETON_MAP, TABLE, TABLE_FOLLOW_FORKS,
+    buffered_write, colorize_diverse, display_unsupported, errno_check, flush_buffer, set_memory_break, write_syscall_not_covered, IntentraceArgs, ATTACH_PID, BINARY_AND_ARGS, EXITED_BACKGROUND_COLOR, FAILED_ONLY, FOLLOW_FORKS, GENERAL_TEXT_COLOR, HALT_TRACING, PID_BACKGROUND_COLOR, PID_NUMBER_COLOR, QUIET, REGISTERS, STOPPED_COLOR, SUMMARY, SYSKELETON_MAP, TABLE, TABLE_FOLLOW_FORKS
 };
 
 mod syscall_annotations_map;
@@ -206,6 +203,7 @@ fn parent(child: Pid) {
                                         break 'main_loop;
                                     }
                                 } else {
+                                    write_syscall_not_covered(sysno, child);
                                     supported = false;
                                 }
                             }
@@ -276,6 +274,7 @@ fn parent(child: Pid) {
     }
 }
 
+
 fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
     let mut last_sysno: Sysno = unsafe { mem::zeroed() };
     let mut last_pid = unsafe { mem::zeroed() };
@@ -320,6 +319,8 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
                             last_sysno = syscall.sysno;
                             syscall.state = SyscallState::Exiting;
                             pid_syscall_map.insert(syscall_pid, syscall);
+                        } else {
+                            write_syscall_not_covered(sysno, syscall_pid);
                         }
                     }
                     Err(errno) => handle_getting_registers_error(errno, "enter", last_sysno),

@@ -168,6 +168,16 @@ pub fn colorize_diverse(arg: &str, color: CustomColor) {
     buffered_write(text);
 }
 
+pub fn write_syscall_not_covered(sysno: Sysno, tracee_pid: Pid) {
+    buffered_write(tracee_pid.to_string().white());
+    buffered_write(" ".dimmed());
+    buffered_write(sysno.name().white());
+    buffered_write(" - ".dimmed());
+    buffered_write("[intentrace: syscall not covered yet]".white());
+    buffered_write("\n".dimmed());
+    flush_buffer();
+}
+
 pub fn static_handle_path_file(filename: String, vector: &mut Vec<ColoredString>) {
     let mut pathname = String::new();
 

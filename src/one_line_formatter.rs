@@ -3962,7 +3962,7 @@ impl SyscallObject {
                         if eph_return.is_ok() {
                             let thread = eph_return.unwrap();
                             self.general_text(" |=> ");
-                            self.write_text("got the thread id: ".green());
+                            self.write_text("thread id retrieved: ".green());
                             self.write_text(thread.custom_color(*OUR_YELLOW));
                         } else {
                             // TODO! granular
@@ -3981,7 +3981,7 @@ impl SyscallObject {
                         if eph_return.is_ok() {
                             let process_id = eph_return.unwrap();
                             self.general_text(" |=> ");
-                            self.write_text("got the process id: ".green());
+                            self.write_text("process id retrieved: ".green());
                             self.write_text(process_id.custom_color(*OUR_YELLOW));
                         } else {
                             // TODO! granular
@@ -4000,7 +4000,7 @@ impl SyscallObject {
                         if eph_return.is_ok() {
                             let process_id = eph_return.unwrap();
                             self.general_text(" |=> ");
-                            self.write_text("got the parent process' id: ".green());
+                            self.write_text("parent process id retrieved: ".green());
                             self.write_text(process_id.custom_color(*OUR_YELLOW));
                         } else {
                             // TODO! granular
@@ -4116,7 +4116,7 @@ impl SyscallObject {
                         if eph_return.is_ok() {
                             let pgid = eph_return.unwrap();
                             self.general_text(" |=> ");
-                            self.write_text("got the group id: ".green());
+                            self.write_text("group id retrieved: ".green());
                             self.write_text(pgid.custom_color(*OUR_YELLOW));
                         } else {
                             // TODO! granular
@@ -4135,7 +4135,7 @@ impl SyscallObject {
                         if eph_return.is_ok() {
                             let pgid = eph_return.unwrap();
                             self.general_text(" |=> ");
-                            self.write_text("got the group id: ".green());
+                            self.write_text("group id retrieved: ".green());
                             self.write_text(pgid.custom_color(*OUR_YELLOW));
                         } else {
                             // TODO! granular
@@ -5286,7 +5286,7 @@ impl SyscallObject {
                         if eph_return.is_ok() {
                             let user_id = eph_return.unwrap();
                             self.general_text(" |=> ");
-                            self.write_text("got the real user ID: ".green());
+                            self.write_text("real user ID retrieved: ".green());
                             self.write_text(user_id.custom_color(*OUR_YELLOW));
                         } else {
                             // TODO! granular
@@ -5305,7 +5305,7 @@ impl SyscallObject {
                         if eph_return.is_ok() {
                             let user_id = eph_return.unwrap();
                             self.general_text(" |=> ");
-                            self.write_text("got the effective user ID: ".green());
+                            self.write_text("effective user ID retrieved: ".green());
                             self.write_text(user_id.custom_color(*OUR_YELLOW));
                         } else {
                             // TODO! granular
@@ -5324,7 +5324,7 @@ impl SyscallObject {
                         if eph_return.is_ok() {
                             let group_id = eph_return.unwrap();
                             self.general_text(" |=> ");
-                            self.write_text("got the real group ID: ".green());
+                            self.write_text("real group ID retrieved: ".green());
                             self.write_text(group_id.custom_color(*OUR_YELLOW));
                         } else {
                             // TODO! granular
@@ -5343,7 +5343,7 @@ impl SyscallObject {
                         if eph_return.is_ok() {
                             let group_id = eph_return.unwrap();
                             self.general_text(" |=> ");
-                            self.write_text("got the effective group ID: ".green());
+                            self.write_text("effective group ID retrieved: ".green());
                             self.write_text(group_id.custom_color(*OUR_YELLOW));
                         } else {
                             // TODO! granular
@@ -6394,7 +6394,7 @@ impl SyscallObject {
                             self.general_text(" |=> ");
                             if retrieving_abi_version {
                                 let abi_version = self.result.0.unwrap() as f64;
-                                self.write_text("got the ABI version: ".green());
+                                self.write_text("ABI version retrieved: ".green());
                                 self.write_text(abi_version.to_string().custom_color(*OUR_YELLOW));
                             } else {
                                 let file_descriptor = eph_return.unwrap();
@@ -6628,7 +6628,7 @@ impl SyscallObject {
                         let eph_return = self.get_syscall_return();
                         if eph_return.is_ok() {
                             self.general_text(" |=> ");
-                            self.write_text("got the scheduling priority: ".green());
+                            self.write_text("scheduling priority retrieved: ".green());
                             self.write_text(eph_return.unwrap().custom_color(*OUR_YELLOW));
                         } else {
                             // TODO! granular
