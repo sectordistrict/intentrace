@@ -46,7 +46,9 @@ use std::{
 
 use ::errno::{errno, set_errno};
 use clap::Parser;
+use cli::{IntentraceArgs, ATTACH_PID, BINARY_AND_ARGS, FAILED_ONLY, FOLLOW_FORKS, QUIET, SUMMARY};
 use colored::{ColoredString, Colorize};
+use colors::{EXITED_BACKGROUND_COLOR, GENERAL_TEXT_COLOR, PID_BACKGROUND_COLOR, STOPPED_COLOR};
 use errno::Errno as LibErrno;
 use nix::{
     errno::Errno,
@@ -60,20 +62,28 @@ use nix::{
 };
 use pete::{Ptracer, Restart, Stop, Tracee};
 use procfs::process::{MMapPath, MemoryMap};
-use syscalls::Sysno;
+use syscalls::{Sysno, SysnoSet};
 use utilities::{
-    buffered_write, colorize_diverse, display_unsupported, errno_check, flush_buffer, set_memory_break, write_syscall_not_covered, IntentraceArgs, ATTACH_PID, BINARY_AND_ARGS, EXITED_BACKGROUND_COLOR, FAILED_ONLY, FOLLOW_FORKS, GENERAL_TEXT_COLOR, HALT_TRACING, PID_BACKGROUND_COLOR, PID_NUMBER_COLOR, QUIET, REGISTERS, STOPPED_COLOR, SUMMARY, SYSKELETON_MAP, TABLE, TABLE_FOLLOW_FORKS
+    get_syscall_result, set_memory_break, HALT_TRACING, REGISTERS, SYSCATEGORIES_MAP,
+    SYSKELETON_MAP, TABLE, TABLE_FOLLOW_FORKS,
 };
+use writer::{empty_buffer, flush_buffer, write_exiting, write_syscall_not_covered, write_text};
 
 mod syscall_annotations_map;
 mod syscall_categories;
 mod syscall_object;
-mod syscall_object_annotations;
+// mod syscall_object_annotations;
 mod syscall_skeleton_map;
 mod types;
 use syscall_object::{SyscallObject, SyscallState};
+mod cli;
+mod colors;
 mod one_line_formatter;
+mod peeker_poker;
+mod return_resolvers;
+mod sizes;
 mod utilities;
+mod writer;
 
 fn main() {
     let args = IntentraceArgs::parse();
@@ -98,23 +108,24 @@ fn runner(command_line: &[String]) {
             None => follow_forks(Some(command_line)),
         }
     } else {
-        if attach_pid.is_some() {
-            let child = Pid::from_raw(ATTACH_PID.unwrap() as i32);
-            let _ = ptrace::attach(child).unwrap();
-            parent(child);
-        } else {
-            match unsafe { fork() }.expect("Error: Fork Failed") {
+        match attach_pid {
+            Some(pid) => {
+                let child = Pid::from_raw(pid as i32);
+                let _ = ptrace::attach(child).unwrap();
+                parent(child);
+            }
+            None => match unsafe { fork() }.expect("Error: Fork Failed") {
                 Parent { child } => {
                     parent(child);
                 }
                 Child => {
                     child_trace_me(command_line);
                 }
-            }
+            },
         }
     }
     if !*FAILED_ONLY {
-        flush_buffer();
+        // flush_buffer();
     }
     if *SUMMARY {
         print_table();
@@ -184,6 +195,7 @@ fn parent(child: Pid) {
                 let _res = waitpid(child, None).expect("Failed waiting for child.");
                 match syscall_entering {
                     true => {
+                        empty_buffer();
                         // SYSCALL ABOUT TO RUN
                         match nix::sys::ptrace::getregs(child) {
                             Ok(registers) => {
@@ -199,9 +211,6 @@ fn parent(child: Pid) {
                                         registers.r9,
                                     ];
                                     syscall_will_run(&mut syscall);
-                                    if syscall.is_exiting() {
-                                        break 'main_loop;
-                                    }
                                 } else {
                                     write_syscall_not_covered(sysno, child);
                                     supported = false;
@@ -209,7 +218,7 @@ fn parent(child: Pid) {
                             }
                             Err(errno) => {
                                 if errno == Errno::ESRCH {
-                                    print_exiting(child);
+                                    write_exiting(child);
                                     break 'main_loop;
                                 }
                             }
@@ -254,7 +263,7 @@ fn parent(child: Pid) {
                             }
                             Err(errno) => {
                                 if errno == Errno::ESRCH {
-                                    print_exiting(child);
+                                    write_exiting(child);
                                     break 'main_loop;
                                 }
                             }
@@ -273,7 +282,6 @@ fn parent(child: Pid) {
         }
     }
 }
-
 
 fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
     let mut last_sysno: Sysno = unsafe { mem::zeroed() };
@@ -357,60 +365,47 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
 }
 
 fn syscall_will_run(syscall: &mut SyscallObject) {
-    // GET PRECALL DATA (some data will be lost if not saved in this time frame)
-    syscall.get_precall_data();
-
     // handle program break point
     if syscall.is_mem_alloc_dealloc() {
-        set_memory_break(syscall.process_pid);
+        set_memory_break(syscall.tracee_pid);
     }
-    if *FOLLOW_FORKS || syscall.is_exiting() {
-        syscall.format();
-        if syscall.is_exiting() {
-            print_exiting(syscall.process_pid);
+    match *FOLLOW_FORKS {
+        true => {
+            syscall.fill_buffer();
+            flush_buffer();
+            empty_buffer();
+        }
+        false => {
+            syscall.state = SyscallState::Entering;
+            syscall.fill_buffer();
         }
     }
-}
-
-fn print_exiting(process_pid: Pid) {
-    let exited = " EXITED ".on_custom_color(*EXITED_BACKGROUND_COLOR);
-    let pid = format!(" {} ", process_pid).on_custom_color(*PID_BACKGROUND_COLOR);
-    buffered_write("\n\n ".white());
-    buffered_write(pid);
-    buffered_write(exited);
-    buffered_write("\n\n".white());
 }
 
 fn syscall_returned(syscall: &mut SyscallObject, return_value: u64) {
-    // STORE SYSCALL RETURN VALUE
-    syscall.result.0 = Some(return_value);
+    syscall.result = get_syscall_result(return_value);
 
-    // manual calculation of errno for now
-    // TODO! make this cleaner
-    syscall.errno = errno_check(return_value);
-
-    // GET POSTCALL DATA (some data will be lost if not saved in this time frame)
-    syscall.get_postcall_data();
-
-    if !*FOLLOW_FORKS {
-        if *FAILED_ONLY && !syscall.displayable_return_ol().is_err() {
-            return;
+    match *FOLLOW_FORKS {
+        true => {
+            syscall.fill_buffer();
+            write_text("\n".white());
         }
-
-        syscall.state = SyscallState::Entering;
-        syscall.format();
-        syscall.state = SyscallState::Exiting;
-        syscall.format();
-        // this line was moved from the main loops to after this check ^
-        // it was previously not aware of FAILED_ONLY being its edge-case
-        // this resulted in long streaks of newlines in the output
-        // this is also more correct
-        buffered_write("\n".white());
-    } else {
-        syscall.format();
-        buffered_write("\n".white());
+        false => {
+            if *FAILED_ONLY && !syscall.has_errored() {
+                empty_buffer();
+                return;
+            }
+            syscall.state = SyscallState::Exiting;
+            syscall.fill_buffer();
+            // this line was moved from the main loops to after this check ^
+            // it was previously not aware of FAILED_ONLY being its edge-case
+            // this resulted in long streaks of newlines in the output
+            // this is also more correct
+            write_text("\n".white());
+        }
     }
     flush_buffer();
+    empty_buffer();
 }
 
 fn check_syscall_switch(
@@ -422,9 +417,9 @@ fn check_syscall_switch(
         if let Some(last_syscall) = pid_syscall_map.get_mut(&last_pid) {
             if !last_syscall.is_exiting() {
                 last_syscall.paused = true;
-                last_syscall.write_text(" ├ ".custom_color(*GENERAL_TEXT_COLOR));
-                last_syscall.write_text(" STOPPED ".on_custom_color(*STOPPED_COLOR));
-                buffered_write("\n".white());
+                write_text(" ├ ".custom_color(*GENERAL_TEXT_COLOR));
+                write_text(" STOPPED ".on_custom_color(*STOPPED_COLOR));
+                write_text("\n".white());
             }
         }
     }
@@ -432,7 +427,8 @@ fn check_syscall_switch(
 
 fn handle_getting_registers_error(errno: Errno, syscall_enter_or_exit: &str, sysno: Sysno) {
     if sysno == Sysno::exit || sysno == Sysno::exit_group {
-        println!("\n\nSuccessfully exited\n");
+        // no longer needed
+        // println!("\n\nSuccessfully exited\n");
     } else {
         match errno {
             Errno::ESRCH => {

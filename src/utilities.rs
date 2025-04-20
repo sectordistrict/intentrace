@@ -1,182 +1,46 @@
 use core::sync::atomic::AtomicUsize;
 use std::{
-    borrow::BorrowMut,
-    cell::{Cell, LazyCell, OnceCell, RefCell},
     collections::HashMap,
-    io::{stdout, BufWriter, Stdout, Write},
-    mem::MaybeUninit,
+    os::fd::RawFd,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, LazyLock, Mutex, OnceLock,
+        LazyLock, Mutex,
     },
     time::Duration,
 };
 
-use colored::{ColoredString, Colorize, CustomColor};
-use nix::{errno::Errno, libc::__errno_location, unistd::Pid};
+use colored::{ColoredString, Colorize};
+use nix::{errno::Errno, libc::AT_FDCWD, sys::signal::Signal, unistd::Pid};
 use procfs::process::{MMapPath, MemoryMap};
 use syscalls::Sysno;
 
 use crate::{
+    colors::{OUR_YELLOW, PAGES_COLOR},
+    peeker_poker::{read_bytes_until_null, read_words_until_null},
     syscall_annotations_map::initialize_annotations_map,
     syscall_categories::initialize_categories_map,
+    syscall_object::{SyscallObject, SyscallResult},
     syscall_skeleton_map::initialize_skeletons_map,
-    types::{Category, SysAnnotations, Syscall_Shape},
+    types::{BytesPagesRelevant, Category, SysAnnotations, Syscall_Shape}, write_text, writer::write_general_text,
 };
 
 // pub static mut UNSUPPORTED: Vec<&'static str> = Vec::new();
 
-// CLI_ARGS
-//
-//
-//
-// TODO! Time blocks feature
-// pub static TIME_BLOCKS: Cell<bool> = Cell::new(false);
-
-pub static INTENTRACE_ARGS: LazyLock<IntentraceArgs> = LazyLock::new(|| IntentraceArgs::parse());
-pub static FOLLOW_FORKS: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.follow_forks);
-pub static STRING_LIMIT: AtomicUsize = AtomicUsize::new(36);
-pub static FAILED_ONLY: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.failed_only);
-pub static QUIET: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.mute_stdout);
-pub static ANNOT: AtomicBool = AtomicBool::new(false);
-pub static ATTACH_PID: LazyLock<Option<usize>> = LazyLock::new(|| INTENTRACE_ARGS.pid);
-pub static BINARY_AND_ARGS: LazyLock<&'static [String]> = LazyLock::new(|| {
-    if let Some(Binary::Command(binary_and_args)) = INTENTRACE_ARGS.binary.as_ref() {
-        binary_and_args
-    } else {
-        &[]
-    }
-});
-
-// COLORS
-//
-//
-pub static TERMINAL_THEME: LazyLock<termbg::Theme> = LazyLock::new(|| {
-    termbg::theme(std::time::Duration::from_millis(10)).unwrap_or(termbg::Theme::Dark)
-});
-pub static PAGES_COLOR: LazyLock<CustomColor> =
-    LazyLock::new(|| check_terminal_theme((0, 169, 233), (0, 169, 223)));
-pub static GENERAL_TEXT_COLOR: LazyLock<CustomColor> =
-    LazyLock::new(|| check_terminal_theme((64, 64, 64), (160, 160, 160)));
-pub static PID_BACKGROUND_COLOR: LazyLock<CustomColor> =
-    LazyLock::new(|| check_terminal_theme((146, 146, 168), (0, 0, 0)));
-pub static PID_NUMBER_COLOR: LazyLock<CustomColor> =
-    LazyLock::new(|| check_terminal_theme((0, 0, 140), (0, 173, 216)));
-pub static EXITED_BACKGROUND_COLOR: LazyLock<CustomColor> =
-    LazyLock::new(|| check_terminal_theme((250, 160, 160), (100, 0, 0)));
-pub static OUR_YELLOW: LazyLock<CustomColor> =
-    LazyLock::new(|| check_terminal_theme((112, 127, 35), (187, 142, 35)));
-pub static CONTINUED_COLOR: LazyLock<CustomColor> =
-    LazyLock::new(|| check_terminal_theme((188, 210, 230), (17, 38, 21)));
-pub static STOPPED_COLOR: LazyLock<CustomColor> =
-    LazyLock::new(|| check_terminal_theme((82, 138, 174), (47, 86, 54)));
-
-//
 pub static PAGE_SIZE: LazyLock<usize> = LazyLock::new(rustix::param::page_size);
 pub static PRE_CALL_PROGRAM_BREAK_POINT: AtomicUsize = AtomicUsize::new(0);
 pub static REGISTERS: Mutex<[u64; 6]> = Mutex::new([0; 6]);
-
-pub static SUMMARY: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.summary);
 pub static HALT_TRACING: AtomicBool = AtomicBool::new(false);
 
-static WRITER_LAZY: LazyLock<Mutex<BufWriter<Stdout>>> = LazyLock::new(|| {
-    let stdout = stdout();
-    Mutex::new(BufWriter::new(stdout))
-});
 pub static TABLE: LazyLock<Mutex<HashMap<Sysno, (usize, Duration)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 pub static TABLE_FOLLOW_FORKS: LazyLock<Mutex<HashMap<Sysno, usize>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
-
 pub static SYSANNOT_MAP: LazyLock<HashMap<Sysno, SysAnnotations>> =
     LazyLock::new(|| initialize_annotations_map());
 pub static SYSKELETON_MAP: LazyLock<HashMap<Sysno, Syscall_Shape>> =
     LazyLock::new(|| initialize_skeletons_map());
 pub static SYSCATEGORIES_MAP: LazyLock<HashMap<Sysno, Category>> =
     LazyLock::new(|| initialize_categories_map());
-
-use clap::{Parser, Subcommand};
-
-#[derive(Parser)]
-#[command(
-    about = "intentrace is a strace for everyone.",
-    version,
-    allow_external_subcommands = true
-)]
-pub struct IntentraceArgs {
-    /// provide a summary table at the end of tracing
-    #[arg(short = 'c', long)]
-    pub summary: bool,
-
-    /// attach to an already running proceess
-    #[arg(short = 'p', long = "attach")]
-    pub pid: Option<usize>,
-
-    /// trace child processes when traced programs create them
-    #[arg(
-        short = 'f',
-        long = "follow-forks",
-        conflicts_with = "pid",
-        conflicts_with = "failed_only"
-    )]
-    pub follow_forks: bool,
-
-    /// only print failed syscalls
-    #[arg(short = 'z', long = "failed-only")]
-    pub failed_only: bool,
-
-    /// mute the traced program's std output
-    #[arg(short = 'q', long = "mute-stdout")]
-    pub mute_stdout: bool,
-
-    #[command(subcommand)]
-    pub binary: Option<Binary>,
-}
-
-#[derive(Subcommand, Debug, PartialEq)]
-pub enum Binary {
-    #[command(external_subcommand)]
-    Command(Vec<String>),
-}
-
-fn check_terminal_theme(
-    (l_red, l_green, l_blue): (u8, u8, u8),
-    (d_red, d_green, d_blue): (u8, u8, u8),
-) -> CustomColor {
-    match *TERMINAL_THEME {
-        termbg::Theme::Light => CustomColor::new(l_red, l_green, l_blue),
-        termbg::Theme::Dark => CustomColor::new(d_red, d_green, d_blue),
-    }
-}
-
-pub fn buffered_write(data: ColoredString) {
-    write!(WRITER_LAZY.lock().unwrap(), "{}", data).unwrap();
-}
-
-pub fn flush_buffer() {
-    WRITER_LAZY.lock().unwrap().flush().unwrap();
-}
-
-#[inline(always)]
-pub fn colorize_general_text(arg: &str) {
-    let text = arg.custom_color(*GENERAL_TEXT_COLOR);
-    buffered_write(text);
-}
-
-pub fn colorize_diverse(arg: &str, color: CustomColor) {
-    let text = arg.custom_color(color);
-    buffered_write(text);
-}
-
-pub fn write_syscall_not_covered(sysno: Sysno, tracee_pid: Pid) {
-    buffered_write(tracee_pid.to_string().white());
-    buffered_write(" ".dimmed());
-    buffered_write(sysno.name().white());
-    buffered_write(" - ".dimmed());
-    buffered_write("[intentrace: syscall not covered yet]".white());
-    buffered_write("\n".dimmed());
-    flush_buffer();
-}
 
 pub fn static_handle_path_file(filename: String, vector: &mut Vec<ColoredString>) {
     let mut pathname = String::new();
@@ -193,16 +57,16 @@ pub fn static_handle_path_file(filename: String, vector: &mut Vec<ColoredString>
     vector.push(filename[file_start..].custom_color(*PAGES_COLOR));
 }
 
-pub fn lose_relativity_on_path(string: std::borrow::Cow<'_, str>) -> String {
-    let mut chars = string.chars().peekable();
-    while let Some(&chara) = chars.peek() {
-        if chara == '.' || chara == '/' {
+pub fn lose_relativity_on_path(string: &str) -> &str {
+    let mut chars = string.chars().enumerate().peekable();
+    while let Some(&(index, chara)) = chars.peek() {
+        if chara == '.' {
             let _ = chars.next().unwrap();
             continue;
         }
-        break;
+        return &string[index..];
     }
-    chars.collect()
+    ""
 }
 
 pub fn get_mem_difference_from_previous(post_call_brk: usize) -> isize {
@@ -241,26 +105,28 @@ pub fn get_child_memory_break(child: Pid) -> (usize, (u64, u64)) {
     (PRE_CALL_PROGRAM_BREAK_POINT.load(Ordering::SeqCst), c)
 }
 
-pub fn errno_check(rax: u64) -> Option<Errno> {
-    // TODO! improve on this hack
+pub fn get_syscall_result(return_register: u64) -> SyscallResult {
+    // When syscalls return errors,
+    // libc takes the negative error,        ->  -22
+    // negates it to get a positive number,  ->   22
+    // and stores it in errno
+
     let max_errno = 4095;
     // strace does something similar to this
     // https://github.com/strace/strace/blob/0f9f46096fa8da84e2e6a6646cd1e326bf7e83c7/src/negated_errno.h#L17
     // https://github.com/strace/strace/blob/0f9f46096fa8da84e2e6a6646cd1e326bf7e83c7/src/linux/x86_64/get_error.c#L26
-    if rax > max_errno {
-        let errno = (u32::MAX - rax as u32).saturating_add(1);
+    if return_register > max_errno {
+        let errno = (u32::MAX - return_register as u32).saturating_add(1);
         let Errno: Errno = Errno::from_raw(errno as i32);
-        let errno_fmt = errno::Errno(errno as i32);
         if matches!(Errno, Errno::UnknownErrno) {
             // p!("Big number but not an error");
-            None
+            SyscallResult::Success(return_register)
         } else {
-            // p!(errno_fmt);
-            Some(Errno)
+            SyscallResult::Fail(Errno)
         }
     } else {
         // p!("Not an error");
-        None
+        SyscallResult::Success(return_register)
     }
 }
 
@@ -270,184 +136,262 @@ pub fn display_unsupported() {
     // }
 }
 
-pub fn x86_signal_to_string(signum: u64) -> Option<&'static str> {
-    match signum {
-        1 => Some("SIGHUP"),
-        2 => Some("SIGINT"),
-        3 => Some("SIGQUIT"),
-        4 => Some("SIGILL"),
-        5 => Some("SIGTRAP"),
-        6 => Some("SIGABRT/SIGIOT"),
-        7 => Some("SIGBUS"),
-        8 => Some("SIGFPE"),
-        9 => Some("SIGKILL"),
-        10 => Some("SIGUSR1"),
-        11 => Some("SIGSEGV"),
-        12 => Some("SIGUSR2"),
-        13 => Some("SIGPIPE"),
-        14 => Some("SIGALRM"),
-        15 => Some("SIGTERM"),
-        16 => Some("SIGSTKFLT"),
-        17 => Some("SIGCHLD"),
-        18 => Some("SIGCONT"),
-        19 => Some("SIGSTOP"),
-        20 => Some("SIGTSTP"),
-        21 => Some("SIGTTIN"),
-        22 => Some("SIGTTOU"),
-        23 => Some("SIGURG"),
-        24 => Some("SIGXCPU"),
-        25 => Some("SIGXFSZ"),
-        26 => Some("SIGVTALRM"),
-        27 => Some("SIGPROF"),
-        28 => Some("SIGWINCH"),
-        29 => Some("SIGIO/SIGPOLL"),
-        30 => Some("SIGPWR"),
-        34..=64 => Some("SIGRT"),
-        _ => Some("SIGSYS/SIGUNUSED"),
+
+pub fn parse_as_signal(signum: i32) -> String {
+    match Signal::try_from(signum) {
+        Ok(signal) => signal.to_string(),
+        Err(_) => "[intentrace: signal not supported]".to_owned(),
     }
 }
 
-pub fn errno_to_string(errno: Errno) -> &'static str {
-    match errno {
-        Errno::EPERM => "Operation not permitted",
-        Errno::ENOENT => "No such file or directory",
-        Errno::ESRCH => "No such process",
-        Errno::EINTR => "Interrupted system call",
-        Errno::EIO => "I/O error",
-        Errno::ENXIO => "No such device or address",
-        Errno::E2BIG => "Argument list too long",
-        Errno::ENOEXEC => "Exec format error",
-        Errno::EBADF => "Bad file number",
-        Errno::ECHILD => "No child processes",
-        Errno::EAGAIN => "Try again",
-        Errno::ENOMEM => "Out of memory",
-        Errno::EACCES => "Permission denied",
-        Errno::EFAULT => "Bad address",
-        Errno::ENOTBLK => "Block device required",
-        Errno::EBUSY => "Device or resource busy",
-        Errno::EEXIST => "File exists",
-        Errno::EXDEV => "Cross-device link",
-        Errno::ENODEV => "No such device",
-        Errno::ENOTDIR => "Not a directory",
-        Errno::EISDIR => "Is a directory",
-        Errno::EINVAL => "Invalid argument",
-        Errno::ENFILE => "File table overflow",
-        Errno::EMFILE => "Too many open files",
-        Errno::ENOTTY => "Not a typewriter",
-        Errno::ETXTBSY => "Text file busy",
-        Errno::EFBIG => "File too large",
-        Errno::ENOSPC => "No space left on device",
-        Errno::ESPIPE => "Illegal seek",
-        Errno::EROFS => "Read-only file system",
-        Errno::EMLINK => "Too many links",
-        Errno::EPIPE => "Broken pipe",
-        Errno::EDOM => "Math argument out of domain of func",
-        Errno::ERANGE => "Math result not representable",
-        Errno::EDEADLK => "Resource deadlock would occur",
-        Errno::ENAMETOOLONG => "File name too long",
-        Errno::ENOLCK => "No record locks available",
-        Errno::ENOSYS => "Function not implemented",
-        Errno::ENOTEMPTY => "Directory not empty",
-        Errno::ELOOP => "Too many symbolic links encountered",
-        Errno::ENOMSG => "No message of desired type",
-        Errno::EIDRM => "Identifier removed",
-        Errno::ECHRNG => "Channel number out of range",
-        Errno::EL2NSYNC => "Level 2 not synchronized",
-        Errno::EL3HLT => "Level 3 halted",
-        Errno::EL3RST => "Level 3 reset",
-        Errno::ELNRNG => "Link number out of range",
-        Errno::EUNATCH => "Protocol driver not attached",
-        Errno::ENOCSI => "No CSI structure available",
-        Errno::EL2HLT => "Level 2 halted",
-        Errno::EBADE => "Invalid exchange",
-        Errno::EBADR => "Invalid request descriptor",
-        Errno::EXFULL => "Exchange full",
-        Errno::ENOANO => "No anode",
-        Errno::EBADRQC => "Invalid request code",
-        Errno::EBADSLT => "Invalid slot",
-        Errno::EBFONT => "Bad font file format",
-        Errno::ENOSTR => "Device not a stream",
-        Errno::ENODATA => "No data available",
-        Errno::ETIME => "Timer expired",
-        Errno::ENOSR => "Out of streams resources",
-        Errno::ENONET => "Machine is not on the network",
-        Errno::ENOPKG => "Package not installed",
-        Errno::EREMOTE => "Object is remote",
-        Errno::ENOLINK => "Link has been severed",
-        Errno::EADV => "Advertise error",
-        Errno::ESRMNT => "Srmount error",
-        Errno::ECOMM => "Communication error on send",
-        Errno::EPROTO => "Protocol error",
-        Errno::EMULTIHOP => "Multihop attempted",
-        Errno::EDOTDOT => "RFS specific error",
-        Errno::EBADMSG => "Not a data message",
-        Errno::EOVERFLOW => "Value too large for defined data type",
-        Errno::ENOTUNIQ => "Name not unique on network",
-        Errno::EBADFD => "File descriptor in bad state",
-        Errno::EREMCHG => "Remote address changed",
-        Errno::ELIBACC => "Can not access a needed shared library",
-        Errno::ELIBBAD => "Accessing a corrupted shared library",
-        Errno::ELIBSCN => ".lib section in a.out corrupted",
-        Errno::ELIBMAX => "Attempting to link in too many shared libraries",
-        Errno::ELIBEXEC => "Cannot exec a shared library directly",
-        Errno::EILSEQ => "Illegal byte sequence",
-        Errno::ERESTART => "Interrupted system call should be restarted",
-        Errno::ESTRPIPE => "Streams pipe error",
-        Errno::EUSERS => "Too many users",
-        Errno::ENOTSOCK => "Socket operation on non-socket",
-        Errno::EDESTADDRREQ => "Destination address required",
-        Errno::EMSGSIZE => "Message too long",
-        Errno::EPROTOTYPE => "Protocol wrong type for socket",
-        Errno::ENOPROTOOPT => "Protocol not available",
-        Errno::EPROTONOSUPPORT => "Protocol not supported",
-        Errno::ESOCKTNOSUPPORT => "Socket type not supported",
-        Errno::EOPNOTSUPP => "Operation not supported on transport endpoint",
-        Errno::EPFNOSUPPORT => "Protocol family not supported",
-        Errno::EAFNOSUPPORT => "Address family not supported by protocol",
-        Errno::EADDRINUSE => "Address already in use",
-        Errno::EADDRNOTAVAIL => "Cannot assign requested address",
-        Errno::ENETDOWN => "Network is down",
-        Errno::ENETUNREACH => "Network is unreachable",
-        Errno::ENETRESET => "Network dropped connection because of reset",
-        Errno::ECONNABORTED => "Software caused connection abort",
-        Errno::ECONNRESET => "Connection reset by peer",
-        Errno::ENOBUFS => "No buffer space available",
-        Errno::EISCONN => "Transport endpoint is already connected",
-        Errno::ENOTCONN => "Transport endpoint is not connected",
-        Errno::ESHUTDOWN => "Cannot send after transport endpoint shutdown",
-        Errno::ETOOMANYREFS => "Too many references: cannot splice",
-        Errno::ETIMEDOUT => "Connection timed out",
-        Errno::ECONNREFUSED => "Connection refused",
-        Errno::EHOSTDOWN => "Host is down",
-        Errno::EHOSTUNREACH => "No route to host",
-        Errno::EALREADY => "Operation already in progress",
-        Errno::EINPROGRESS => "Operation now in progress",
-        Errno::ESTALE => "Stale NFS file handle",
-        Errno::EUCLEAN => "Structure needs cleaning",
-        Errno::ENOTNAM => "Not a XENIX named type file",
-        Errno::ENAVAIL => "No XENIX semaphores available",
-        Errno::EISNAM => "Is a named type file",
-        Errno::EREMOTEIO => "Remote I/O error",
-        Errno::EDQUOT => "Quota exceeded",
-        Errno::ENOMEDIUM => "No medium found",
-        Errno::EMEDIUMTYPE => "Wrong medium type",
-        Errno::ECANCELED => "Operation Canceled",
-        Errno::ENOKEY => "Required key not available",
-        Errno::EKEYEXPIRED => "Key has expired",
-        Errno::EKEYREVOKED => "Key has been revoked",
-        Errno::EKEYREJECTED => "Key was rejected by service",
-        Errno::EOWNERDEAD => "Owner died",
-        Errno::ENOTRECOVERABLE => "State not recoverable",
-        Errno::ERFKILL => "Operation not possible due to RF-kill",
-        // Errno::EWOULDBLOCK => "Operation would block",
-        // Errno::EAGAIN => "Operation would block",
-        // Errno::EDEADLOCK => "Resource deadlock would occur",
-        Errno::EHWPOISON => "Memory page has hardware error",
-        Errno::UnknownErrno => unreachable!(),
-        _ => unreachable!(),
+pub fn parse_as_int(register: u64) -> i32 {
+    unsafe { std::mem::transmute::<u32, i32>(lower_32_bits(register)) }
+}
+
+pub fn parse_as_long(register: u64) -> i64 {
+    unsafe { std::mem::transmute::<u64, i64>(register) }
+}
+
+#[inline(always)]
+pub fn parse_as_ssize_t(register: usize) -> isize {
+    unsafe { std::mem::transmute::<usize, isize>(register) }
+}
+
+pub fn lower_32_bits(value: u64) -> u32 {
+    (value & 0xFFFFFFFF) as u32
+}
+
+pub fn lower_64_bits(value: usize) -> u64 {
+    (value & 0xFFFFFFFFFFFFFFFF) as u64
+}
+
+// CONVERSION OUTSIDE
+pub fn parse_as_address(register_value: usize) -> String {
+    let pointer = register_value as *const ();
+    if pointer == std::ptr::null() {
+        format!("0xNull")
+    } else {
+        format!("{:p}", pointer)
     }
 }
 
-pub fn parse_register_as_address(register: u64) -> String {
-    format!("{:p}", register as *const ())
+// Length_Of_Bytes_Specific
+// memory and file indexers and seekers where negative is expected
+pub fn parse_as_signed_bytes(register_value: u64) -> String {
+    let bytes = unsafe { std::mem::transmute::<u64, i64>(register_value) };
+    // TODO!
+    // phrasing should be checked for lseek and offsets in mmap
+    format!("{register_value} Bytes")
+}
+
+// Length_Of_Bytes_Specific
+// memory and file indexers and seekers where negative is expected
+pub fn parse_as_unsigned_bytes(register_value: u64) -> String {
+    format!("{register_value} Bytes")
+}
+// usually a size_t in mem syscalls
+//
+pub fn parse_as_bytes_pages_ceil(register_value: usize) -> String {
+    let bytes_pages = BytesPagesRelevant::from_ceil(register_value as usize);
+    bytes_pages.to_string()
+}
+
+// Use process_vm_readv(2)
+pub fn string_from_pointer(address: usize, child: Pid) -> String {
+    // TODO! execve multi-threaded fails here for some reason
+    match read_bytes_until_null(address as usize, child) {
+        Some(data) => String::from_utf8_lossy(&data).into_owned(),
+        None => "".to_owned(),
+    }
+}
+
+pub fn get_array_of_strings(address: usize, child: Pid) -> Vec<String> {
+    // TODO! execve fails this
+    let mut array_of_char_pointers = read_words_until_null(address, child).unwrap();
+    let mut strings = vec![];
+    for char_pointer in array_of_char_pointers {
+        strings.push(string_from_pointer(char_pointer, child));
+    }
+    strings
+}
+
+// pub fn read_string_specific_length(
+//     addr: usize,
+//     child: Pid,
+//     size: usize,
+// ) -> Option<String> {
+//     let bytes_buffer = SyscallObject::read_bytes_specific_length(addr, child, size)?;
+//     Some(String::from_utf8_lossy(&bytes_buffer).into_owned())
+// }
+
+pub fn parse_as_file_descriptor_possible_dirfd(fd: u64, tracee_pid: Pid) -> String {
+    let fd_compare = unsafe { std::mem::transmute::<u64, i64>(fd) } as i32;
+    if fd_compare == AT_FDCWD {
+        format!("{}", "AT_FDCWD -> Current Working Directory".bright_blue())
+    } else {
+        parse_as_file_descriptor(fd, tracee_pid)
+    }
+}
+
+pub fn parse_as_file_descriptor(file_descriptor: u64, tracee_pid: Pid) -> String {
+    let mut colored_strings = Vec::new();
+    let fd = parse_as_int(file_descriptor);
+    if fd == 0 {
+        return "0 -> StdIn".bright_blue().to_string();
+    } else if fd == 1 {
+        return "1 -> StdOut".bright_blue().to_string();
+    } else if fd == 2 {
+        return "2 -> StdErr".bright_blue().to_string();
+    } else {
+        let file_info = procfs::process::FDInfo::from_raw_fd(tracee_pid.into(), fd as RawFd);
+        match file_info {
+            Ok(file) => match file.target {
+                procfs::process::FDTarget::Path(path) => {
+                    colored_strings.push(format!("{} -> ", file.fd).bright_blue());
+                    let mut formatted_path = vec![];
+                    static_handle_path_file(
+                        path.to_string_lossy().into_owned(),
+                        &mut formatted_path,
+                    );
+                    for path_part in formatted_path {
+                        colored_strings.push(path_part);
+                    }
+                }
+                procfs::process::FDTarget::Socket(socket_number) => {
+                    use procfs;
+                    let mut tcp = procfs::net::tcp().unwrap();
+                    tcp.extend(procfs::net::tcp6().unwrap());
+                    let mut udp = procfs::net::udp().unwrap();
+                    udp.extend(procfs::net::udp6().unwrap());
+                    let unix = procfs::net::unix().unwrap();
+                    'lookup: {
+                        for entry in &tcp {
+                            if entry.inode == socket_number {
+                                if entry.remote_address.ip().is_loopback() {
+                                    colored_strings.push(
+                                        format!(
+                                            "{} -> localhost:{}",
+                                            file.fd,
+                                            entry.remote_address.port()
+                                        )
+                                        .bright_blue(),
+                                    );
+                                } else {
+                                    colored_strings.push(
+                                        format!(
+                                            "{} -> {:?}:{}",
+                                            file.fd,
+                                            entry.remote_address.ip(),
+                                            entry.remote_address.port()
+                                        )
+                                        .bright_blue(),
+                                    );
+                                }
+                                break 'lookup;
+                            }
+                        }
+                        for entry in &udp {
+                            if entry.inode == socket_number {
+                                // println!("UDP {:?}", entry);
+                                break 'lookup;
+                            }
+                        }
+                        for entry in &unix {
+                            if entry.inode == socket_number {
+                                colored_strings.push(
+                                    format!("{} -> Unix Domain Socket", file.fd).bright_blue(),
+                                );
+                                break 'lookup;
+                            }
+                        }
+                    }
+                }
+                procfs::process::FDTarget::Net(net) => {
+                    return format!("{} -> NET", file.fd).bright_blue().to_string()
+                }
+                procfs::process::FDTarget::Pipe(pipe) => {
+                    return format!("{} -> Unix Pipe", file.fd)
+                        .bright_blue()
+                        .to_string()
+                }
+                procfs::process::FDTarget::AnonInode(anon_inode) => {
+                    // anon_inode is basically a file that has no inode on disk
+                    // anon_inode could've been something that was a file that is no longer on the disk
+                    // Some syscalls create file descriptors that have no inode
+                    // epoll_create, eventfd, inotify_init, signalfd, and timerfd
+                    // the entry will be a symbolic link with contents "anon_inode:<file-type>"
+                    // An anon_inode shows that there's a file descriptor which has no referencing inode
+
+                    // open syscall can be used to create an anon inode
+                    //          int fd = open( "/tmp/file", O_CREAT | O_RDWR, 0666 );
+                    //          unlink( "/tmp/file" );
+                    return format!("{} -> {anon_inode}", file.fd)
+                        .bright_blue()
+                        .to_string();
+                }
+                procfs::process::FDTarget::MemFD(mem_fd) => {
+                    return format!("{} -> {mem_fd}", file.fd).bright_blue().to_string()
+                }
+                procfs::process::FDTarget::Other(target, inode_number) => {
+                    return format!("{} -> {target}", file.fd).bright_blue().to_string()
+                }
+            },
+            Err(e) => return "ignored".to_owned(),
+        }
+    }
+    String::from_iter(colored_strings.into_iter().map(|x| x.to_string()))
+}
+
+pub fn find_fd_for_tracee(fd: i32, tracee_pid: Pid) -> Option<String> {
+    let mut fds = procfs::process::Process::new(tracee_pid.as_raw())
+        .unwrap()
+        .fd()
+        .unwrap();
+    match fds.find(|fdee| {
+        if let Ok(fde) = fdee {
+            return fde.fd == fd;
+        } else {
+            return false;
+        }
+    }) {
+        Some(dirfd_found) => match dirfd_found {
+            Ok(dirfd_found_unwrapped) => match dirfd_found_unwrapped.target {
+                procfs::process::FDTarget::Path(path_buf) => {
+                    Some(path_buf.to_string_lossy().to_string())
+                }
+                _ => None,
+            },
+            Err(_) => None,
+        },
+        None => None,
+    }
+}
+
+
+pub fn new_process() -> ColoredString {
+    "
+
+  ╭────────────────╮
+  │                │
+  │  NEW PROCESS   │
+  │                │
+  ╰────────────────╯
+"
+    .custom_color(colored::CustomColor {
+        r: 223,
+        g: 128,
+        b: 8,
+    })
+}
+
+pub fn new_thread() -> ColoredString {
+    "
+
+  ╭────────────────╮
+  │                │
+  │   NEW THREAD   │
+  │                │
+  ╰────────────────╯
+"
+    .green()
 }
