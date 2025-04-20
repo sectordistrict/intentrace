@@ -1,17 +1,10 @@
-use crate::types::{Category, Flag, SysAnnotations, SysArg, SysReturn};
+use crate::types::{Category, SysAnnotations, SysReturn};
 use std::collections::HashMap;
 use std::mem::MaybeUninit;
 use syscalls::Sysno;
-// TODO! differentiate between bitflags (orables) and enums
-// TODO! add granularity for value-return type of syscall arguments
-// these are semantics for syscall arguments that get modified after syscall return
-// see if some arguments are better combined, like the very common buffer and buffer lengths (this makes processing cleaner but might result in complexity in non-conforming cases)
-// clarify whether a buffer is provided by the user or to be filled by the kernel in the name of the argument (GIVE vs FILL)
-// switch to MaybeUninit
+
 // TODO! switch to phf later
 pub fn initialize_annotations_map() -> HashMap<Sysno, SysAnnotations> {
-    use Flag::*;
-    use SysArg::*;
     use SysReturn::*;
     let array: Vec<(Sysno, SysAnnotations)> = vec![
         // read from a file descriptor

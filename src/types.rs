@@ -1,4 +1,4 @@
-use crate::utilities::{PAGES_COLOR, PAGE_SIZE, STOPPED_COLOR};
+use crate::{colors::PAGES_COLOR, utilities::PAGE_SIZE};
 use colored::Colorize;
 use std::{convert::Infallible, fmt::Display, marker::PhantomData, mem::MaybeUninit};
 
@@ -8,103 +8,20 @@ pub type SysAnnotations = (&'static str, &'static [Annotation], Annotation);
 
 #[derive(Clone)]
 pub struct Syscall_Shape {
-    pub types: &'static [SysArg],
+    // pub types: &'static [SysArg],
     pub syscall_return: SysReturn,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum Flag {
-    Map,
-    Prot,
-    Open,
-    FileMode,
-    FileRenameFlags,
-    FileAtFlags,
-    FileStatxFlags,
-    ReMap,
-    MSync,
-    Madvise,
-    MLock,
-    MLockAll,
-    Access,
-    Signal,
-    P_RW_V2_Flags,
-    LSeekWhence,
-    SignalHow,
-    SignalFDFlags,
-    EPollCreate1Flags,
-    EPollCTLOperationFlags,
-    SocketFamily,
-    SocketType,
-    SocketProtocol,
-    SocketFlag,
-    SocketOption,
-    SocketLevel,
-    SocketMessageFlag,
-    SocketMessageReceiveFlag,
-    FileChmodAtFlags,
-    GetRandomFlags,
-    RusageWhoFlags,
-    FutexOpFlags,
-    SocketShutdownFlag,
-    EventfdFlag,
-    FcntlFlags,
-    ArchPrctlFlags,
-    Dup3Flags,
-    RSeqFlag,
-    ResourceFlags,
-    FallocFlags,
-    LandlockRuleTypeFlag,
-    WaitIdTypeFlags,
-    CloneFlags,
-    WaitEventFlags,
-    LandlockAddRuleFlag,
-    PriorityWhich,
-    LandlockRestrictFlag,
-    ReservedForFutureUse,
-    LandlockCreateFlag,
-    PtraceOperation,
-}
 
 type FD = &'static str;
 type PID = &'static str;
 type FD_PAIR = [&'static str; 2];
 type ARR = &'static [&'static str];
-type FLAG = Flag;
 type Errored = MaybeUninit<bool>;
-type FLAG_PAIR = [Flag; 2];
 type ADDRESS = &'static str;
 type SIGNAL = &'static str;
 type TEXT = &'static str;
 
-#[derive(Clone, Debug, Copy)]
-pub enum SysArg {
-    Numeric,
-    Unsigned_Numeric,
-    PID,
-    User_Group,
-    Address,
-    Single_Word,
-    Length_Of_Bytes,
-    Length_Of_Bytes_Page_Aligned_Ceil,
-    Length_Of_Bytes_Page_Aligned_Floor,
-    Pointer_To_Unsigned_Numeric,
-    Length_Of_Bytes_Specific,
-    Pointer_To_Length_Of_Bytes_Specific,
-    Pointer_To_Struct,
-    Array_Of_Struct,
-    Byte_Stream,
-    Array_Of_Strings(ARR),
-    General_Flag(FLAG),
-    Multiple_Flags(FLAG_PAIR),
-    Pointer_To_Numeric(Option<usize>),
-    Pointer_To_Numeric_Or_Numeric(Option<usize>),
-    Pointer_To_Path(TEXT),
-    Pointer_To_Text(TEXT),
-    File_Descriptor(FD),
-    Pointer_To_File_Descriptor_Array(FD_PAIR),
-    File_Descriptor_openat(FD),
-}
 
 #[derive(Clone, Copy, Debug)]
 pub enum SysReturn {

@@ -1,6 +1,6 @@
 [package]
 name = "intentrace"
-version = "0.8.0"
+version = "0.9.0"
 description = "intentrace is strace with intent, it goes all the way for you instead of half the way."
 edition = "2021"
 license = "MIT"
@@ -12,17 +12,10 @@ clone3 = "0.2.3"
 colored = "3.0.0"
 ctrlc = { version = "3.4.5", features = ["termination"] }
 errno = "0.3.10"
-nix = { version = "0.29.0", features = [
-    "event",
-    "mman",
-    "net",
-    "ptrace",
-    "resource",
-    "uio",
-] }
+nix = { version = "0.29.0", features = ["ptrace", "uio"] }
 pete = { version = "0.12.0" }
 procfs = "0.17.0"
-rustix = { version = "1.0.3", features = ["mm", "net", "rand", "thread", "param", "fs"] }
+rustix = { version = "1.0.3", features = ["param"] }
 syscalls = "0.6.18"
 tabled = "0.18.0"
 termbg = "0.6.2"
