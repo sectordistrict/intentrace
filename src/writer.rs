@@ -49,7 +49,6 @@ pub(crate) fn errorize_pid_color(text: ColoredString) {
 
 #[inline(always)]
 pub fn empty_buffer() {
-    use std::io::Write;
     let mut buffer = BUFFER.lock().unwrap();
     buffer.clear();
 }
@@ -83,8 +82,6 @@ pub fn write_syscall_not_covered(sysno: Sysno, tracee_pid: Pid) {
 }
 
 pub fn write_path_file(filename: String) {
-    let mut pathname = String::new();
-
     let mut file_start = 0;
     for (index, chara) in filename.chars().rev().enumerate() {
         if chara == '/' && index != 0 {

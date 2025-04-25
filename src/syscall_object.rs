@@ -1,34 +1,13 @@
 #![allow(unused_variables)]
-use crate::peeker_poker::{
-    read_bytes_until_null, read_bytes_variable_length, read_one_word, read_words_until_null,
-};
-use crate::utilities::REGISTERS;
+use crate::auxiliary::kernel_errno::{self};
 use crate::{
-    types::{
-        mlock2, Bytes, BytesPagesRelevant, Category, LandlockCreateFlags, LandlockRuleTypeFlags,
-        SysReturn, Syscall_Shape,
-    },
-    utilities::{
-        lose_relativity_on_path, static_handle_path_file, SYSCATEGORIES_MAP, SYSKELETON_MAP,
-    },
+    types::Bytes,
+    utilities::{SYSCATEGORIES_MAP, SYSKELETON_MAP},
 };
-use colored::{ColoredString, Colorize};
-use core::num::NonZeroUsize;
-use core::slice;
-use errno::Errno;
-use nix::{
-    sys::{ptrace, signal::Signal},
-    unistd::Pid,
-};
-use std::io::IoSlice;
+use nix::unistd::Pid;
 use std::{
     fmt::Display,
-    io::IoSliceMut,
-    mem::{self, transmute, zeroed},
-    os::{fd::RawFd, raw::c_void},
-    path::PathBuf,
-    ptr::null,
-    sync::atomic::Ordering,
+    mem::{self},
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -38,8 +17,35 @@ pub enum SyscallState {
 }
 
 #[derive(Debug)]
+pub enum ErrnoVariant {
+    Userland(nix::errno::Errno),
+    Kernel(kernel_errno::KernelErrno),
+}
+impl Display for ErrnoVariant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ErrnoVariant::Userland(userland_errno) => {
+                write!(f, "{:?}: {}", userland_errno, userland_errno.desc())
+            }
+            ErrnoVariant::Kernel(kernel_errno) => {
+                write!(f, "{:?}: {}", kernel_errno, kernel_errno.desc())
+            }
+        }
+    }
+}
+
+impl ErrnoVariant {
+    pub fn desc(&self) -> &'static str {
+        match self {
+            ErrnoVariant::Userland(errno) => errno.desc(),
+            ErrnoVariant::Kernel(kernel_errno) => kernel_errno.desc(),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum SyscallResult {
-    Fail(nix::errno::Errno),
+    Fail(ErrnoVariant),
     Success(u64),
 }
 
@@ -52,6 +58,7 @@ pub struct SyscallObject {
     pub state: SyscallState,
     pub paused: bool,
     pub result: SyscallResult,
+    pub currently_blocking: bool,
 }
 
 impl Default for SyscallObject {
@@ -62,6 +69,7 @@ impl Default for SyscallObject {
             tracee_pid: unsafe { mem::zeroed() },
             state: SyscallState::Entering,
             paused: false,
+            currently_blocking: false,
         }
     }
 }
@@ -88,6 +96,13 @@ impl SyscallObject {
         Sysno::from(orig_rax)
     }
 
+    pub(crate) fn get_errno(&self) -> &ErrnoVariant {
+        if let SyscallResult::Fail(ref errno_variant) = self.result {
+            return errno_variant;
+        }
+        unreachable!()
+    }
+
     pub(crate) fn build(child: Pid, sysno: Sysno) -> Option<Self> {
         let syscall = SYSKELETON_MAP.get(&sysno)?;
         let category = *SYSCATEGORIES_MAP.get(&sysno)?;
@@ -96,16 +111,6 @@ impl SyscallObject {
             tracee_pid: child,
             ..Default::default()
         })
-    }
-
-    pub(crate) fn style_bytes_page_aligned_ceil(register_value: u64) -> String {
-        let bytes = BytesPagesRelevant::from_ceil(register_value as usize);
-        bytes.to_string()
-    }
-
-    fn style_bytes_page_aligned_floor(register_value: u64) -> String {
-        let bytes = BytesPagesRelevant::from_floor(register_value as usize);
-        bytes.to_string()
     }
 
     fn style_bytes(register_value: u64) -> String {
@@ -134,15 +139,6 @@ impl SyscallObject {
         bytes.to_string()
     }
 
-    pub(crate) fn read_string_specific_length(
-        addr: usize,
-        child: Pid,
-        size: usize,
-    ) -> Option<String> {
-        let bytes_buffer = read_bytes_variable_length(addr, child, size)?;
-        Some(String::from_utf8_lossy(&bytes_buffer).into_owned())
-    }
-
     pub(crate) fn is_mem_alloc_dealloc(&self) -> bool {
         // TODO!
         // scrutinize
@@ -154,37 +150,6 @@ impl SyscallObject {
     }
 
     pub(crate) fn has_errored(&self) -> bool {
-        match self.result {
-            SyscallResult::Fail(_) => true,
-            SyscallResult::Success(_) => false,
-        }
-    }
-
-    // TODO! check how strace does this, maybe its better
-    pub(crate) fn colorize_syscall_name(sysno: &Sysno, category: &Category) -> ColoredString {
-        match category {
-            // green
-            Category::Process => sysno.name().bold().green(),
-            Category::Thread => sysno.name().bold().green(),
-            Category::CPU => sysno.name().bold().green(),
-
-            Category::Network => sysno.name().bold().green(),
-
-            // ram
-            Category::Memory => sysno.name().bold().bright_red(),
-
-            // bluish
-            Category::FileOp => sysno.name().bold().blue(),
-            Category::DiskIO => sysno.name().bold().bright_blue(),
-            Category::Security => sysno.name().bold().bright_cyan(),
-
-            // black
-            Category::System => sysno.name().bold().cyan(),
-
-            // exotic
-            Category::Signals => sysno.name().bold().magenta(),
-            Category::Device => sysno.name().bold().bright_yellow(),
-            Category::AsyncIO => sysno.name().bold().purple(),
-        }
+        matches!(self.result, SyscallResult::Fail(_))
     }
 }

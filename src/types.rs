@@ -1,6 +1,7 @@
+
 use crate::{colors::PAGES_COLOR, utilities::PAGE_SIZE};
 use colored::Colorize;
-use std::{convert::Infallible, fmt::Display, marker::PhantomData, mem::MaybeUninit};
+use std::{fmt::Display, mem::MaybeUninit};
 
 pub type Annotation = [&'static str; 2];
 
@@ -12,7 +13,6 @@ pub struct Syscall_Shape {
     pub syscall_return: SysReturn,
 }
 
-
 type FD = &'static str;
 type PID = &'static str;
 type FD_PAIR = [&'static str; 2];
@@ -21,7 +21,6 @@ type Errored = MaybeUninit<bool>;
 type ADDRESS = &'static str;
 type SIGNAL = &'static str;
 type TEXT = &'static str;
-
 
 #[derive(Clone, Copy, Debug)]
 pub enum SysReturn {

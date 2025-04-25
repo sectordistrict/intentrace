@@ -1,16 +1,11 @@
 #![allow(
     unused_doc_comments,
-    unused_variables,
-    unused_imports,
-    unused_mut,
     dead_code,
-    unused_assignments,
     non_camel_case_types,
-    unreachable_code,
     unused_macros,
-    bare_trait_objects,
     non_snake_case,
-    invalid_value
+    invalid_value,
+    unused_assignments,
 )]
 
 macro_rules! p {
@@ -30,63 +25,52 @@ macro_rules! ppp {
 }
 
 use std::{
-    cell::{Cell, RefCell},
-    collections::{HashMap, HashSet},
-    env::args,
-    error::Error,
-    fmt::Debug,
-    mem::{self, transmute, MaybeUninit},
-    os::{raw::c_void, unix::process::CommandExt},
-    path::PathBuf,
+    collections::HashMap,
+    mem::{self},
+    os::unix::process::CommandExt,
     process::{exit, Command, Stdio},
-    ptr::null,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::Ordering,
     time::Duration,
 };
 
-use ::errno::{errno, set_errno};
 use clap::Parser;
 use cli::{IntentraceArgs, ATTACH_PID, BINARY_AND_ARGS, FAILED_ONLY, FOLLOW_FORKS, QUIET, SUMMARY};
-use colored::{ColoredString, Colorize};
-use colors::{EXITED_BACKGROUND_COLOR, GENERAL_TEXT_COLOR, PID_BACKGROUND_COLOR, STOPPED_COLOR};
-use errno::Errno as LibErrno;
+use colored::Colorize;
+use colors::{GENERAL_TEXT_COLOR, STOPPED_COLOR};
 use nix::{
     errno::Errno,
-    libc::{sigaction, user_regs_struct, ESRCH},
     sys::{
         ptrace::{self},
-        signal::{kill, Signal},
         wait::waitpid,
     },
     unistd::{fork, ForkResult::*, Pid},
 };
-use pete::{Ptracer, Restart, Stop, Tracee};
-use procfs::process::{MMapPath, MemoryMap};
-use syscalls::{Sysno, SysnoSet};
+use pete::{Ptracer, Restart, Stop};
+use syscalls::Sysno;
 use utilities::{
-    get_syscall_result, set_memory_break, HALT_TRACING, REGISTERS, SYSCATEGORIES_MAP,
-    SYSKELETON_MAP, TABLE, TABLE_FOLLOW_FORKS,
+    interpret_syscall_result, set_memory_break, syscall_is_blocking, HALT_TRACING, REGISTERS,
+    TABLE, TABLE_FOLLOW_FORKS,
 };
 use writer::{empty_buffer, flush_buffer, write_exiting, write_syscall_not_covered, write_text};
 
-mod syscall_annotations_map;
 mod syscall_categories;
 mod syscall_object;
+// mod syscall_annotations_map;
 // mod syscall_object_annotations;
 mod syscall_skeleton_map;
 mod types;
 use syscall_object::{SyscallObject, SyscallState};
+mod auxiliary;
 mod cli;
 mod colors;
 mod one_line_formatter;
 mod peeker_poker;
 mod return_resolvers;
-mod sizes;
 mod utilities;
 mod writer;
 
 fn main() {
-    let args = IntentraceArgs::parse();
+    IntentraceArgs::parse();
     ctrlc::set_handler(|| {
         flush_buffer();
         HALT_TRACING.store(true, Ordering::SeqCst);
@@ -111,7 +95,7 @@ fn runner(command_line: &[String]) {
         match attach_pid {
             Some(pid) => {
                 let child = Pid::from_raw(pid as i32);
-                let _ = ptrace::attach(child).unwrap();
+                ptrace::attach(child).unwrap();
                 parent(child);
             }
             None => match unsafe { fork() }.expect("Error: Fork Failed") {
@@ -141,7 +125,7 @@ fn child_trace_me(comm: &[String]) {
     }
 
     // TRACE ME
-    let _ = ptrace::traceme().unwrap();
+    ptrace::traceme().unwrap();
     // EXECUTE
     let res = command.exec();
 
@@ -163,18 +147,18 @@ fn follow_forks(command_to_run: Option<&[String]>) {
 
             let mut ptracer = Ptracer::new();
             *ptracer.poll_delay_mut() = Duration::from_nanos(1);
-            let child = ptracer.spawn(command).unwrap();
-            ptrace_ptracer(ptracer, Pid::from_raw(child.id() as i32));
+            ptracer.spawn(command).unwrap();
+            ptrace_ptracer(ptracer);
         }
         // ATTACHING TO PID
         None => {
             if let Some(attach_pid) = *ATTACH_PID {
                 let mut ptracer = Ptracer::new();
                 *ptracer.poll_delay_mut() = Duration::from_nanos(1);
-                let child = ptracer
+                ptracer
                     .attach(pete::Pid::from_raw(attach_pid as i32))
                     .unwrap();
-                ptrace_ptracer(ptracer, Pid::from_raw(attach_pid as i32));
+                ptrace_ptracer(ptracer);
             } else {
                 eprintln!("Usage: invalid arguments\n");
             }
@@ -234,7 +218,6 @@ fn parent(child: Pid) {
                             Ok(registers) => {
                                 if supported {
                                     let mut table = TABLE.lock().unwrap();
-                                    let sysno = Sysno::from(registers.orig_rax as i32);
                                     table
                                         .entry(syscall.sysno)
                                         .and_modify(|value| {
@@ -283,12 +266,12 @@ fn parent(child: Pid) {
     }
 }
 
-fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
-    let mut last_sysno: Sysno = unsafe { mem::zeroed() };
+fn ptrace_ptracer(mut ptracer: Ptracer) {
+    let mut last_sysno: syscalls::Sysno = unsafe { mem::zeroed() };
     let mut last_pid = unsafe { mem::zeroed() };
     let mut pid_syscall_map: HashMap<Pid, SyscallObject> = HashMap::new();
 
-    while let Some(mut tracee) = ptracer.wait().unwrap() {
+    while let Some(tracee) = ptracer.wait().unwrap() {
         if HALT_TRACING.load(Ordering::SeqCst) {
             break;
         }
@@ -301,7 +284,7 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
                     Ok(registers) => {
                         check_syscall_switch(last_pid, syscall_pid, &mut pid_syscall_map);
                         let sysno = Sysno::from(registers.orig_rax as i32);
-                        let mut syscall_built = SyscallObject::build(syscall_pid, sysno);
+                        let syscall_built = SyscallObject::build(syscall_pid, sysno);
                         if let Some(mut syscall) = syscall_built {
                             if *SUMMARY {
                                 let mut output = TABLE_FOLLOW_FORKS.lock().unwrap();
@@ -347,8 +330,8 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
                             registers.r8,
                             registers.r9,
                         ];
-                        if let Some(mut syscall) = pid_syscall_map.get_mut(&syscall_pid) {
-                            syscall_returned(&mut syscall, registers.rax);
+                        if let Some(syscall) = pid_syscall_map.get_mut(&syscall_pid) {
+                            syscall_returned(syscall, registers.rax);
                             pid_syscall_map.remove(&syscall_pid).unwrap();
                         }
                     }
@@ -356,9 +339,7 @@ fn ptrace_ptracer(mut ptracer: Ptracer, child: Pid) {
                 }
                 last_pid = syscall_pid;
             }
-            _ => {
-                let Tracee { pid, stop, .. } = tracee;
-            }
+            _ => {}
         }
         ptracer.restart(tracee, Restart::Syscall).unwrap();
     }
@@ -383,7 +364,7 @@ fn syscall_will_run(syscall: &mut SyscallObject) {
 }
 
 fn syscall_returned(syscall: &mut SyscallObject, return_value: u64) {
-    syscall.result = get_syscall_result(return_value);
+    syscall.result = interpret_syscall_result(return_value);
 
     match *FOLLOW_FORKS {
         true => {
@@ -403,6 +384,9 @@ fn syscall_returned(syscall: &mut SyscallObject, return_value: u64) {
             // this is also more correct
             write_text("\n".white());
         }
+    }
+    if syscall.currently_blocking {
+        write_text(syscall_is_blocking());
     }
     flush_buffer();
     empty_buffer();
@@ -461,10 +445,10 @@ fn print_table() {
 
         println!("\n{}", table);
     } else {
-        let mut output = TABLE.lock().unwrap();
+        let output = TABLE.lock().unwrap();
         let mut vec = Vec::from_iter(output.iter());
         vec.sort_by(
-            |(_sysno, (count, duration)), (_sysno2, (count2, duration2))| duration2.cmp(duration),
+            |(_sysno, (_count, duration)), (_sysno2, (_count2, duration2))| duration2.cmp(duration),
         );
 
         use tabled::{builder::Builder, settings::Style};

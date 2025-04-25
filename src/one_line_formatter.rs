@@ -1,30 +1,21 @@
-use std::{
-    env::current_dir,
-    io::Write,
-    mem::{self, transmute},
-    os::fd::RawFd,
-    path::{Path, PathBuf},
-    sync::atomic::Ordering,
-};
+#![allow(unused_variables)]
 
 use crate::{
-    cli::FOLLOW_FORKS,
+    auxiliary::constants::sizes::{CLONE3_ARGS_SIZE, RLIMIT_SIZE, SIGACTION_SIZE, TIMESPEC_SIZE},
+    cli::{FAILED_ONLY, FOLLOW_FORKS},
     colors::{CONTINUED_COLOR, OUR_YELLOW, PAGES_COLOR, PID_NUMBER_COLOR},
     peeker_poker::{
         read_affinity_from_child, read_bytes_as_struct, read_one_word, read_string_specific_length,
-        WORD_SIZE,
     },
-    return_resolvers::{self, Readers_Writers},
-    sizes::{CLONE3_ARGS_SIZE, RLIMIT_SIZE, SIGACTION_SIZE, SIGSET_SIZE, TIMESPEC_SIZE},
-    syscall_object::{SyscallObject, SyscallResult},
+    return_resolvers::Readers_Writers,
+    syscall_object::{ErrnoVariant, SyscallObject, SyscallResult},
     types::{Bytes, BytesPagesRelevant},
     utilities::{
-        find_fd_for_tracee, get_array_of_strings, get_mem_difference_from_previous,
-        lose_relativity_on_path, lower_32_bits, lower_64_bits, new_process, new_thread,
-        parse_as_address, parse_as_bytes_pages_ceil, parse_as_file_descriptor,
-        parse_as_file_descriptor_possible_dirfd, parse_as_int, parse_as_long, parse_as_signal,
-        parse_as_signed_bytes, parse_as_ssize_t, parse_as_unsigned_bytes, string_from_pointer,
-        REGISTERS, SYSCATEGORIES_MAP,
+        colorize_syscall_name, find_fd_for_tracee, get_array_of_strings,
+        get_mem_difference_from_previous, lower_32_bits, lower_64_bits, new_process, new_thread,
+        parse_as_address, parse_as_bytes_pages_ceil, parse_as_file_descriptor, parse_as_futex,
+        parse_as_int, parse_as_long, parse_as_signal, parse_as_signed_bytes, parse_as_ssize_t,
+        parse_as_unsigned_bytes, string_from_pointer, REGISTERS, SYSCATEGORIES_MAP,
     },
     write_text,
     writer::{
@@ -34,67 +25,61 @@ use crate::{
         write_vanilla_commas,
     },
 };
-use colored::{Color, ColoredString, Colorize};
+use colored::Colorize;
 use nix::{
     errno::Errno,
-    fcntl::{self, AtFlags, FallocateFlags},
     libc::{
-        clone_args, cpu_set_t, iovec, msghdr, pid_t, rlimit, sigaction, timespec, timeval,
-        AT_EACCESS, AT_EMPTY_PATH, AT_FDCWD, AT_NO_AUTOMOUNT, AT_REMOVEDIR, AT_STATX_DONT_SYNC,
-        AT_STATX_FORCE_SYNC, AT_STATX_SYNC_AS_STAT, AT_SYMLINK_FOLLOW, AT_SYMLINK_NOFOLLOW,
-        CLONE_CHILD_CLEARTID, CLONE_CHILD_SETTID, CLONE_CLEAR_SIGHAND, CLONE_FILES, CLONE_FS,
-        CLONE_IO, CLONE_NEWCGROUP, CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS, CLONE_NEWPID,
-        CLONE_NEWTIME, CLONE_NEWUSER, CLONE_NEWUTS, CLONE_PARENT, CLONE_PARENT_SETTID, CLONE_PIDFD,
-        CLONE_PTRACE, CLONE_SETTLS, CLONE_SIGHAND, CLONE_SYSVSEM, CLONE_THREAD, CLONE_UNTRACED,
-        CLONE_VFORK, CLONE_VM, EBADF, EFAULT, EFD_CLOEXEC, EFD_NONBLOCK, EFD_SEMAPHORE, EINVAL,
-        ENOTTY, EPOLL_CLOEXEC, EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD,
+        clone_args, rlimit, sigaction, timespec, timeval, AT_EACCESS, AT_EMPTY_PATH, AT_FDCWD,
+        AT_NO_AUTOMOUNT, AT_REMOVEDIR, AT_STATX_DONT_SYNC, AT_STATX_FORCE_SYNC,
+        AT_STATX_SYNC_AS_STAT, AT_SYMLINK_FOLLOW, AT_SYMLINK_NOFOLLOW, CLONE_CHILD_CLEARTID,
+        CLONE_CHILD_SETTID, CLONE_CLEAR_SIGHAND, CLONE_FILES, CLONE_FS, CLONE_IO, CLONE_NEWCGROUP,
+        CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS, CLONE_NEWPID, CLONE_NEWUSER, CLONE_NEWUTS,
+        CLONE_PARENT, CLONE_PARENT_SETTID, CLONE_PIDFD, CLONE_PTRACE, CLONE_SETTLS, CLONE_SIGHAND,
+        CLONE_SYSVSEM, CLONE_THREAD, CLONE_UNTRACED, CLONE_VFORK, CLONE_VM, EFD_CLOEXEC,
+        EFD_NONBLOCK, EFD_SEMAPHORE, EPOLL_CLOEXEC, EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD,
         FALLOC_FL_COLLAPSE_RANGE, FALLOC_FL_INSERT_RANGE, FALLOC_FL_KEEP_SIZE,
         FALLOC_FL_PUNCH_HOLE, FALLOC_FL_UNSHARE_RANGE, FALLOC_FL_ZERO_RANGE, FUTEX_CLOCK_REALTIME,
         FUTEX_CMP_REQUEUE, FUTEX_CMP_REQUEUE_PI, FUTEX_FD, FUTEX_LOCK_PI, FUTEX_LOCK_PI2,
         FUTEX_PRIVATE_FLAG, FUTEX_REQUEUE, FUTEX_TRYLOCK_PI, FUTEX_UNLOCK_PI, FUTEX_WAIT,
         FUTEX_WAIT_BITSET, FUTEX_WAIT_REQUEUE_PI, FUTEX_WAKE, FUTEX_WAKE_BITSET, FUTEX_WAKE_OP,
-        F_OK, GRND_NONBLOCK, GRND_RANDOM, LINUX_REBOOT_CMD_CAD_OFF, MADV_COLD, MADV_COLLAPSE,
-        MADV_DODUMP, MADV_DOFORK, MADV_DONTDUMP, MADV_DONTFORK, MADV_DONTNEED, MADV_FREE,
-        MADV_HUGEPAGE, MADV_HWPOISON, MADV_KEEPONFORK, MADV_MERGEABLE, MADV_NOHUGEPAGE,
-        MADV_NORMAL, MADV_PAGEOUT, MADV_POPULATE_READ, MADV_POPULATE_WRITE, MADV_RANDOM,
-        MADV_REMOVE, MADV_SEQUENTIAL, MADV_SOFT_OFFLINE, MADV_UNMERGEABLE, MADV_WILLNEED,
-        MADV_WIPEONFORK, MAP_ANON, MAP_ANONYMOUS, MAP_FIXED, MAP_FIXED_NOREPLACE, MAP_GROWSDOWN,
-        MAP_HUGETLB, MAP_HUGE_16GB, MAP_HUGE_16MB, MAP_HUGE_1GB, MAP_HUGE_1MB, MAP_HUGE_256MB,
-        MAP_HUGE_2GB, MAP_HUGE_2MB, MAP_HUGE_32MB, MAP_HUGE_512KB, MAP_HUGE_512MB, MAP_HUGE_64KB,
-        MAP_HUGE_8MB, MAP_LOCKED, MAP_NONBLOCK, MAP_NORESERVE, MAP_POPULATE, MAP_PRIVATE,
-        MAP_SHARED, MAP_SHARED_VALIDATE, MAP_STACK, MAP_SYNC, MCL_CURRENT, MCL_FUTURE, MCL_ONFAULT,
-        MREMAP_DONTUNMAP, MREMAP_FIXED, MREMAP_MAYMOVE, MS_ASYNC, MS_INVALIDATE, MS_SYNC, O_APPEND,
-        O_ASYNC, O_CLOEXEC, O_CREAT, O_DIRECT, O_DIRECTORY, O_DSYNC, O_EXCL, O_LARGEFILE, O_NDELAY,
-        O_NOATIME, O_NOCTTY, O_NOFOLLOW, O_NONBLOCK, O_PATH, O_SYNC, O_TMPFILE, O_TRUNC, PRIO_PGRP,
-        PRIO_PROCESS, PRIO_USER, PROT_EXEC, PROT_NONE, PROT_READ, PROT_WRITE, PTRACE_ATTACH,
-        PTRACE_CONT, PTRACE_DETACH, PTRACE_GETEVENTMSG, PTRACE_GETFPREGS, PTRACE_GETFPXREGS,
-        PTRACE_GETREGS, PTRACE_GETREGSET, PTRACE_GETSIGINFO, PTRACE_INTERRUPT, PTRACE_KILL,
-        PTRACE_LISTEN, PTRACE_PEEKDATA, PTRACE_PEEKSIGINFO, PTRACE_PEEKTEXT, PTRACE_PEEKUSER,
-        PTRACE_POKEDATA, PTRACE_POKETEXT, PTRACE_POKEUSER, PTRACE_SEIZE, PTRACE_SETFPREGS,
-        PTRACE_SETFPXREGS, PTRACE_SETOPTIONS, PTRACE_SETREGS, PTRACE_SETREGSET, PTRACE_SETSIGINFO,
-        PTRACE_SINGLESTEP, PTRACE_SYSCALL, PTRACE_SYSEMU, PTRACE_SYSEMU_SINGLESTEP, PTRACE_TRACEME,
-        P_ALL, P_PGID, P_PID, P_PIDFD, RENAME_EXCHANGE, RENAME_NOREPLACE, RENAME_WHITEOUT,
-        RLIMIT_AS, RLIMIT_CORE, RLIMIT_CPU, RLIMIT_DATA, RLIMIT_FSIZE, RLIMIT_LOCKS,
-        RLIMIT_MEMLOCK, RLIMIT_MSGQUEUE, RLIMIT_NICE, RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_RSS,
-        RLIMIT_RTPRIO, RLIMIT_RTTIME, RLIMIT_SIGPENDING, RLIMIT_STACK, RUSAGE_CHILDREN,
-        RUSAGE_SELF, RUSAGE_THREAD, R_OK, SA_SIGINFO, SEEK_CUR, SEEK_DATA, SEEK_END, SEEK_HOLE,
-        SEEK_SET, SFD_CLOEXEC, SFD_NONBLOCK, SIG_BLOCK, SIG_DFL, SIG_IGN, SIG_SETMASK, SIG_UNBLOCK,
-        S_IRGRP, S_IROTH, S_IRUSR, S_ISGID, S_ISUID, S_ISVTX, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP,
-        S_IXOTH, S_IXUSR, WCONTINUED, WEXITED, WNOHANG, WNOWAIT, WSTOPPED, W_OK, X_OK, __WALL,
-        __WCLONE, __WNOTHREAD,
+        F_OK, GRND_NONBLOCK, GRND_RANDOM, MADV_COLD, MADV_COLLAPSE, MADV_DODUMP, MADV_DOFORK,
+        MADV_DONTDUMP, MADV_DONTFORK, MADV_DONTNEED, MADV_FREE, MADV_HUGEPAGE, MADV_HWPOISON,
+        MADV_KEEPONFORK, MADV_MERGEABLE, MADV_NOHUGEPAGE, MADV_NORMAL, MADV_PAGEOUT,
+        MADV_POPULATE_READ, MADV_POPULATE_WRITE, MADV_RANDOM, MADV_REMOVE, MADV_SEQUENTIAL,
+        MADV_SOFT_OFFLINE, MADV_UNMERGEABLE, MADV_WILLNEED, MADV_WIPEONFORK, MAP_ANON,
+        MAP_ANONYMOUS, MAP_FIXED, MAP_FIXED_NOREPLACE, MAP_GROWSDOWN, MAP_HUGETLB, MAP_HUGE_16GB,
+        MAP_HUGE_16MB, MAP_HUGE_1GB, MAP_HUGE_1MB, MAP_HUGE_256MB, MAP_HUGE_2GB, MAP_HUGE_2MB,
+        MAP_HUGE_32MB, MAP_HUGE_512KB, MAP_HUGE_512MB, MAP_HUGE_64KB, MAP_HUGE_8MB, MAP_LOCKED,
+        MAP_NONBLOCK, MAP_NORESERVE, MAP_POPULATE, MAP_PRIVATE, MAP_SHARED, MAP_SHARED_VALIDATE,
+        MAP_STACK, MAP_SYNC, MCL_CURRENT, MCL_FUTURE, MCL_ONFAULT, MREMAP_DONTUNMAP, MREMAP_FIXED,
+        MREMAP_MAYMOVE, MS_ASYNC, MS_INVALIDATE, MS_SYNC, O_APPEND, O_ASYNC, O_CLOEXEC, O_CREAT,
+        O_DIRECT, O_DIRECTORY, O_DSYNC, O_EXCL, O_LARGEFILE, O_NDELAY, O_NOATIME, O_NOCTTY,
+        O_NOFOLLOW, O_NONBLOCK, O_PATH, O_SYNC, O_TMPFILE, O_TRUNC, PRIO_PGRP, PRIO_PROCESS,
+        PRIO_USER, PROT_EXEC, PROT_NONE, PROT_READ, PROT_WRITE, PTRACE_ATTACH, PTRACE_CONT,
+        PTRACE_DETACH, PTRACE_GETEVENTMSG, PTRACE_GETFPREGS, PTRACE_GETFPXREGS, PTRACE_GETREGS,
+        PTRACE_GETREGSET, PTRACE_GETSIGINFO, PTRACE_INTERRUPT, PTRACE_KILL, PTRACE_LISTEN,
+        PTRACE_PEEKDATA, PTRACE_PEEKSIGINFO, PTRACE_PEEKTEXT, PTRACE_PEEKUSER, PTRACE_POKEDATA,
+        PTRACE_POKETEXT, PTRACE_POKEUSER, PTRACE_SEIZE, PTRACE_SETFPREGS, PTRACE_SETFPXREGS,
+        PTRACE_SETOPTIONS, PTRACE_SETREGS, PTRACE_SETREGSET, PTRACE_SETSIGINFO, PTRACE_SINGLESTEP,
+        PTRACE_SYSCALL, PTRACE_SYSEMU, PTRACE_SYSEMU_SINGLESTEP, PTRACE_TRACEME, P_ALL, P_PGID,
+        P_PID, P_PIDFD, RENAME_EXCHANGE, RENAME_NOREPLACE, RENAME_WHITEOUT, RLIMIT_AS, RLIMIT_CORE,
+        RLIMIT_CPU, RLIMIT_DATA, RLIMIT_FSIZE, RLIMIT_LOCKS, RLIMIT_MEMLOCK, RLIMIT_MSGQUEUE,
+        RLIMIT_NICE, RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_RSS, RLIMIT_RTPRIO, RLIMIT_RTTIME,
+        RLIMIT_SIGPENDING, RLIMIT_STACK, RUSAGE_CHILDREN, RUSAGE_SELF, RUSAGE_THREAD, R_OK,
+        SEEK_CUR, SEEK_DATA, SEEK_END, SEEK_HOLE, SEEK_SET, SFD_CLOEXEC, SFD_NONBLOCK, SIG_BLOCK,
+        SIG_DFL, SIG_IGN, SIG_SETMASK, SIG_UNBLOCK, S_IRGRP, S_IROTH, S_IRUSR, S_ISGID, S_ISUID,
+        S_ISVTX, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR, WCONTINUED, WEXITED,
+        WNOHANG, WNOWAIT, WSTOPPED, W_OK, X_OK, __WALL, __WCLONE, __WNOTHREAD,
     },
 };
 use syscalls::Sysno;
 
 impl SyscallObject {
-    pub(crate) fn one_line_error(errno: nix::errno::Errno) {
+    pub(crate) fn one_line_error(&self) {
         // TODO! Deprecate this logic for more granularity
         write_general_text(" |=> ");
-        write_text(errno.to_string().red());
+        write_text(self.get_errno().to_string().bold().red());
     }
-    // pub(crate) fn get_syscall_return(&mut self) -> Result<String, ()> {
-    //     // self.displayable_return_ol()
-    // }
 
     pub(crate) fn handle_pause_continue(&mut self) {
         if self.paused {
@@ -108,19 +93,12 @@ impl SyscallObject {
             // multi-threaded: pid always blue
             match self.state {
                 Entering => {
-                    // TODO!
-                    // multithreaded syscalls:
-                    //  - detect when the syscall is not paused,
-                    //      and handle pid coloring similar to single thread
-                    //  - detect when the syscall is paused,
-                    //      dim the pid color in the first split,
-                    //      and apply normal red/blue for the second split
                     write_text(self.tracee_pid.to_string().custom_color(*PID_NUMBER_COLOR));
 
                     // Colorized Syscall Name
                     write_text(" ".dimmed());
                     let category = SYSCATEGORIES_MAP.get(&self.sysno).unwrap();
-                    write_text(SyscallObject::colorize_syscall_name(&self.sysno, category));
+                    write_text(colorize_syscall_name(&self.sysno, category));
                     write_text(" - ".dimmed());
                 }
                 Exiting => {
@@ -136,9 +114,7 @@ impl SyscallObject {
                         write_text(" ".dimmed());
                         let category = SYSCATEGORIES_MAP.get(&self.sysno).unwrap();
 
-                        write_text(
-                            SyscallObject::colorize_syscall_name(&self.sysno, category).dimmed(),
-                        );
+                        write_text(colorize_syscall_name(&self.sysno, category).dimmed());
                         write_text(" - ".dimmed());
                         self.handle_pause_continue();
                     }
@@ -151,7 +127,7 @@ impl SyscallObject {
                     // Colorized Syscall Name
                     write_text(" ".dimmed());
                     let category = SYSCATEGORIES_MAP.get(&self.sysno).unwrap();
-                    write_text(SyscallObject::colorize_syscall_name(&self.sysno, category));
+                    write_text(colorize_syscall_name(&self.sysno, category));
                     write_text(" - ".dimmed());
                 }
                 Exiting => {
@@ -204,6 +180,630 @@ impl SyscallObject {
             // recvmsg
             // setuid
             // setgid
+            Sysno::open => {
+                match self.state {
+                    Entering => {
+                        let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
+                        // TODO!
+                        //
+                        // fix open flags granularity
+                        // also fix file mode granularity
+                        write_general_text("open the file ");
+                        write_path_file(filename);
+                    }
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
+                            write_general_text(" |=> ");
+                            write_text("successfully opened file".bold().green());
+                        }
+                        SyscallResult::Fail(_errno_variant) => {
+                            // TODO! granular
+                            self.one_line_error();
+                        }
+                    },
+                }
+            }
+
+            Sysno::close => match self.state {
+                Entering => {
+                    write_general_text("close the file: ");
+                    let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
+                    write_path_file(filename);
+                }
+                Exiting => match &self.result {
+                    &SyscallResult::Success(_syscall_return) => {
+                        write_general_text(" |=> ");
+                        write_text("file closed".bold().green());
+                    }
+                    SyscallResult::Fail(_errno_variant) => {
+                        // TODO! granular
+                        self.one_line_error();
+                    }
+                },
+            },
+
+            Sysno::stat => {
+                let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                match self.state {
+                    Entering => {
+                        write_general_text("get the stats of the file: ");
+                        write_path_file(filename);
+                    }
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
+                            write_general_text(" |=> ");
+                            write_text("stats retrieved successfully".bold().green());
+                        }
+                        SyscallResult::Fail(_errno_variant) => {
+                            // TODO! granular
+                            self.one_line_error();
+                        }
+                    },
+                }
+            }
+            Sysno::fstat => {
+                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
+                match self.state {
+                    Entering => {
+                        write_general_text("get the stats of the file: ");
+                        write_path_file(filename);
+                    }
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
+                            write_general_text(" |=> ");
+                            write_text("stats retrieved successfully".bold().green());
+                        }
+                        SyscallResult::Fail(_errno_variant) => {
+                            // TODO! granular
+                            self.one_line_error();
+                        }
+                    },
+                }
+            }
+            Sysno::lstat => {
+                let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                match self.state {
+                    Entering => {
+                        write_general_text("get the stats of the file: ");
+                        write_path_file(filename);
+                        write_general_text(" and do not recurse symbolic links");
+                    }
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
+                            write_general_text(" |=> ");
+                            write_text("stats retrieved successfully".bold().green());
+                        }
+                        SyscallResult::Fail(_errno_variant) => {
+                            // TODO! granular
+                            self.one_line_error();
+                        }
+                    },
+                }
+            }
+            Sysno::statfs => {
+                let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                match self.state {
+                    Entering => {
+                        write_general_text("get stats for the filesystem mounted in: ");
+                        write_path_file(filename);
+                    }
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
+                            write_general_text(" |=> ");
+                            write_text("stats retrieved successfully".bold().green());
+                        }
+                        SyscallResult::Fail(_errno_variant) => {
+                            // TODO! granular
+                            self.one_line_error();
+                        }
+                    },
+                }
+            }
+            Sysno::fstatfs => {
+                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
+                match self.state {
+                    Entering => {
+                        write_general_text("get stats for the filesystem that contains the file: ");
+                        write_path_file(filename);
+                    }
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
+                            write_general_text(" |=> ");
+                            write_text("stats retrieved successfully".bold().green());
+                        }
+                        SyscallResult::Fail(_errno_variant) => {
+                            // TODO! granular
+                            self.one_line_error();
+                        }
+                    },
+                }
+            }
+            Sysno::newfstatat => {
+                let dirfd = parse_as_int(registers[0]);
+                let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
+                let flags = parse_as_int(registers[3]);
+                match self.state {
+                    Entering => {
+                        write_general_text("get the stats of the file: ");
+                        write_possible_dirfd_file(dirfd, filename, self.tracee_pid);
+                        let mut flag_directive = vec![];
+                        if (flags & AT_SYMLINK_NOFOLLOW) == AT_SYMLINK_NOFOLLOW {
+                            flag_directive.push(
+                                "operate on the symbolic link if found, do not recurse it"
+                                    .custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if (flags & AT_EACCESS) == AT_EACCESS {
+                            flag_directive.push(
+                                "check using effective user & group ids".custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if (flags & AT_SYMLINK_FOLLOW) == AT_SYMLINK_FOLLOW {
+                            flag_directive
+                                .push("recurse symbolic links if found".custom_color(*OUR_YELLOW));
+                        }
+                        if (flags & AT_NO_AUTOMOUNT) == AT_NO_AUTOMOUNT {
+                            flag_directive.push("don't automount the basename of the path if its an automount directory".custom_color(*OUR_YELLOW));
+                        }
+                        if (flags & AT_EMPTY_PATH) == AT_EMPTY_PATH {
+                            flag_directive.push(
+                                "operate on the anchor directory if pathname is empty"
+                                    .custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if flag_directive.len() > 0 {
+                            write_general_text(" (");
+                            let mut flag_directive_iter = flag_directive.into_iter().peekable();
+                            if flag_directive_iter.peek().is_some() {
+                                write_text(flag_directive_iter.next().unwrap());
+                            }
+                            for entry in flag_directive_iter {
+                                write_general_text(", ");
+                                write_text(entry);
+                            }
+                            write_general_text(")");
+                        }
+                    }
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
+                            write_general_text(" |=> ");
+                            write_text("stats retrieved successfully".bold().green());
+                        }
+                        SyscallResult::Fail(_errno_variant) => {
+                            // TODO! granular
+                            self.one_line_error();
+                        }
+                    },
+                }
+            }
+            Sysno::statx => {
+                let dirfd = parse_as_int(registers[0]);
+                let pathname = string_from_pointer(registers[1] as usize, self.tracee_pid);
+                let flags = parse_as_int(registers[2]);
+                match self.state {
+                    Entering => {
+                        write_general_text("get the stats of the file: ");
+                        if pathname.starts_with('/') {
+                            // absolute pathname
+                            // dirfd is ignored
+                            write_path_file(pathname);
+                        } else {
+                            if pathname.is_empty() && (flags & AT_EMPTY_PATH) > 0 {
+                                // the pathname is empty
+                                let dirfd_parsed =
+                                    parse_as_file_descriptor(registers[0], self.tracee_pid);
+                                // if pathname is empty and AT_EMPTY_PATH is given, dirfd is used
+                                write_path_file(dirfd_parsed);
+                            } else {
+                                // A relative pathname, dirfd = CWD, or a normal directory
+                                write_possible_dirfd_file(dirfd, pathname, self.tracee_pid);
+                            }
+                        }
+                        let mut flag_directive = vec![];
+                        if (flags & AT_NO_AUTOMOUNT) == AT_NO_AUTOMOUNT {
+                            flag_directive.push("don't automount the basename of the path if its an automount directory".custom_color(*OUR_YELLOW));
+                        }
+                        if (flags & AT_SYMLINK_NOFOLLOW) == AT_SYMLINK_NOFOLLOW {
+                            flag_directive.push(
+                                "if the path is a symbolic link, get its stats, do not recurse it"
+                                    .custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if flags == AT_STATX_SYNC_AS_STAT {
+                            flag_directive.push(
+                                "behave similar to the `stat` syscall".custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if (flags & AT_STATX_FORCE_SYNC) == AT_STATX_FORCE_SYNC {
+                            flag_directive.push(
+                                "force synchronization / guarantee up to date information"
+                                    .custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if (flags & AT_STATX_DONT_SYNC) == AT_STATX_DONT_SYNC {
+                            flag_directive.push("don't force synchronization / retrieve whatever information is cached".custom_color(*OUR_YELLOW));
+                        }
+                        // if flags.contains(rustix::fs::AtFlags::EACCESS) {
+                        //     flag_directive.push("check using effective user & group ids".custom_color(*OUR_YELLOW));
+                        // }
+                        // if flags.contains(rustix::fs::AtFlags::SYMLINK_FOLLOW) {
+                        //     flag_directive.push("recurse symbolic links if found".custom_color(*OUR_YELLOW));
+                        // }
+                        write_directives(flag_directive);
+
+                        // TODO!
+                        // unnecessary information
+                        // statx_mask is currently unhandled because it's unnecessary information
+                    }
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
+                            write_general_text(" |=> ");
+                            write_text("stats retrieved successfully".bold().green());
+                        }
+                        SyscallResult::Fail(_errno_variant) => {
+                            // TODO! granular
+                            self.one_line_error();
+                        }
+                    },
+                }
+            }
+            Sysno::chown => {
+                let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                let owner_given = lower_32_bits(registers[1]);
+                let group_given = lower_32_bits(registers[2]);
+                match self.state {
+                    Entering => {
+                        use uzers::{Users, UsersCache};
+                        let cache = UsersCache::new();
+                        // https://github.com/torvalds/linux/blob/cfb2e2c57aef75a414c0f18445c7441df5bc13be/fs/open.c#L768C1-L768C2
+                        if owner_given != u32::MAX {
+                            let get_user_by_uid = cache.get_user_by_uid(owner_given as _);
+                            let user = get_user_by_uid.unwrap();
+                            let name = user.name();
+                            let owner = name.to_str().unwrap();
+                            write_general_text("change the owner of ");
+                            write_path_file(filename);
+                            write_general_text(" to ");
+                            write_text(owner.bold().green());
+                            if group_given != u32::MAX {
+                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
+                                let user = get_user_by_uid.unwrap();
+                                let group = user.name().to_str().unwrap();
+                                write_general_text(", and its group to ");
+                                write_text(group.bold().green());
+                            }
+                        } else {
+                            if group_given != u32::MAX {
+                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
+                                let user = get_user_by_uid.unwrap();
+                                let group = user.name().to_str().unwrap();
+                                write_general_text("change the group of the file: ");
+                                write_path_file(filename);
+                                write_general_text("to ");
+                                write_text(group.bold().green());
+                            } else {
+                                write_general_text(
+                                    "[intentrace: redundant syscall (won't do anything)]",
+                                );
+                            }
+                        }
+                    }
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
+                            write_general_text(" |=> ");
+                            // TODO!
+                            // unnecessary details, consider removing
+                            if owner_given != u32::MAX {
+                                write_text("ownership".bold().green());
+                                if group_given != u32::MAX {
+                                    write_text(" and group".bold().green());
+                                }
+                                write_text(" changed".bold().green());
+                            } else {
+                                if group_given != u32::MAX {
+                                    write_text("group changed".bold().green());
+                                } else {
+                                    write_text("successful".bold().green());
+                                }
+                            }
+                        }
+                        SyscallResult::Fail(_errno_variant) => {
+                            // TODO! granular
+                            self.one_line_error();
+                        }
+                    },
+                }
+            }
+            Sysno::fchown => {
+                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
+                let owner_given = lower_32_bits(registers[1]);
+                let group_given = lower_32_bits(registers[2]);
+                match self.state {
+                    Entering => {
+                        use uzers::{Users, UsersCache};
+                        let cache = UsersCache::new();
+                        // https://github.com/torvalds/linux/blob/cfb2e2c57aef75a414c0f18445c7441df5bc13be/fs/open.c#L768C1-L768C2
+                        if owner_given != u32::MAX {
+                            let get_user_by_uid = cache.get_user_by_uid(owner_given as _);
+                            let user = get_user_by_uid.unwrap();
+                            let name = user.name();
+                            let owner = name.to_str().unwrap();
+                            write_general_text("change the owner of ");
+                            write_path_file(filename);
+                            write_general_text(" to ");
+                            write_text(owner.bold().green());
+                            if group_given != u32::MAX {
+                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
+                                let user = get_user_by_uid.unwrap();
+                                let group = user.name().to_str().unwrap();
+                                write_general_text(", and its group to ");
+                                write_text(group.bold().green());
+                            }
+                        } else {
+                            if group_given != u32::MAX {
+                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
+                                let user = get_user_by_uid.unwrap();
+                                let group = user.name().to_str().unwrap();
+                                write_general_text("change the group of the file: ");
+                                write_path_file(filename);
+                                write_general_text("to ");
+                                write_text(group.bold().green());
+                            } else {
+                                write_general_text(
+                                    "[intentrace: redundant syscall (won't do anything)]",
+                                );
+                            }
+                        }
+                    }
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
+                            write_general_text(" |=> ");
+                            // TODO!
+                            // unnecessary details, consider removing
+                            if owner_given != u32::MAX {
+                                write_text("ownership".bold().green());
+                                if group_given != u32::MAX {
+                                    write_text(" and group".bold().green());
+                                }
+                                write_text(" changed".bold().green());
+                            } else {
+                                if group_given != u32::MAX {
+                                    write_text("group changed".bold().green());
+                                } else {
+                                    write_text("successful".bold().green());
+                                }
+                            }
+                        }
+                        SyscallResult::Fail(_errno_variant) => {
+                            // TODO! granular
+                            self.one_line_error();
+                        }
+                    },
+                }
+            }
+            Sysno::lchown => {
+                let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                let owner_given = lower_32_bits(registers[1]);
+                let group_given = lower_32_bits(registers[2]);
+                match self.state {
+                    Entering => {
+                        use uzers::{Users, UsersCache};
+                        let cache = UsersCache::new();
+                        // https://github.com/torvalds/linux/blob/cfb2e2c57aef75a414c0f18445c7441df5bc13be/fs/open.c#L768C1-L768C2
+                        if owner_given != u32::MAX {
+                            let get_user_by_uid = cache.get_user_by_uid(owner_given as _);
+                            let user = get_user_by_uid.unwrap();
+                            let name = user.name();
+                            let owner = name.to_str().unwrap();
+                            write_general_text("change the owner of ");
+                            write_path_file(filename);
+                            write_general_text(" to ");
+                            write_text(owner.bold().green());
+                            if group_given != u32::MAX {
+                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
+                                let user = get_user_by_uid.unwrap();
+                                let group = user.name().to_str().unwrap();
+                                write_general_text(", and its group to ");
+                                write_text(group.bold().green());
+                            }
+                            write_general_text(" (");
+                            write_text("don't recurse symbolic links".custom_color(*OUR_YELLOW));
+                            write_general_text(")");
+                        } else {
+                            if group_given != u32::MAX {
+                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
+                                let user = get_user_by_uid.unwrap();
+                                let group = user.name().to_str().unwrap();
+                                write_general_text("change the group of the file: ");
+                                write_path_file(filename);
+                                write_general_text("to ");
+                                write_text(group.bold().green());
+                                write_general_text(" (");
+                                write_text(
+                                    "don't recurse symbolic links".custom_color(*OUR_YELLOW),
+                                );
+                                write_general_text(")");
+                            } else {
+                                write_general_text(
+                                    "[intentrace: redundant syscall (won't do anything)]",
+                                );
+                            }
+                        }
+                    }
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
+                            write_general_text(" |=> ");
+                            // TODO!
+                            // unnecessary details, consider removing
+                            if owner_given != u32::MAX {
+                                write_text("ownership".bold().green());
+                                if group_given != u32::MAX {
+                                    write_text(" and group".bold().green());
+                                }
+                                write_text(" changed".bold().green());
+                            } else {
+                                if group_given != u32::MAX {
+                                    write_text("group changed".bold().green());
+                                } else {
+                                    write_text("successful".bold().green());
+                                }
+                            }
+                        }
+                        SyscallResult::Fail(_errno_variant) => {
+                            // TODO! granular
+                            self.one_line_error();
+                        }
+                    },
+                }
+            }
+            Sysno::fchownat => {
+                let dirfd = parse_as_int(registers[0]);
+                let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
+                let owner_given = lower_32_bits(registers[2]);
+                let group_given = lower_32_bits(registers[3]);
+                let flags = parse_as_int(registers[4]);
+
+                match self.state {
+                    Entering => {
+                        use uzers::{Users, UsersCache};
+                        let cache = UsersCache::new();
+                        let flags_check = || {
+                            let mut flag_directive = vec![];
+                            if (flags & AT_SYMLINK_NOFOLLOW) == AT_SYMLINK_NOFOLLOW {
+                                flag_directive.push(
+                                    "operate on the symbolic link if found, do not recurse it"
+                                        .custom_color(*OUR_YELLOW),
+                                );
+                            }
+                            if (flags & AT_EMPTY_PATH) == AT_EMPTY_PATH {
+                                flag_directive.push(
+                                    "operate on the anchor directory if pathname is empty"
+                                        .custom_color(*OUR_YELLOW),
+                                );
+                            }
+                            write_directives(flag_directive);
+                        };
+                        if owner_given != u32::MAX {
+                            let get_user_by_uid = cache.get_user_by_uid(owner_given as _);
+                            let user = get_user_by_uid.unwrap();
+                            let name = user.name();
+                            let owner = name.to_str().unwrap();
+                            write_general_text("change the owner of ");
+                            write_possible_dirfd_file(dirfd, filename, self.tracee_pid);
+                            write_general_text(" to ");
+                            write_text(owner.bold().green());
+                            if group_given != u32::MAX {
+                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
+                                let user = get_user_by_uid.unwrap();
+                                let group = user.name().to_str().unwrap();
+                                write_general_text(", and its group to ");
+                                write_text(group.bold().green());
+                            }
+                            flags_check();
+                        } else {
+                            if group_given == u32::MAX {
+                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
+                                let user = get_user_by_uid.unwrap();
+                                let group = user.name().to_str().unwrap();
+                                write_general_text("change the group of the file: ");
+                                write_path_file(filename);
+                                write_general_text("to ");
+                                write_text(group.bold().green());
+                                flags_check();
+                            } else {
+                                write_general_text(
+                                    "[intentrace: redundant syscall (won't do anything)]",
+                                );
+                            }
+                        }
+                    }
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
+                            write_general_text(" |=> ");
+                            // TODO!
+                            // unnecessary details, consider removing
+                            if owner_given != u32::MAX {
+                                write_text("ownership".bold().green());
+                                if group_given != u32::MAX {
+                                    write_text(" and group".bold().green());
+                                }
+                                write_text(" changed".bold().green());
+                            } else {
+                                if group_given != u32::MAX {
+                                    write_text("group changed".bold().green());
+                                } else {
+                                    write_text("successful".bold().green());
+                                }
+                            }
+                        }
+                        SyscallResult::Fail(_errno_variant) => {
+                            // TODO! granular
+                            self.one_line_error();
+                        }
+                    },
+                }
+            }
+            Sysno::brk => {
+                let brk_address = registers[0];
+                match self.state {
+                    Entering => {
+                        if brk_address == 0 {
+                            write_general_text("get the current program break");
+                        } else {
+                            write_general_text("change program break to ");
+                            let syscall_brk = parse_as_address(registers[0] as usize);
+                            write_text(syscall_brk.custom_color(*OUR_YELLOW));
+                        }
+                    }
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(syscall_return) => {
+                            write_general_text(" |=> ");
+                            if brk_address == 0 {
+                                write_text("current program break: ".bold().green());
+                                let address = parse_as_address(syscall_return as usize);
+                                write_text(address.custom_color(*OUR_YELLOW));
+                            } else {
+                                let new_brk = syscall_return;
+                                let mem_difference = get_mem_difference_from_previous(new_brk as _);
+                                let mem_difference_bytes =
+                                    BytesPagesRelevant::from_ceil(mem_difference as usize);
+                                match mem_difference {
+                                    0 => {
+                                        write_general_text("no allocation or deallocation occured");
+                                    }
+                                    difference if difference < 0 => {
+                                        write_general_text("deallocated ");
+                                        write_text(
+                                            mem_difference_bytes
+                                                .to_string()
+                                                .custom_color(*OUR_YELLOW),
+                                        );
+                                    }
+                                    difference => {
+                                        write_general_text("allocated ");
+                                        write_text(
+                                            mem_difference_bytes
+                                                .to_string()
+                                                .custom_color(*OUR_YELLOW),
+                                        );
+                                    }
+                                }
+
+                                write_text(", new program break: ".bold().green());
+                                write_text(
+                                    parse_as_address(new_brk as usize)
+                                        .to_string()
+                                        .custom_color(*PAGES_COLOR),
+                                );
+                            }
+                        }
+                        SyscallResult::Fail(_errno_variant) => {
+                            // TODO! granular
+                            self.one_line_error();
+                        }
+                    },
+                }
+            }
             Sysno::mmap => {
                 let flags_num = parse_as_int(registers[3]);
                 let shared = (flags_num & MAP_SHARED) == MAP_SHARED;
@@ -222,7 +822,6 @@ impl SyscallObject {
 
                 let prot_flags = parse_as_int(registers[2]);
                 let bytes = parse_as_bytes_pages_ceil(registers[1] as usize);
-                let fd = registers[4] as RawFd;
                 let addr = registers[0] as *const ();
                 let address = parse_as_address(registers[0] as usize);
                 let offset_num = parse_as_long(registers[5]);
@@ -347,7 +946,7 @@ impl SyscallObject {
                             write_text(
                                 "an appropiate kernel chosen address".custom_color(*OUR_YELLOW),
                             );
-                        } else if (flags_num & MAP_FIXED) == MAP_FIXED {
+                        } else if fixed {
                             write_general_text(" starting ");
                             write_text("exactly at ".custom_color(*OUR_YELLOW));
                             write_text(address.custom_color(*OUR_YELLOW));
@@ -398,10 +997,10 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("new mapping address: ".green());
+                                write_text("new mapping address: ".bold().green());
                                 let address = parse_as_address(syscall_return as usize);
                                 write_text(address.custom_color(*OUR_YELLOW));
                                 // if anonymous {
@@ -436,631 +1035,40 @@ impl SyscallObject {
                                 // }
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
             }
-
-            Sysno::brk => {
-                let brk_address = registers[0];
+            Sysno::munmap => {
+                let address = parse_as_address(registers[0] as usize);
+                let len = parse_as_bytes_pages_ceil(registers[1] as usize);
                 match self.state {
                     Entering => {
-                        if brk_address == 0 {
-                            write_general_text("get the current program break");
-                        } else {
-                            write_general_text("change program break to ");
-                            let syscall_brk = parse_as_address(registers[0] as usize);
-                            write_text(syscall_brk.custom_color(*OUR_YELLOW));
-                        }
+                        write_general_text("unmap ");
+                        write_text(len.custom_color(*OUR_YELLOW));
+                        write_general_text(" from memory starting at ");
+                        write_text(address.custom_color(*OUR_YELLOW));
                     }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
                             write_general_text(" |=> ");
-                            if brk_address == 0 {
-                                write_text("current program break: ".green());
-                                let address = parse_as_address(syscall_return as usize);
-                                write_text(address.custom_color(*OUR_YELLOW));
-                            } else {
-                                let new_brk = syscall_return;
-                                let mem_difference = get_mem_difference_from_previous(new_brk as _);
-                                let mem_difference_bytes =
-                                    BytesPagesRelevant::from_ceil(mem_difference as usize);
-                                if mem_difference == 0 {
-                                    write_general_text("no allocation or deallocation occured");
-                                } else if mem_difference > 0 {
-                                    write_general_text("allocated ");
-                                    write_text(
-                                        mem_difference_bytes.to_string().custom_color(*PAGES_COLOR),
-                                    );
-                                } else {
-                                    write_general_text("deallocated ");
-                                    write_text(
-                                        mem_difference_bytes.to_string().custom_color(*PAGES_COLOR),
-                                    );
-                                }
-                                write_text(", new program break: ".green());
-                                write_text(
-                                    parse_as_address(new_brk as usize)
-                                        .to_string()
-                                        .custom_color(*PAGES_COLOR),
-                                );
-                            }
+                            write_text("successfully unmapped region".bold().green());
                         }
-                        SyscallResult::Fail(errno) => {
+                        SyscallResult::Fail(_errno_variant) => {
                             // TODO! granular
-                            SyscallObject::one_line_error(errno);
-                        }
-                    },
-                }
-            }
-            Sysno::close => match self.state {
-                Entering => {
-                    write_general_text("close the file: ");
-                    let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                    write_path_file(filename);
-                }
-                Exiting => match self.result {
-                    SyscallResult::Success(syscall_return) => {
-                        write_general_text(" |=> ");
-                        write_text("file closed".green());
-                    }
-                    SyscallResult::Fail(errno) => {
-                        // TODO! granular
-                        SyscallObject::one_line_error(errno);
-                    }
-                },
-            },
-            Sysno::open => {
-                match self.state {
-                    Entering => {
-                        let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                        // TODO!
-                        //
-                        // fix open flags granularity
-                        // also fix file mode granularity
-                        write_general_text("open the file ");
-                        write_path_file(filename);
-                    }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
-                            write_general_text(" |=> ");
-                            write_text("successfully opened file".green());
-                        }
-                        SyscallResult::Fail(errno) => {
-                            // TODO! granular
-                            SyscallObject::one_line_error(errno);
-                        }
-                    },
-                }
-            }
-
-            Sysno::stat => {
-                let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
-                match self.state {
-                    Entering => {
-                        write_general_text("get the stats of the file: ");
-                        write_path_file(filename);
-                    }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
-                            write_general_text(" |=> ");
-                            write_text("stats retrieved successfully".green());
-                        }
-                        SyscallResult::Fail(errno) => {
-                            // TODO! granular
-                            SyscallObject::one_line_error(errno);
-                        }
-                    },
-                }
-            }
-            Sysno::fstat => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                match self.state {
-                    Entering => {
-                        write_general_text("get the stats of the file: ");
-                        write_path_file(filename);
-                    }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
-                            write_general_text(" |=> ");
-                            write_text("stats retrieved successfully".green());
-                        }
-                        SyscallResult::Fail(errno) => {
-                            // TODO! granular
-                            SyscallObject::one_line_error(errno);
-                        }
-                    },
-                }
-            }
-            Sysno::lstat => {
-                let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
-                match self.state {
-                    Entering => {
-                        write_general_text("get the stats of the file: ");
-                        write_path_file(filename);
-                        write_general_text(" and do not recurse symbolic links");
-                    }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
-                            write_general_text(" |=> ");
-                            write_text("stats retrieved successfully".green());
-                        }
-                        SyscallResult::Fail(errno) => {
-                            // TODO! granular
-                            SyscallObject::one_line_error(errno);
-                        }
-                    },
-                }
-            }
-            Sysno::statfs => {
-                let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
-                match self.state {
-                    Entering => {
-                        write_general_text("get stats for the filesystem mounted in: ");
-                        write_path_file(filename);
-                    }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
-                            write_general_text(" |=> ");
-                            write_text("stats retrieved successfully".green());
-                        }
-                        SyscallResult::Fail(errno) => {
-                            // TODO! granular
-                            SyscallObject::one_line_error(errno);
-                        }
-                    },
-                }
-            }
-            Sysno::fstatfs => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                match self.state {
-                    Entering => {
-                        write_general_text("get stats for the filesystem that contains the file: ");
-                        write_path_file(filename);
-                    }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
-                            write_general_text(" |=> ");
-                            write_text("stats retrieved successfully".green());
-                        }
-                        SyscallResult::Fail(errno) => {
-                            // TODO! granular
-                            SyscallObject::one_line_error(errno);
-                        }
-                    },
-                }
-            }
-            Sysno::newfstatat => {
-                let dirfd = parse_as_int(registers[0]);
-                let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
-                let flags = parse_as_int(registers[3]);
-                match self.state {
-                    Entering => {
-                        write_general_text("get the stats of the file: ");
-                        write_possible_dirfd_file(dirfd as i32, filename, self.tracee_pid);
-                        let mut flag_directive = vec![];
-                        if (flags & AT_SYMLINK_NOFOLLOW) == AT_SYMLINK_NOFOLLOW {
-                            flag_directive.push(
-                                "operate on the symbolic link if found, do not recurse it"
-                                    .custom_color(*OUR_YELLOW),
-                            );
-                        }
-                        if (flags & AT_EACCESS) == AT_EACCESS {
-                            flag_directive.push(
-                                "check using effective user & group ids".custom_color(*OUR_YELLOW),
-                            );
-                        }
-                        if (flags & AT_SYMLINK_FOLLOW) == AT_SYMLINK_FOLLOW {
-                            flag_directive
-                                .push("recurse symbolic links if found".custom_color(*OUR_YELLOW));
-                        }
-                        if (flags & AT_NO_AUTOMOUNT) == AT_NO_AUTOMOUNT {
-                            flag_directive.push("don't automount the basename of the path if its an automount directory".custom_color(*OUR_YELLOW));
-                        }
-                        if (flags & AT_EMPTY_PATH) == AT_EMPTY_PATH {
-                            flag_directive.push(
-                                "operate on the anchor directory if pathname is empty"
-                                    .custom_color(*OUR_YELLOW),
-                            );
-                        }
-                        if flag_directive.len() > 0 {
-                            write_general_text(" (");
-                            let mut flag_directive_iter = flag_directive.into_iter().peekable();
-                            if flag_directive_iter.peek().is_some() {
-                                write_text(flag_directive_iter.next().unwrap());
-                            }
-                            for entry in flag_directive_iter {
-                                write_general_text(", ");
-                                write_text(entry);
-                            }
-                            write_general_text(")");
-                        }
-                    }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
-                            write_general_text(" |=> ");
-                            write_text("stats retrieved successfully".green());
-                        }
-                        SyscallResult::Fail(errno) => {
-                            // TODO! granular
-                            SyscallObject::one_line_error(errno);
-                        }
-                    },
-                }
-            }
-            Sysno::statx => {
-                let dirfd = parse_as_int(registers[0]) as i32;
-                let pathname = string_from_pointer(registers[1] as usize, self.tracee_pid);
-                let flags = parse_as_int(registers[3]);
-                match self.state {
-                    Entering => {
-                        write_general_text("get the stats of the file: ");
-                        if pathname.starts_with('/') {
-                            // absolute pathname
-                            // dirfd is ignored
-                            write_path_file(pathname);
-                        } else {
-                            if pathname.is_empty() && (flags & AT_EMPTY_PATH) > 0 {
-                                // the pathname is empty
-                                let dirfd_parsed =
-                                    parse_as_file_descriptor(registers[0], self.tracee_pid);
-                                // if pathname is empty and AT_EMPTY_PATH is given, dirfd is used
-                                write_path_file(dirfd_parsed);
-                            } else {
-                                // A relative pathname, dirfd = CWD, or a normal directory
-                                write_possible_dirfd_file(dirfd, pathname, self.tracee_pid);
-                            }
-                        }
-                        let mut flag_directive = vec![];
-                        if (flags & AT_NO_AUTOMOUNT) == AT_NO_AUTOMOUNT {
-                            flag_directive.push("don't automount the basename of the path if its an automount directory".custom_color(*OUR_YELLOW));
-                        }
-                        if (flags & AT_SYMLINK_NOFOLLOW) == AT_SYMLINK_NOFOLLOW {
-                            flag_directive.push(
-                                "if the path is a symbolic link, get its stats, do not recurse it"
-                                    .custom_color(*OUR_YELLOW),
-                            );
-                        }
-                        if flags == AT_STATX_SYNC_AS_STAT {
-                            flag_directive.push(
-                                "behave similar to the `stat` syscall".custom_color(*OUR_YELLOW),
-                            );
-                        }
-                        if (flags & AT_STATX_FORCE_SYNC) == AT_STATX_FORCE_SYNC {
-                            flag_directive.push(
-                                "force synchronization / guarantee up to date information"
-                                    .custom_color(*OUR_YELLOW),
-                            );
-                        }
-                        if (flags & AT_STATX_DONT_SYNC) == AT_STATX_DONT_SYNC {
-                            flag_directive.push("don't force synchronization / retrieve whatever information is cached".custom_color(*OUR_YELLOW));
-                        }
-                        // if flags.contains(rustix::fs::AtFlags::EACCESS) {
-                        //     flag_directive.push("check using effective user & group ids".custom_color(*OUR_YELLOW));
-                        // }
-                        // if flags.contains(rustix::fs::AtFlags::SYMLINK_FOLLOW) {
-                        //     flag_directive.push("recurse symbolic links if found".custom_color(*OUR_YELLOW));
-                        // }
-                        write_directives(flag_directive);
-
-                        // TODO!
-                        // unnecessary information
-                        // statx_mask is currently unhandled because it's unnecessary information
-                    }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
-                            write_general_text(" |=> ");
-                            write_text("stats retrieved successfully".green());
-                        }
-                        SyscallResult::Fail(errno) => {
-                            // TODO! granular
-                            SyscallObject::one_line_error(errno);
-                        }
-                    },
-                }
-            }
-            Sysno::chown => {
-                use uzers::{Groups, Users, UsersCache};
-                let mut cache = UsersCache::new();
-                let owner_given = lower_32_bits(registers[1]);
-                let group_given = lower_32_bits(registers[2]);
-                let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
-                match self.state {
-                    Entering => {
-                        // https://github.com/torvalds/linux/blob/cfb2e2c57aef75a414c0f18445c7441df5bc13be/fs/open.c#L768C1-L768C2
-                        if owner_given != u32::MAX {
-                            let get_user_by_uid = cache.get_user_by_uid(owner_given as _);
-                            let user = get_user_by_uid.unwrap();
-                            let name = user.name();
-                            let owner = name.to_str().unwrap();
-                            write_general_text("change the owner of ");
-                            write_path_file(filename);
-                            write_general_text(" to ");
-                            write_text(owner.green());
-                            if group_given != u32::MAX {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
-                                write_general_text(", and its group to ");
-                                write_text(group.green());
-                            }
-                        } else {
-                            if group_given != u32::MAX {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
-                                write_general_text("change the group of the file: ");
-                                write_path_file(filename);
-                                write_general_text("to ");
-                                write_text(group.green());
-                            } else {
-                                write_general_text(
-                                    "[intentrace: redundant syscall (won't do anything)]",
-                                );
-                            }
-                        }
-                    }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
-                            write_general_text(" |=> ");
-                            // TODO!
-                            // unnecessary details, consider removing
-                            if owner_given != u32::MAX {
-                                write_text("ownership".green());
-                                if group_given != u32::MAX {
-                                    write_text(" and group".green());
-                                }
-                                write_text(" changed".green());
-                            } else {
-                                if group_given != u32::MAX {
-                                    write_text("group changed".green());
-                                } else {
-                                    write_text("successful".green());
-                                }
-                            }
-                        }
-                        SyscallResult::Fail(errno) => {
-                            // TODO! granular
-                            SyscallObject::one_line_error(errno);
-                        }
-                    },
-                }
-            }
-            Sysno::fchown => {
-                use uzers::{Groups, Users, UsersCache};
-                let mut cache = UsersCache::new();
-                let owner_given = lower_32_bits(registers[1]);
-                let group_given = lower_32_bits(registers[2]);
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                match self.state {
-                    Entering => {
-                        // https://github.com/torvalds/linux/blob/cfb2e2c57aef75a414c0f18445c7441df5bc13be/fs/open.c#L768C1-L768C2
-                        if owner_given != u32::MAX {
-                            let get_user_by_uid = cache.get_user_by_uid(owner_given as _);
-                            let user = get_user_by_uid.unwrap();
-                            let name = user.name();
-                            let owner = name.to_str().unwrap();
-                            write_general_text("change the owner of ");
-                            write_path_file(filename);
-                            write_general_text(" to ");
-                            write_text(owner.green());
-                            if group_given != u32::MAX {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
-                                write_general_text(", and its group to ");
-                                write_text(group.green());
-                            }
-                        } else {
-                            if group_given != u32::MAX {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
-                                write_general_text("change the group of the file: ");
-                                write_path_file(filename);
-                                write_general_text("to ");
-                                write_text(group.green());
-                            } else {
-                                write_general_text(
-                                    "[intentrace: redundant syscall (won't do anything)]",
-                                );
-                            }
-                        }
-                    }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
-                            write_general_text(" |=> ");
-                            // TODO!
-                            // unnecessary details, consider removing
-                            if owner_given != u32::MAX {
-                                write_text("ownership".green());
-                                if group_given != u32::MAX {
-                                    write_text(" and group".green());
-                                }
-                                write_text(" changed".green());
-                            } else {
-                                if group_given != u32::MAX {
-                                    write_text("group changed".green());
-                                } else {
-                                    write_text("successful".green());
-                                }
-                            }
-                        }
-                        SyscallResult::Fail(errno) => {
-                            // TODO! granular
-                            SyscallObject::one_line_error(errno);
-                        }
-                    },
-                }
-            }
-            Sysno::lchown => {
-                use uzers::{Groups, Users, UsersCache};
-                let mut cache = UsersCache::new();
-                let owner_given = lower_32_bits(registers[1]);
-                let group_given = lower_32_bits(registers[2]);
-                let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
-                match self.state {
-                    Entering => {
-                        // https://github.com/torvalds/linux/blob/cfb2e2c57aef75a414c0f18445c7441df5bc13be/fs/open.c#L768C1-L768C2
-                        if owner_given != u32::MAX {
-                            let get_user_by_uid = cache.get_user_by_uid(owner_given as _);
-                            let user = get_user_by_uid.unwrap();
-                            let name = user.name();
-                            let owner = name.to_str().unwrap();
-                            write_general_text("change the owner of ");
-                            write_path_file(filename);
-                            write_general_text(" to ");
-                            write_text(owner.green());
-                            if group_given != u32::MAX {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
-                                write_general_text(", and its group to ");
-                                write_text(group.green());
-                            }
-                            write_general_text(" (");
-                            write_text("don't recurse symbolic links".custom_color(*OUR_YELLOW));
-                            write_general_text(")");
-                        } else {
-                            if group_given != u32::MAX {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
-                                write_general_text("change the group of the file: ");
-                                write_path_file(filename);
-                                write_general_text("to ");
-                                write_text(group.green());
-                                write_general_text(" (");
-                                write_text(
-                                    "don't recurse symbolic links".custom_color(*OUR_YELLOW),
-                                );
-                                write_general_text(")");
-                            } else {
-                                write_general_text(
-                                    "[intentrace: redundant syscall (won't do anything)]",
-                                );
-                            }
-                        }
-                    }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
-                            write_general_text(" |=> ");
-                            // TODO!
-                            // unnecessary details, consider removing
-                            if owner_given != u32::MAX {
-                                write_text("ownership".green());
-                                if group_given != u32::MAX {
-                                    write_text(" and group".green());
-                                }
-                                write_text(" changed".green());
-                            } else {
-                                if group_given != u32::MAX {
-                                    write_text("group changed".green());
-                                } else {
-                                    write_text("successful".green());
-                                }
-                            }
-                        }
-                        SyscallResult::Fail(errno) => {
-                            // TODO! granular
-                            SyscallObject::one_line_error(errno);
-                        }
-                    },
-                }
-            }
-            Sysno::fchownat => {
-                use uzers::{Groups, Users, UsersCache};
-                let mut cache = UsersCache::new();
-                let dirfd = parse_as_int(registers[0]);
-                let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
-                let owner_given = lower_32_bits(registers[2]);
-                let group_given = lower_32_bits(registers[3]);
-                let flags = parse_as_int(registers[4]);
-
-                match self.state {
-                    Entering => {
-                        let flags_check = || {
-                            let mut flag_directive = vec![];
-                            if (flags & AT_SYMLINK_NOFOLLOW) == AT_SYMLINK_NOFOLLOW {
-                                flag_directive.push(
-                                    "operate on the symbolic link if found, do not recurse it"
-                                        .custom_color(*OUR_YELLOW),
-                                );
-                            }
-                            if (flags & AT_EMPTY_PATH) == AT_EMPTY_PATH {
-                                flag_directive.push(
-                                    "operate on the anchor directory if pathname is empty"
-                                        .custom_color(*OUR_YELLOW),
-                                );
-                            }
-                            write_directives(flag_directive);
-                        };
-                        if owner_given != u32::MAX {
-                            let get_user_by_uid = cache.get_user_by_uid(owner_given as _);
-                            let user = get_user_by_uid.unwrap();
-                            let name = user.name();
-                            let owner = name.to_str().unwrap();
-                            write_general_text("change the owner of ");
-                            write_possible_dirfd_file(dirfd, filename, self.tracee_pid);
-                            write_general_text(" to ");
-                            write_text(owner.green());
-                            if group_given != u32::MAX {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
-                                write_general_text(", and its group to ");
-                                write_text(group.green());
-                            }
-                            flags_check();
-                        } else {
-                            if group_given == u32::MAX {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
-                                write_general_text("change the group of the file: ");
-                                write_path_file(filename);
-                                write_general_text("to ");
-                                write_text(group.green());
-                                flags_check();
-                            } else {
-                                write_general_text(
-                                    "[intentrace: redundant syscall (won't do anything)]",
-                                );
-                            }
-                        }
-                    }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
-                            write_general_text(" |=> ");
-                            // TODO!
-                            // unnecessary details, consider removing
-                            if owner_given != u32::MAX {
-                                write_text("ownership".green());
-                                if group_given != u32::MAX {
-                                    write_text(" and group".green());
-                                }
-                                write_text(" changed".green());
-                            } else {
-                                if group_given != u32::MAX {
-                                    write_text("group changed".green());
-                                } else {
-                                    write_text("successful".green());
-                                }
-                            }
-                        }
-                        SyscallResult::Fail(errno) => {
-                            // TODO! granular
-                            SyscallObject::one_line_error(errno);
+                            self.one_line_error();
                         }
                     },
                 }
             }
             Sysno::madvise => {
                 // addr, len, adv
-                let len = parse_as_bytes_pages_ceil(registers[1] as usize);
                 let address = parse_as_address(registers[0] as usize);
-                let advice = parse_as_int(registers[3]);
+                let len = parse_as_bytes_pages_ceil(registers[1] as usize);
+                let advice = parse_as_int(registers[2]);
                 match self.state {
                     Entering => {
                         match advice {
@@ -1093,11 +1101,15 @@ impl SyscallObject {
                                 write_general_text(" to be accessed in the future");
                             }
                             MADV_DONTNEED => {
-                                write_text("do not expect the".custom_color(*OUR_YELLOW));
+                                write_general_text("expect ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
                                 write_text(address.custom_color(*OUR_YELLOW));
-                                write_general_text(" to be accessed in the future");
+                                write_general_text(" to ");
+                                // not having "near" implies "never again"
+                                write_text(
+                                    "not be accessed in the near future".custom_color(*OUR_YELLOW),
+                                );
                             }
                             MADV_REMOVE => {
                                 // equivalent to punching a hole in the corresponding range
@@ -1254,41 +1266,17 @@ impl SyscallObject {
                                 write_general_text(" while avoiding memory access ");
                                 write_text("(simulate writing)".custom_color(*OUR_YELLOW));
                             }
-                            unknown_flag => {
-                                write_general_text("[intentrace: unknown madvise flag]")
-                            }
+                            _ => write_general_text("[intentrace: unknown madvise flag]"),
                         }
                     }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
                             write_general_text(" |=> ");
-                            write_text("memory advice registered".green());
+                            write_text("memory advice registered".bold().green());
                         }
-                        SyscallResult::Fail(errno) => {
+                        SyscallResult::Fail(_errno_variant) => {
                             // TODO! granular
-                            SyscallObject::one_line_error(errno);
-                        }
-                    },
-                }
-            }
-            Sysno::munmap => {
-                let address = parse_as_address(registers[0] as usize);
-                let len = parse_as_bytes_pages_ceil(registers[1] as usize);
-                match self.state {
-                    Entering => {
-                        write_general_text("unmap ");
-                        write_text(len.custom_color(*OUR_YELLOW));
-                        write_general_text(" from memory starting at ");
-                        write_text(address.custom_color(*OUR_YELLOW));
-                    }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
-                            write_general_text(" |=> ");
-                            write_text("successfully unmapped region".green());
-                        }
-                        SyscallResult::Fail(errno) => {
-                            // TODO! granular
-                            SyscallObject::one_line_error(errno);
+                            self.one_line_error();
                         }
                     },
                 }
@@ -1326,14 +1314,14 @@ impl SyscallObject {
                             write_general_text(")");
                         }
                     }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
                             write_general_text(" |=> ");
-                            write_text("successfully flushed data".green());
+                            write_text("successfully flushed data".bold().green());
                         }
-                        SyscallResult::Fail(errno) => {
+                        SyscallResult::Fail(_errno_variant) => {
                             // TODO! granular
-                            SyscallObject::one_line_error(errno);
+                            self.one_line_error();
                         }
                     },
                 }
@@ -1384,14 +1372,14 @@ impl SyscallObject {
                         write_general_text("starting from ");
                         write_text(address.custom_color(*OUR_YELLOW));
                     }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
                             write_general_text(" |=> ");
-                            write_text("memory protection modified".green());
+                            write_text("memory protection modified".bold().green());
                         }
-                        SyscallResult::Fail(errno) => {
+                        SyscallResult::Fail(_errno_variant) => {
                             // TODO! granular
-                            SyscallObject::one_line_error(errno);
+                            self.one_line_error();
                         }
                     },
                 }
@@ -1504,16 +1492,16 @@ impl SyscallObject {
                             _ => unreachable!(),
                         }
                     }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(syscall_return) => {
                             write_general_text(" |=> ");
-                            write_text("new offset location: ".green());
+                            write_text("new offset location: ".bold().green());
                             let offset = parse_as_signed_bytes(syscall_return);
                             write_text(offset.blue());
                         }
-                        SyscallResult::Fail(errno) => {
+                        SyscallResult::Fail(_errno_variant) => {
                             // TODO! granular
-                            SyscallObject::one_line_error(errno);
+                            self.one_line_error();
                         }
                     },
                 }
@@ -1528,14 +1516,14 @@ impl SyscallObject {
                         write_general_text(" starting from: ");
                         write_text(address.custom_color(*OUR_YELLOW));
                     }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
                             write_general_text(" |=> ");
-                            write_text("memory range is now unswappable".green());
+                            write_text("memory range is now unswappable".bold().green());
                         }
-                        SyscallResult::Fail(errno) => {
+                        SyscallResult::Fail(_errno_variant) => {
                             // TODO! granular
-                            SyscallObject::one_line_error(errno);
+                            self.one_line_error();
                         }
                     },
                 }
@@ -1543,7 +1531,6 @@ impl SyscallObject {
             Sysno::mlock2 => {
                 let address = parse_as_address(registers[0] as usize);
                 let bytes = parse_as_bytes_pages_ceil(registers[1] as usize);
-                let bytes_num = registers[1];
                 let flags = registers[2];
                 match self.state {
                     Entering => {
@@ -1560,21 +1547,20 @@ impl SyscallObject {
                             write_general_text(")");
                         }
                     }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
                             write_general_text(" |=> ");
-                            write_text("memory range is now unswappable".green());
+                            write_text("memory range is now unswappable".bold().green());
                         }
-                        SyscallResult::Fail(errno) => {
+                        SyscallResult::Fail(_errno_variant) => {
                             // TODO! granular
-                            SyscallObject::one_line_error(errno);
+                            self.one_line_error();
                         }
                     },
                 }
             }
             Sysno::munlock => {
                 let address = parse_as_address(registers[0] as usize);
-                let bytes_num = registers[1];
                 let bytes = parse_as_bytes_pages_ceil(registers[1] as usize);
 
                 match self.state {
@@ -1584,14 +1570,14 @@ impl SyscallObject {
                         write_general_text(" starting from: ");
                         write_text(address.custom_color(*OUR_YELLOW));
                     }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
                             write_general_text(" |=> ");
-                            write_text("memory range is now swappable".green());
+                            write_text("memory range is now swappable".bold().green());
                         }
-                        SyscallResult::Fail(errno) => {
+                        SyscallResult::Fail(_errno_variant) => {
                             // TODO! granular
-                            SyscallObject::one_line_error(errno);
+                            self.one_line_error();
                         }
                     },
                 }
@@ -1603,14 +1589,14 @@ impl SyscallObject {
                             "allow the entire memory of the calling process to be swappable",
                         );
                     }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
                             write_general_text(" |=> ");
-                            write_text("memory range is now swappable".green());
+                            write_text("memory range is now swappable".bold().green());
                         }
-                        SyscallResult::Fail(errno) => {
+                        SyscallResult::Fail(_errno_variant) => {
                             // TODO! granular
-                            SyscallObject::one_line_error(errno);
+                            self.one_line_error();
                         }
                     },
                 }
@@ -1623,11 +1609,13 @@ impl SyscallObject {
                 let old_len = parse_as_bytes_pages_ceil(registers[1] as usize);
                 let new_len_num = registers[2];
                 let new_len = parse_as_bytes_pages_ceil(registers[2] as usize);
-                let flags = parse_as_int(registers[0]);
+                let flags = parse_as_int(registers[3]);
                 let new_address_num = registers[4];
                 let new_address = parse_as_address(registers[4] as usize);
                 match self.state {
                     Entering => {
+                        // TODO!
+                        // announce the new size
                         if new_len_num > old_len_num {
                             write_general_text("expand the memory region of ");
                             write_text(old_len.custom_color(*OUR_YELLOW));
@@ -1673,20 +1661,19 @@ impl SyscallObject {
                             write_general_text(")");
                         }
                     }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
                             write_general_text(" |=> ");
-                            write_text("successful".green());
+                            write_text("successful".bold().green());
                         }
-                        SyscallResult::Fail(errno) => {
+                        SyscallResult::Fail(_errno_variant) => {
                             // TODO! granular
-                            SyscallObject::one_line_error(errno);
+                            self.one_line_error();
                         }
                     },
                 }
             }
             Sysno::mincore => {
-                // TODO! current mremap logic is not good and needs rewriting
                 let address_num = registers[0];
                 let address = parse_as_address(registers[0] as usize);
                 let length_num = registers[1];
@@ -1703,15 +1690,17 @@ impl SyscallObject {
                         write_general_text(
                             " indicating resident and non-resident pages in each byte",
                         );
+                        // TODO!
+                        // consider visualizing here
                     }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
                             write_general_text(" |=> ");
-                            write_text("successful".green());
+                            write_text("successful".bold().green());
                         }
-                        SyscallResult::Fail(errno) => {
+                        SyscallResult::Fail(_errno_variant) => {
                             // TODO! granular
-                            SyscallObject::one_line_error(errno);
+                            self.one_line_error();
                         }
                     },
                 }
@@ -1754,14 +1743,14 @@ impl SyscallObject {
                             }
                         }
                     }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
                             write_general_text(" |=> ");
-                            write_text("memory range is now unswappable".green());
+                            write_text("memory range is now unswappable".bold().green());
                         }
-                        SyscallResult::Fail(errno) => {
+                        SyscallResult::Fail(_errno_variant) => {
                             // TODO! granular
-                            SyscallObject::one_line_error(errno);
+                            self.one_line_error();
                         }
                     },
                 }
@@ -1779,8 +1768,8 @@ impl SyscallObject {
                         write_path_file(filename);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 // parse syscall_return per type similar to args (on demand)
                                 // ssize_t (read's return type) is i64
                                 write_general_text(" |=> ");
@@ -1788,21 +1777,23 @@ impl SyscallObject {
                                 let bytes = syscall_return;
                                 let bytes_string = Readers_Writers::parse_return(syscall_return);
                                 if bytes == 0 {
-                                    write_text("read ".green());
+                                    write_text("read ".bold().green());
                                     write_text(bytes_string.custom_color(*OUR_YELLOW));
-                                    write_text(" (end of file)".green());
+                                    write_text(" (end of file)".bold().green());
                                 } else if bytes < bytes_to_read {
-                                    write_text("read ".green());
+                                    write_text("read ".bold().green());
                                     write_text(bytes_string.custom_color(*OUR_YELLOW));
-                                    write_text(" (fewer than requested)".green());
+                                    write_text(" (fewer than requested)".bold().green());
                                 } else {
-                                    write_text("read all ".green());
+                                    write_text("read all ".bold().green());
                                     write_text(bytes_to_read.to_string().custom_color(*OUR_YELLOW));
                                     write_text(" Bytes".custom_color(*OUR_YELLOW));
                                 }
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -1819,8 +1810,8 @@ impl SyscallObject {
                         write_path_file(filename);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let bytes_string = Readers_Writers::parse_return(syscall_return);
                                 let bytes_num = parse_as_ssize_t(syscall_return as usize);
                                 write_general_text(" |=> ");
@@ -1830,11 +1821,11 @@ impl SyscallObject {
                                 // is because linux limits the read write limits to PTRDIFF_MAX
                                 // which is equal to isize::MAX anyways
                                 if bytes_num < parse_as_ssize_t(bytes_to_write as usize) {
-                                    write_text("wrote ".green());
+                                    write_text("wrote ".bold().green());
                                     write_text(bytes_string.custom_color(*OUR_YELLOW));
-                                    write_text(" (fewer than requested)".green());
+                                    write_text(" (fewer than requested)".bold().green());
                                 } else {
-                                    write_text("wrote all ".green());
+                                    write_text("wrote all ".bold().green());
                                     write_text(
                                         bytes_to_write.to_string().custom_color(*OUR_YELLOW),
                                     );
@@ -1842,15 +1833,17 @@ impl SyscallObject {
                                 }
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
             }
             Sysno::pread64 => {
-                let bytes = parse_as_unsigned_bytes(registers[2]);
-                let bytes_to_read = registers[2];
                 let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
+                let bytes_to_read = registers[2];
+                let bytes = parse_as_unsigned_bytes(registers[2]);
                 let offset = parse_as_signed_bytes(registers[3]);
                 match self.state {
                     Entering => {
@@ -1862,36 +1855,38 @@ impl SyscallObject {
                         write_text(offset.custom_color(*OUR_YELLOW));
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 write_general_text(" |=> ");
                                 // no need to convert to isize here
                                 let bytes = syscall_return;
                                 let bytes_string = Readers_Writers::parse_return(syscall_return);
                                 if bytes == 0 {
-                                    write_text("read ".green());
+                                    write_text("read ".bold().green());
                                     write_text(bytes_string.custom_color(*OUR_YELLOW));
-                                    write_text(" (end of file)".green());
+                                    write_text(" (end of file)".bold().green());
                                 } else if bytes < bytes_to_read {
-                                    write_text("read ".green());
+                                    write_text("read ".bold().green());
                                     write_text(bytes_string.custom_color(*OUR_YELLOW));
-                                    write_text(" (fewer than requested)".green());
+                                    write_text(" (fewer than requested)".bold().green());
                                 } else {
-                                    write_text("read all ".green());
+                                    write_text("read all ".bold().green());
                                     write_text(bytes_to_read.to_string().custom_color(*OUR_YELLOW));
                                     write_text(" Bytes".custom_color(*OUR_YELLOW));
                                 }
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
             }
             Sysno::pwrite64 => {
-                let bytes = parse_as_unsigned_bytes(registers[3]);
-                let bytes_to_write = registers[2];
                 let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
+                let bytes_to_write = registers[2];
+                let bytes = parse_as_unsigned_bytes(registers[2]);
                 let offset = parse_as_signed_bytes(registers[3]);
 
                 match self.state {
@@ -1904,8 +1899,8 @@ impl SyscallObject {
                         write_text(offset.custom_color(*OUR_YELLOW));
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let bytes_string = Readers_Writers::parse_return(syscall_return);
                                 let bytes_num = parse_as_ssize_t(syscall_return as usize);
                                 write_general_text(" |=> ");
@@ -1915,11 +1910,11 @@ impl SyscallObject {
                                 // is because linux limits the read write limits to PTRDIFF_MAX
                                 // which is equal to isize::MAX anyways
                                 if bytes_num < parse_as_ssize_t(bytes_to_write as usize) {
-                                    write_text("wrote ".green());
+                                    write_text("wrote ".bold().green());
                                     write_text(bytes_string.custom_color(*OUR_YELLOW));
-                                    write_text(" (fewer than requested)".green());
+                                    write_text(" (fewer than requested)".bold().green());
                                 } else {
-                                    write_text("wrote all ".green());
+                                    write_text("wrote all ".bold().green());
                                     write_text(
                                         bytes_to_write.to_string().custom_color(*OUR_YELLOW),
                                     );
@@ -1927,7 +1922,9 @@ impl SyscallObject {
                                 }
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -1947,15 +1944,17 @@ impl SyscallObject {
                         write_path_file(filename);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let bytes_string = Readers_Writers::parse_return(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("read ".green());
+                                write_text("read ".bold().green());
                                 write_text(bytes_string.custom_color(*OUR_YELLOW));
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -1976,22 +1975,24 @@ impl SyscallObject {
                         write_path_file(filename);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let bytes_string = Readers_Writers::parse_return(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("wrote ".green());
+                                write_text("wrote ".bold().green());
                                 write_text(bytes_string.custom_color(*OUR_YELLOW));
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
             }
             Sysno::preadv => {
-                let number_of_iovecs = registers[2];
                 let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
+                let number_of_iovecs = registers[2];
                 let offset = parse_as_signed_bytes(registers[3]);
                 match self.state {
                     Entering => {
@@ -2007,22 +2008,24 @@ impl SyscallObject {
                         write_text(offset.custom_color(*OUR_YELLOW));
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let bytes_string = Readers_Writers::parse_return(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("read ".green());
+                                write_text("read ".bold().green());
                                 write_text(bytes_string.custom_color(*OUR_YELLOW));
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
             }
             Sysno::pwritev => {
-                let number_of_iovecs = registers[2];
                 let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
+                let number_of_iovecs = registers[2];
                 let offset = parse_as_signed_bytes(registers[3]);
 
                 match self.state {
@@ -2039,15 +2042,17 @@ impl SyscallObject {
                         write_text(offset.custom_color(*OUR_YELLOW));
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let bytes_string = Readers_Writers::parse_return(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("wrote ".green());
+                                write_text("wrote ".bold().green());
                                 write_text(bytes_string.custom_color(*OUR_YELLOW));
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -2058,17 +2063,17 @@ impl SyscallObject {
                         write_general_text("create a pipe for inter-process communication");
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
                                 match read_one_word(registers[0] as usize, self.tracee_pid) {
                                     Some(pipe_fds) => {
-                                        write_text("created the pipe".green());
+                                        write_text("created the pipe".bold().green());
                                         // TODO!
                                         // this errors with NotFound
                                         // commented for now
                                         //
-                                        // write_text("created the pipe: ".green());
+                                        // write_text("created the pipe: ".bold().green());
                                         // let pipes: [i32; 2] = unsafe {
                                         //     std::mem::transmute::<usize, [i32; 2]>(pipe_fds)
                                         // };
@@ -2089,11 +2094,13 @@ impl SyscallObject {
                                         //     .custom_color(*PAGES_COLOR),
                                         // );
                                     }
-                                    None => write_text("created the pipe".green()),
+                                    None => write_text("created the pipe".bold().green()),
                                 }
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -2107,12 +2114,12 @@ impl SyscallObject {
                         // open flags granularity
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
                                 match read_one_word(registers[0] as usize, self.tracee_pid) {
                                     Some(pipe_fds) => {
-                                        write_text("created the pipe: ".green());
+                                        write_text("created the pipe: ".bold().green());
                                         let pipes: [i32; 2] = unsafe {
                                             std::mem::transmute::<usize, [i32; 2]>(pipe_fds)
                                         };
@@ -2133,11 +2140,13 @@ impl SyscallObject {
                                             .custom_color(*PAGES_COLOR),
                                         );
                                     }
-                                    None => write_text("created the pipe".green()),
+                                    None => write_text("created the pipe".bold().green()),
                                 }
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -2150,16 +2159,20 @@ impl SyscallObject {
                         write_path_file(file_descriptor);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let file =
                                     parse_as_file_descriptor(syscall_return, self.tracee_pid);
                                 write_general_text(" |=> ");
-                                write_text("created a new duplicate file descriptor: ".green());
+                                write_text(
+                                    "created a new duplicate file descriptor: ".bold().green(),
+                                );
                                 write_path_file(file);
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -2179,16 +2192,20 @@ impl SyscallObject {
                         );
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let file =
                                     parse_as_file_descriptor(syscall_return, self.tracee_pid);
                                 write_general_text(" |=> ");
-                                write_text("created a new duplicate file descriptor: ".green());
+                                write_text(
+                                    "created a new duplicate file descriptor: ".bold().green(),
+                                );
                                 write_path_file(file);
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -2211,16 +2228,20 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let file =
                                     parse_as_file_descriptor(syscall_return, self.tracee_pid);
                                 write_general_text(" |=> ");
-                                write_text("created a new duplicate file descriptor: ".green());
+                                write_text(
+                                    "created a new duplicate file descriptor: ".bold().green(),
+                                );
                                 write_path_file(file);
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -2279,13 +2300,15 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("directory created".green());
+                                write_text("directory created".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -2304,7 +2327,7 @@ impl SyscallObject {
 
                 // If pathname is absolute, then dirfd is ignored.
 
-                let dirfd = parse_as_int(registers[0]) as i32;
+                let dirfd = parse_as_int(registers[0]);
                 let path = string_from_pointer(registers[1] as usize, self.tracee_pid);
 
                 match self.state {
@@ -2363,13 +2386,15 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("directory created".green());
+                                write_text("directory created".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -2388,13 +2413,15 @@ impl SyscallObject {
                         write_text(oldpath.custom_color(*OUR_YELLOW));
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("hard link created".green());
+                                write_text("hard link created".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -2508,13 +2535,15 @@ impl SyscallObject {
                         write_directives(flag_directive);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("hard link created".green());
+                                write_text("hard link created".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -2527,19 +2556,21 @@ impl SyscallObject {
                         write_path_file(path);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("unlinking successful".green());
+                                write_text("unlinking successful".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     } // caution: the file is deleted at this point
                 }
             }
             Sysno::unlinkat => {
-                let dirfd = parse_as_int(registers[0]) as i32;
+                let dirfd = parse_as_int(registers[0]);
                 let path = string_from_pointer(registers[1] as usize, self.tracee_pid);
                 let flag = parse_as_int(registers[2]);
                 match self.state {
@@ -2555,13 +2586,15 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("unlinking successful".green());
+                                write_text("unlinking successful".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     } // caution: the file is deleted at this point
                 }
@@ -2574,13 +2607,15 @@ impl SyscallObject {
                         write_path_file(directory);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("directory deleted".green());
+                                write_text("directory deleted".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -2597,20 +2632,22 @@ impl SyscallObject {
                         write_path_file(target);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("symlink created".green());
+                                write_text("symlink created".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
             }
             Sysno::symlinkat => {
                 let target = string_from_pointer(registers[0] as usize, self.tracee_pid);
-                let dirfd = parse_as_int(registers[0]) as i32;
+                let dirfd = parse_as_int(registers[1]);
                 let symlink = string_from_pointer(registers[2] as usize, self.tracee_pid);
 
                 match self.state {
@@ -2621,13 +2658,15 @@ impl SyscallObject {
                         write_path_file(target);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("symlink created".green());
+                                write_text("symlink created".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -2640,10 +2679,10 @@ impl SyscallObject {
                         write_path_file(filename);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("target retrieved: ".green());
+                                write_text("target retrieved: ".bold().green());
                                 match read_string_specific_length(
                                     registers[1] as usize,
                                     self.tracee_pid,
@@ -2660,13 +2699,15 @@ impl SyscallObject {
                                 };
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
             }
             Sysno::readlinkat => {
-                let dirfd = parse_as_int(registers[0]) as i32;
+                let dirfd = parse_as_int(registers[0]);
                 let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
                 match self.state {
                     Entering => {
@@ -2697,7 +2738,9 @@ impl SyscallObject {
                                 write_general_text("(");
                                 write_text("relative to: ".custom_color(*OUR_YELLOW));
                                 let dirfd_resolved = find_fd_for_tracee(dirfd, self.tracee_pid)
-                                    .unwrap_or("COULDN'T LOCATE FILE DESCRIPTOR".to_owned());
+                                    .unwrap_or(
+                                        "[intentrace: could not locate file descriptor]".to_owned(),
+                                    );
                                 write_text(dirfd_resolved.custom_color(*OUR_YELLOW));
                                 write_general_text(")");
                             }
@@ -2713,16 +2756,23 @@ impl SyscallObject {
                         //
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("target retrieved: ".green());
-                                let target =
-                                    string_from_pointer(registers[2] as usize, self.tracee_pid);
-                                write_path_file(target);
+                                write_text("target retrieved: ".bold().green());
+                                match read_string_specific_length(
+                                    registers[1] as usize,
+                                    self.tracee_pid,
+                                    registers[2] as usize,
+                                ) {
+                                    Some(target) => write_path_file(target),
+                                    None => todo!(),
+                                };
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -2733,7 +2783,7 @@ impl SyscallObject {
                 let access_mode = parse_as_int(registers[1]);
                 match self.state {
                     Entering => {
-                        if (access_mode & F_OK) == F_OK {
+                        if access_mode == F_OK {
                             write_general_text("check if the file: ");
                             write_path_file(filename);
                             write_text(" exists".custom_color(*OUR_YELLOW));
@@ -2758,26 +2808,28 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("check is positive".green());
+                                write_text("check is positive".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
             }
             Sysno::faccessat => {
-                let dirfd = parse_as_int(registers[0]) as i32;
+                let dirfd = parse_as_int(registers[0]);
                 let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
                 let access_mode = parse_as_int(registers[2]);
                 let flags = parse_as_int(registers[3]);
 
                 match self.state {
                     Entering => {
-                        if (access_mode & F_OK) == F_OK {
+                        if access_mode == F_OK {
                             write_general_text("check if the file: ");
                             write_path_file(filename);
                             write_text(" exists".custom_color(*OUR_YELLOW));
@@ -2831,26 +2883,28 @@ impl SyscallObject {
                         write_directives(flag_directive);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("check is positive".green());
+                                write_text("check is positive".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
             }
             Sysno::faccessat2 => {
-                let dirfd = parse_as_int(registers[0]) as i32;
+                let dirfd = parse_as_int(registers[0]);
                 let dirfd_parsed = find_fd_for_tracee(dirfd, self.tracee_pid);
                 let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
                 let access_mode = parse_as_int(registers[2]);
                 let flags = parse_as_int(registers[3]);
                 match self.state {
                     Entering => {
-                        if (access_mode & F_OK) == F_OK {
+                        if access_mode == F_OK {
                             write_general_text("check if the file: ");
                             //
                             //
@@ -2935,7 +2989,8 @@ impl SyscallObject {
                                         write_text("relative to: ".custom_color(*OUR_YELLOW));
                                         let dirfd_resolved =
                                             find_fd_for_tracee(dirfd, self.tracee_pid).unwrap_or(
-                                                "COULDN'T LOCATE FILE DESCRIPTOR".to_owned(),
+                                                "[intentrace: could not locate file descriptor]"
+                                                    .to_owned(),
                                             );
                                         write_text(dirfd_resolved.custom_color(*OUR_YELLOW));
                                         write_general_text(")");
@@ -2980,13 +3035,15 @@ impl SyscallObject {
                         write_directives(flag_directive);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("check is positive".green());
+                                write_text("check is positive".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3004,14 +3061,16 @@ impl SyscallObject {
                         write_path_file(new_path);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
                                 // TODO! granular
-                                write_text("file moved".green());
+                                write_text("file moved".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3030,14 +3089,16 @@ impl SyscallObject {
                         write_possible_dirfd_file(new_dirfd, new_filename, self.tracee_pid);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
                                 // TODO! granular
-                                write_text("file moved".green());
+                                write_text("file moved".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3072,14 +3133,16 @@ impl SyscallObject {
                         write_directives(directives);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
                                 // TODO! granular
-                                write_text("file moved".green());
+                                write_text("file moved".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3099,7 +3162,7 @@ impl SyscallObject {
                         } else {
                             write_general_text("open the file: ");
                         }
-                        write_possible_dirfd_file(dirfd as i32, filename, self.tracee_pid);
+                        write_possible_dirfd_file(dirfd, filename, self.tracee_pid);
 
                         let mut directives = vec![];
                         if (flags_num & O_APPEND) == O_APPEND {
@@ -3136,8 +3199,20 @@ impl SyscallObject {
                         }
                         if flags_num == O_LARGEFILE {
                             directives.push(
-                                "allow files larger than `off_t` and up to `off64_t`"
-                                    .custom_color(*OUR_YELLOW),
+                                "enable LFS".custom_color(*OUR_YELLOW),
+                                // simplify hacky code
+                                // String::from_iter(
+                                //     [
+                                //         "allow files larger than "
+                                //             .custom_color(*OUR_YELLOW)
+                                //             .to_string(),
+                                //         "off_t".custom_color(*PAGES_COLOR).to_string(),
+                                //         " and up to ".custom_color(*OUR_YELLOW).to_string(),
+                                //         "off64_t".custom_color(*PAGES_COLOR).to_string(),
+                                //     ]
+                                //     .into_iter(),
+                                // )
+                                // .custom_color(*OUR_YELLOW),
                             );
                         }
                         if (flags_num & O_NOATIME) == O_NOATIME {
@@ -3182,14 +3257,14 @@ impl SyscallObject {
                             );
                         }
                     }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
                             write_general_text(" |=> ");
-                            write_text("successfully opened file".green());
+                            write_text("successfully opened file".bold().green());
                         }
-                        SyscallResult::Fail(errno) => {
+                        SyscallResult::Fail(_errno_variant) => {
                             // TODO! granular
-                            SyscallObject::one_line_error(errno);
+                            self.one_line_error();
                         }
                     },
                 }
@@ -3205,13 +3280,15 @@ impl SyscallObject {
                         // mode granularity
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("file created".green());
+                                write_text("file created".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3222,16 +3299,18 @@ impl SyscallObject {
                         write_general_text("get the current working directory");
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let cwd =
                                     string_from_pointer(syscall_return as usize, self.tracee_pid);
                                 write_general_text(" |=> ");
-                                write_text("path retrieved: ".green());
+                                write_text("path retrieved: ".bold().green());
                                 write_text(cwd.custom_color(*OUR_YELLOW));
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3244,13 +3323,15 @@ impl SyscallObject {
                         write_path_file(directory);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("curent working directory changed".green());
+                                write_text("curent working directory changed".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3263,13 +3344,15 @@ impl SyscallObject {
                         write_path_file(directory);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("curent working directory changed".green());
+                                write_text("curent working directory changed".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3284,13 +3367,15 @@ impl SyscallObject {
                         self.mode_matcher(mode);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("mode changed".green());
+                                write_text("mode changed".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3305,23 +3390,25 @@ impl SyscallObject {
                         self.mode_matcher(mode);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("mode changed".green());
+                                write_text("mode changed".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
             }
             Sysno::fchmodat => {
-                let dirfd = parse_as_int(registers[0]) as i32;
+                let dirfd = parse_as_int(registers[0]);
                 let dirfd_parsed = find_fd_for_tracee(dirfd, self.tracee_pid);
                 let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
-                let mode = registers[1] as u32;
-                let flag = parse_as_int(registers[0]);
+                let mode = lower_32_bits(registers[2]);
+                let flag = parse_as_int(registers[3]);
                 match self.state {
                     Entering => {
                         write_general_text("change the mode of the file: ");
@@ -3335,13 +3422,15 @@ impl SyscallObject {
                         // AT_SYMLINK_FOLLOW?
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("mode changed".green());
+                                write_text("mode changed".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3352,13 +3441,15 @@ impl SyscallObject {
                         write_general_text("flush all pending filesystem data and metadata writes");
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("all writes flushed".green());
+                                write_text("all writes flushed".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3371,13 +3462,15 @@ impl SyscallObject {
                         write_path_file(filename);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("successfully flushed data".green());
+                                write_text("successfully flushed data".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3392,13 +3485,15 @@ impl SyscallObject {
                         write_path_file(filename);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("all writes flushed".green());
+                                write_text("all writes flushed".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3411,13 +3506,15 @@ impl SyscallObject {
                         write_path_file(filename);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("all writes flushed".green());
+                                write_text("all writes flushed".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3425,7 +3522,7 @@ impl SyscallObject {
 
             Sysno::truncate => {
                 let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
-                let length = parse_as_signed_bytes(registers[3]);
+                let length = parse_as_signed_bytes(registers[1]);
                 match self.state {
                     Entering => {
                         write_general_text("change the size of the file: ");
@@ -3434,20 +3531,22 @@ impl SyscallObject {
                         write_text(length.custom_color(*OUR_YELLOW));
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("successful".green());
+                                write_text("successful".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
             }
             Sysno::ftruncate => {
                 let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                let length = parse_as_signed_bytes(registers[3]);
+                let length = parse_as_signed_bytes(registers[1]);
                 match self.state {
                     Entering => {
                         write_general_text("change the size of the file: ");
@@ -3456,13 +3555,15 @@ impl SyscallObject {
                         write_text(length.custom_color(*OUR_YELLOW));
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("successful".green());
+                                write_text("successful".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3511,7 +3612,7 @@ impl SyscallObject {
                             write_text("wait forever".custom_color(*OUR_YELLOW));
                         } else {
                             let timeval = read_bytes_as_struct::<16, timeval>(
-                                registers[4] as usize,
+                                timeout as usize,
                                 self.tracee_pid as _,
                             )
                             .unwrap();
@@ -3520,19 +3621,21 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let select_return = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
                                 if select_return == 0 {
-                                    write_text("timed out before any events".green());
+                                    write_text("timed out before any events".bold().green());
                                 } else if select_return > 0 {
                                     write_text(select_return.to_string().blue());
-                                    write_text(" file descriptors with new events".green());
+                                    write_text(" file descriptors with new events".bold().green());
                                 }
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3584,7 +3687,7 @@ impl SyscallObject {
                             write_text("wait forever".custom_color(*OUR_YELLOW));
                         } else {
                             let timespec = read_bytes_as_struct::<16, timespec>(
-                                registers[4] as usize,
+                                timeout as usize,
                                 self.tracee_pid as _,
                             )
                             .unwrap();
@@ -3593,19 +3696,21 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let select_return = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
                                 if select_return == 0 {
-                                    write_text("timed out before any events".green());
+                                    write_text("timed out before any events".bold().green());
                                 } else if select_return > 0 {
                                     write_text(select_return.to_string().blue());
-                                    write_text(" file descriptors with new events".green());
+                                    write_text(" file descriptors with new events".bold().green());
                                 }
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3633,19 +3738,21 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let num_fds = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
                                 if num_fds == 0 {
-                                    write_text("timed out before any events".green());
+                                    write_text("timed out before any events".bold().green());
                                 } else {
                                     write_text(num_fds.to_string().blue());
-                                    write_text(" file descriptors with new events".green());
+                                    write_text(" file descriptors with new events".bold().green());
                                 }
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3686,19 +3793,21 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let num_fds = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
                                 if num_fds == 0 {
-                                    write_text("timed out before any events".green());
+                                    write_text("timed out before any events".bold().green());
                                 } else {
                                     write_text(num_fds.to_string().blue());
-                                    write_text(" file descriptors with new events".green());
+                                    write_text(" file descriptors with new events".bold().green());
                                 }
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3713,15 +3822,19 @@ impl SyscallObject {
                         write_general_text(" file descriptors");
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let epoll_descriptor = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("epoll instance created with descriptor: ".green());
+                                write_text(
+                                    "epoll instance created with descriptor: ".bold().green(),
+                                );
                                 write_text(epoll_descriptor.to_string().custom_color(*PAGES_COLOR));
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3741,15 +3854,19 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let epoll_descriptor = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("epoll instance created with descriptor: ".green());
+                                write_text(
+                                    "epoll instance created with descriptor: ".bold().green(),
+                                );
                                 write_text(epoll_descriptor.to_string().custom_color(*PAGES_COLOR));
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3780,19 +3897,21 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let num_fds = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
                                 if num_fds == 0 {
-                                    write_text("timed out before any events".green());
+                                    write_text("timed out before any events".bold().green());
                                 } else {
                                     write_text(num_fds.to_string().blue());
-                                    write_text(" file descriptors with new events".green());
+                                    write_text(" file descriptors with new events".bold().green());
                                 }
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3833,19 +3952,21 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let num_fds = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
                                 if num_fds == 0 {
-                                    write_text("timed out before any events".green());
+                                    write_text("timed out before any events".bold().green());
                                 } else {
                                     write_text(num_fds.to_string().blue());
-                                    write_text(" file descriptors with new events".green());
+                                    write_text(" file descriptors with new events".bold().green());
                                 }
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3890,19 +4011,21 @@ impl SyscallObject {
                         write_general_text(" ");
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let num_fds = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
                                 if num_fds == 0 {
-                                    write_text("timed out before any events".green());
+                                    write_text("timed out before any events".bold().green());
                                 } else {
                                     write_text(num_fds.to_string().blue());
-                                    write_text(" file descriptors with new events".green());
+                                    write_text(" file descriptors with new events".bold().green());
                                 }
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3936,12 +4059,14 @@ impl SyscallObject {
                         // events struct is currently ignored
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
-                                write_text("Successfull".green());
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
+                                write_text("Successfull".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -3952,35 +4077,36 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         write_general_text("perform operation ");
-                        write_text(
-                            format!("#{}", operation.to_string()).custom_color(*PAGES_COLOR),
-                        );
+                        write_text(format!("#{}", operation).custom_color(*PAGES_COLOR));
                         write_general_text(" on the device: ");
                         write_path_file(filename);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("operation successful".green());
+                                write_text("operation successful".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(errno_variant) => {
                                 write_general_text(" |=> ");
-                                match errno {
-                                    Errno::EBADF => {
-                                        write_text("file descriptor invalid".red());
-                                    }
-                                    Errno::EFAULT => {
-                                        write_text("argp is inaccessible".red());
-                                    }
-                                    Errno::EINVAL => {
-                                        write_text("either op or argp is invalid".red());
-                                    }
-                                    Errno::ENOTTY => {
-                                        write_text("operation incompatible with the file descriptor, or the file descriptor is not a TTY".red());
-                                    }
-                                    _ => SyscallObject::one_line_error(errno),
+                                match errno_variant {
+                                    ErrnoVariant::Userland(errno) => match errno {
+                                        Errno::EBADF => {
+                                            write_text("file descriptor invalid".red());
+                                        }
+                                        Errno::EFAULT => {
+                                            write_text("argp is inaccessible".red());
+                                        }
+                                        Errno::EINVAL => {
+                                            write_text("either op or argp is invalid".red());
+                                        }
+                                        Errno::ENOTTY => {
+                                            write_text("operation incompatible with the file descriptor, or the file descriptor is not a TTY".red());
+                                        }
+                                        _ => self.one_line_error(),
+                                    },
+                                    _ => self.one_line_error(),
                                 }
                             }
                         }
@@ -3993,18 +4119,20 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         write_general_text("perform operation ");
-                        write_text(format!("#{}", operation.to_string()).custom_color(*OUR_YELLOW));
+                        write_text(format!("#{}", operation).custom_color(*OUR_YELLOW));
                         write_general_text(" on the file: ");
                         write_path_file(filename);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("operation successful".green());
+                                write_text("operation successful".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -4054,28 +4182,36 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
 
                                 if (operation & ARCH_SET_CPUID) == ARCH_SET_CPUID {
                                     if addr == 0 {
                                         write_text(
-                                            "successfully disabled the `cpuid` instruction".green(),
+                                            "successfully disabled the `cpuid` instruction"
+                                                .bold()
+                                                .green(),
                                         );
                                     } else {
                                         write_text(
-                                            "successfully enabled the `cpuid` instruction".green(),
+                                            "successfully enabled the `cpuid` instruction"
+                                                .bold()
+                                                .green(),
                                         );
                                     }
                                 } else if (operation & ARCH_GET_CPUID) == ARCH_GET_CPUID {
                                     if addr == 0 {
-                                        write_text("the `cpuid` instruction is disabled".green());
+                                        write_text(
+                                            "the `cpuid` instruction is disabled".bold().green(),
+                                        );
                                     } else {
-                                        write_text("the `cpuid` instruction is enabled".green());
+                                        write_text(
+                                            "the `cpuid` instruction is enabled".bold().green(),
+                                        );
                                     }
                                 } else if (operation & ARCH_SET_FS) == ARCH_SET_FS {
-                                    write_text("FS register modified".green());
+                                    write_text("FS register modified".bold().green());
                                 } else if (operation & ARCH_GET_FS) == ARCH_GET_FS
                                     || (operation & ARCH_GET_GS) == ARCH_GET_GS
                                 {
@@ -4089,19 +4225,25 @@ impl SyscallObject {
                                                 .bright_black(),
                                         };
                                     if (operation & ARCH_GET_FS) == ARCH_GET_FS {
-                                        write_text("retrieved value of the FS register: ".green());
+                                        write_text(
+                                            "retrieved value of the FS register: ".bold().green(),
+                                        );
                                         write_text(parsed_register);
                                     } else if (operation & ARCH_GET_GS) == ARCH_GET_GS {
-                                        write_text("retrieved value of the GS register ".green());
+                                        write_text(
+                                            "retrieved value of the GS register ".bold().green(),
+                                        );
                                         write_text(parsed_register);
                                     }
                                 } else if (operation & ARCH_SET_GS) == ARCH_SET_GS {
-                                    write_text("GS register modified".green());
+                                    write_text("GS register modified".bold().green());
                                 } else if (operation & ARCH_GET_GS) == ARCH_GET_GS {
                                 }
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -4114,13 +4256,15 @@ impl SyscallObject {
                         );
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("successfully yielded CPU".green());
+                                write_text("successfully yielded CPU".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -4211,7 +4355,7 @@ impl SyscallObject {
                                     _ => {
                                         write_general_text("change the process's handler for ");
                                         write_text(signal_as_string.custom_color(*PAGES_COLOR));
-                                        write_general_text(" to the provided action");
+                                        write_general_text(" to the provided handler");
                                     }
                                 },
                                 None => {
@@ -4230,7 +4374,8 @@ impl SyscallObject {
                             //
                         } else {
                             if !old_signal_action.is_null() {
-                                write_general_text("retrieve the current signal handler");
+                                write_general_text("retrieve the current signal handler for ");
+                                write_text(signal_as_string.custom_color(*PAGES_COLOR));
                             } else {
                                 write_general_text("check if the current machine supports: ");
                                 write_text(signal_as_string.custom_color(*OUR_YELLOW));
@@ -4238,13 +4383,15 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("successful".green());
+                                write_text("successful".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -4281,12 +4428,12 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
                                 if set == 0 {
                                     if !old_set != 0 {
-                                        write_text("retrieved blocked signals".green());
+                                        write_text("retrieved blocked signals".bold().green());
                                     } else {
                                         write_text(
                                             "[intentrace: redundant syscall (won't do anything)]"
@@ -4296,20 +4443,22 @@ impl SyscallObject {
                                 } else {
                                     match how {
                                         SIG_BLOCK => {
-                                            write_text("signals added".green());
+                                            write_text("signals added".bold().green());
                                         }
                                         SIG_UNBLOCK => {
-                                            write_text("signals removed".green());
+                                            write_text("signals removed".bold().green());
                                         }
                                         SIG_SETMASK => {
-                                            write_text("successfully replaced".green());
+                                            write_text("successfully replaced".bold().green());
                                         }
                                         _ => {}
                                     }
                                 }
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -4317,14 +4466,16 @@ impl SyscallObject {
             Sysno::rt_sigsuspend => {
                 match self.state {
                     Entering => {
-                        // TODO!
-                        // rephrase, too long
-                        write_general_text("replace the process' signal mask temporarily using the provided mask, and wait until a signal arrives that invokes a signal handler or one that terminates the thread");
+                        write_general_text("temporarily use the provided signal mask for ");
+                        write_text("the calling thread".custom_color(*OUR_YELLOW));
+                        write_general_text(
+                            " and wait until a signal triggers a handler or terminates the thread",
+                        );
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => unreachable!(),
-                            SyscallResult::Fail(errno) => {
+                        match &self.result {
+                            SyscallResult::Success(_syscall_return) => unreachable!(),
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
                                 // this syscall always errors with EINTR,
                                 // as a result it will display an error (red)
@@ -4332,7 +4483,7 @@ impl SyscallObject {
                                 // because it waits for interruptions
                                 // this should be communicated correctly
                                 // communicate that this is intentional
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4360,29 +4511,30 @@ impl SyscallObject {
                         );
                         }
                     },
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
                             write_general_text(" |=> ");
                             match (new_stack_null, old_stack_null) {
                                 (true, true) => {
-                                    write_text("successful".green());
+                                    write_text("successful".bold().green());
                                 }
                                 (true, false) => {
-                                    write_text("successfully replaced".green());
+                                    write_text("successfully replaced".bold().green());
                                 }
                                 (false, true) => {
-                                    write_text("signal stack retrieved".green());
+                                    write_text("signal stack retrieved".bold().green());
                                 }
                                 (false, false) => {
                                     write_text(
                                         "signal stack replaced and old signal stack retrieved"
+                                            .bold()
                                             .green(),
                                     );
                                 }
                             }
                         }
                         // TODO! granular
-                        SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                        SyscallResult::Fail(_errno_variant) => self.one_line_error(),
                     },
                 }
             }
@@ -4390,23 +4542,25 @@ impl SyscallObject {
                 Entering => {
                     write_general_text("return from signal handler and cleanup");
                 }
-                Exiting => match self.result {
-                    SyscallResult::Success(syscall_return) => unreachable!(),
-                    SyscallResult::Fail(errno) => unreachable!(),
+                Exiting => match &self.result {
+                    SyscallResult::Success(_syscall_return) => {
+                        write_general_text(" |=> ");
+                        write_text("successful".bold().green());
+                    }
+                    SyscallResult::Fail(_errno_variant) => unreachable!(),
                 },
             },
             Sysno::rt_sigpending => match self.state {
                 Entering => {
-                    write_general_text(
-                        "return the signals pending for delivery for the calling thread",
-                    );
+                    write_general_text("return the signals pending for delivery for ");
+                    write_text("the calling thread".custom_color(*OUR_YELLOW));
                 }
-                Exiting => match self.result {
-                    SyscallResult::Success(syscall_return) => {
+                Exiting => match &self.result {
+                    &SyscallResult::Success(_syscall_return) => {
                         write_general_text(" |=> ");
-                        write_text("pending signals returned".green());
+                        write_text("pending signals returned".bold().green());
                     }
-                    SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                    SyscallResult::Fail(_errno_variant) => self.one_line_error(),
                 },
             },
             Sysno::rt_sigtimedwait => {
@@ -4424,14 +4578,14 @@ impl SyscallObject {
                         write_general_text(" passes");
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("Successful".green());
+                                write_text("Successful".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4449,14 +4603,14 @@ impl SyscallObject {
                         write_text(thread_group.to_string().custom_color(*PAGES_COLOR));
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("data and signal sent".green());
+                                write_text("data and signal sent".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4477,14 +4631,14 @@ impl SyscallObject {
                         write_text(thread_group.to_string().custom_color(*PAGES_COLOR));
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("data and signal sent".green());
+                                write_text("data and signal sent".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4503,14 +4657,14 @@ impl SyscallObject {
                         write_text(pidfd.to_string().custom_color(*PAGES_COLOR));
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("signal sent".green());
+                                write_text("signal sent".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4531,16 +4685,16 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let signalfd = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("signalfd created: ".green());
+                                write_text("signalfd created: ".bold().green());
                                 write_text(signalfd.to_string().custom_color(*PAGES_COLOR));
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4575,16 +4729,16 @@ impl SyscallObject {
                         write_directives(flag_directives);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let signalfd = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("signalfd created: ".green());
+                                write_text("signalfd created: ".bold().green());
                                 write_text(signalfd.to_string().custom_color(*PAGES_COLOR));
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4624,15 +4778,15 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 // TODO! granular
                                 write_general_text(" |=> ");
-                                write_text("signal sent".green());
+                                write_text("signal sent".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4653,15 +4807,15 @@ impl SyscallObject {
                         write_text(thread_group.to_string().custom_color(*PAGES_COLOR));
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 // TODO! granular
                                 write_general_text(" |=> ");
-                                write_text("signal sent".green());
+                                write_text("signal sent".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4679,15 +4833,15 @@ impl SyscallObject {
                         write_text(thread.to_string().custom_color(*PAGES_COLOR));
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 // TODO! granular
                                 write_general_text(" |=> ");
-                                write_text("signal sent".green());
+                                write_text("signal sent".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4697,16 +4851,17 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         write_general_text("pause execution until a signal terminates the process or triggers a handler");
+                        self.currently_blocking = true;
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => unreachable!(),
-                            SyscallResult::Fail(errno) => {
+                        match &self.result {
+                            SyscallResult::Success(_syscall_return) => unreachable!(),
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO!
                                 // getting here means a termination signal/signal handler was triggered
-                                // this path always errors
+                                // this syscall always errors
                                 // see rt_sigsuspend, similar situation
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4715,19 +4870,20 @@ impl SyscallObject {
             Sysno::gettid => {
                 match self.state {
                     Entering => {
-                        write_general_text("get the thread id of the calling thread");
+                        write_general_text("get the thread id of ");
+                        write_text("the calling thread".custom_color(*OUR_YELLOW));
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let thread = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("thread id retrieved: ".green());
+                                write_text("thread id retrieved: ".bold().green());
                                 write_text(thread.to_string().custom_color(*PAGES_COLOR));
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4736,19 +4892,20 @@ impl SyscallObject {
             Sysno::getpid => {
                 match self.state {
                     Entering => {
-                        write_general_text("get the process id of the calling process");
+                        write_general_text("get the process id of ");
+                        write_text("the calling process".custom_color(*OUR_YELLOW));
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let pid = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("process id retrieved: ".green());
+                                write_text("process id retrieved: ".bold().green());
                                 write_text(pid.to_string().custom_color(*PAGES_COLOR));
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4757,19 +4914,20 @@ impl SyscallObject {
             Sysno::getppid => {
                 match self.state {
                     Entering => {
-                        write_general_text("get the process id of the parent process");
+                        write_general_text("get the process id of ");
+                        write_text("the parent process".custom_color(*OUR_YELLOW));
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let pid = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("parent process id retrieved: ".green());
+                                write_text("parent process id retrieved: ".bold().green());
                                 write_text(pid.to_string().custom_color(*PAGES_COLOR));
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4789,10 +4947,10 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("list retrieved with length ".green());
+                                write_text("list retrieved with length ".bold().green());
                                 let parsed_length =
                                     match read_one_word(len_ptr as usize, self.tracee_pid) {
                                         Some(word) => lower_64_bits(word)
@@ -4804,9 +4962,9 @@ impl SyscallObject {
                                     };
                                 write_text(parsed_length.to_string().custom_color(*PAGES_COLOR));
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4825,14 +4983,14 @@ impl SyscallObject {
                         write_text(length_of_list.to_string().custom_color(*PAGES_COLOR));
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("successfully set robust list".green());
+                                write_text("successfully set robust list".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4859,14 +5017,14 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("successful".green());
+                                write_text("successful".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4885,16 +5043,16 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let pgid = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("group id retrieved: ".green());
+                                write_text("group id retrieved: ".bold().green());
                                 write_text(pgid.to_string().custom_color(*PAGES_COLOR));
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4906,16 +5064,16 @@ impl SyscallObject {
                         write_general_text("get the process group ID of the calling process");
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let pgid = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("group id retrieved: ".green());
+                                write_text("group id retrieved: ".bold().green());
                                 write_text(pgid.to_string().custom_color(*PAGES_COLOR));
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -4959,37 +5117,32 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let bytes_retrieved = parse_as_ssize_t(syscall_return as usize);
+                                let bytes = parse_as_unsigned_bytes(syscall_return);
                                 write_general_text(" |=> ");
                                 if bytes_retrieved == 0 {
-                                    write_text("retrieved ".green());
-                                    write_text(
-                                        bytes_retrieved.to_string().custom_color(*PAGES_COLOR),
-                                    );
+                                    write_text("retrieved ".bold().green());
+                                    write_text(bytes.custom_color(*PAGES_COLOR));
                                     // TODO!
                                     // scrutinize
                                     // the reason casting bytes_num from usize to isize here isnt troublesome
                                     // is because linux limits the read write limits to PTRDIFF_MAX
                                     // which is equal to isize::MAX anyways
                                 } else if bytes_retrieved < parse_as_ssize_t(bytes_num as usize) {
-                                    write_text("retrieved ".green());
-                                    write_text(
-                                        bytes_retrieved.to_string().custom_color(*PAGES_COLOR),
-                                    );
-                                    write_text(" (fewer than requested)".green());
+                                    write_text("retrieved ".bold().green());
+                                    write_text(bytes.custom_color(*PAGES_COLOR));
+                                    write_text(" (fewer than requested)".bold().green());
                                 } else {
-                                    write_text("retrieved all ".green());
-                                    write_text(
-                                        bytes_retrieved.to_string().custom_color(*PAGES_COLOR),
-                                    );
-                                    write_text(" (complete)".green());
+                                    write_text("retrieved all ".bold().green());
+                                    write_text(bytes.custom_color(*PAGES_COLOR));
+                                    write_text(" (complete)".bold().green());
                                 }
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -5266,14 +5419,14 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("successful".green());
+                                write_text("successful".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -5287,23 +5440,23 @@ impl SyscallObject {
                         self.resource_matcher(resource);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
                                 let rlimit = read_bytes_as_struct::<RLIMIT_SIZE, rlimit>(
-                                    registers[3] as usize,
+                                    registers[1] as usize,
                                     self.tracee_pid as _,
                                 )
                                 .unwrap();
                                 match resource {
                                     RLIMIT_AS => {
-                                        write_text("soft limit: ".green());
+                                        write_text("soft limit: ".bold().green());
                                         write_text(
                                             Bytes::from(rlimit.rlim_cur as usize)
                                                 .to_string()
                                                 .blue(),
                                         );
-                                        write_text(", hard limit: ".green());
+                                        write_text(", hard limit: ".bold().green());
                                         write_text(
                                             Bytes::from(rlimit.rlim_cur as usize)
                                                 .to_string()
@@ -5311,13 +5464,13 @@ impl SyscallObject {
                                         );
                                     }
                                     RLIMIT_CORE => {
-                                        write_text("soft limit: ".green());
+                                        write_text("soft limit: ".bold().green());
                                         write_text(
                                             Bytes::from(rlimit.rlim_cur as usize)
                                                 .to_string()
                                                 .blue(),
                                         );
-                                        write_text(", hard limit: ".green());
+                                        write_text(", hard limit: ".bold().green());
                                         write_text(
                                             Bytes::from(rlimit.rlim_cur as usize)
                                                 .to_string()
@@ -5326,22 +5479,22 @@ impl SyscallObject {
                                     }
                                     RLIMIT_CPU => {
                                         // maximum time in seconds to use in the CPU
-                                        write_text("soft limit: ".green());
+                                        write_text("soft limit: ".bold().green());
                                         write_text((rlimit.rlim_cur as usize).to_string().blue());
-                                        write_text(" seconds".green());
-                                        write_text(", hard limit: ".green());
+                                        write_text(" seconds".bold().green());
+                                        write_text(", hard limit: ".bold().green());
                                         write_text((rlimit.rlim_cur as usize).to_string().blue());
-                                        write_text(" seconds".green());
+                                        write_text(" seconds".bold().green());
                                     }
                                     RLIMIT_DATA => {
                                         // maximum data segment size
-                                        write_text("soft limit: ".green());
+                                        write_text("soft limit: ".bold().green());
                                         write_text(
                                             Bytes::from(rlimit.rlim_cur as usize)
                                                 .to_string()
                                                 .blue(),
                                         );
-                                        write_text(", hard limit: ".green());
+                                        write_text(", hard limit: ".bold().green());
                                         write_text(
                                             Bytes::from(rlimit.rlim_cur as usize)
                                                 .to_string()
@@ -5350,13 +5503,13 @@ impl SyscallObject {
                                     }
                                     RLIMIT_FSIZE => {
                                         // maximum allowed size of files to creates
-                                        write_text("soft limit: ".green());
+                                        write_text("soft limit: ".bold().green());
                                         write_text(
                                             Bytes::from(rlimit.rlim_cur as usize)
                                                 .to_string()
                                                 .blue(),
                                         );
-                                        write_text(", hard limit: ".green());
+                                        write_text(", hard limit: ".bold().green());
                                         write_text(
                                             Bytes::from(rlimit.rlim_cur as usize)
                                                 .to_string()
@@ -5365,22 +5518,22 @@ impl SyscallObject {
                                     }
                                     RLIMIT_NOFILE => {
                                         // maximum allowed open file descriptors
-                                        write_text("soft limit: ".green());
+                                        write_text("soft limit: ".bold().green());
                                         write_text((rlimit.rlim_cur as usize).to_string().blue());
-                                        write_text(" fds".green());
-                                        write_text(", hard limit: ".green());
+                                        write_text(" fds".bold().green());
+                                        write_text(", hard limit: ".bold().green());
                                         write_text((rlimit.rlim_cur as usize).to_string().blue());
-                                        write_text(" fds".green());
+                                        write_text(" fds".bold().green());
                                     }
                                     RLIMIT_STACK => {
                                         // maximum stack size
-                                        write_text("soft limit: ".green());
+                                        write_text("soft limit: ".bold().green());
                                         write_text(
                                             Bytes::from(rlimit.rlim_cur as usize)
                                                 .to_string()
                                                 .blue(),
                                         );
-                                        write_text(", hard limit: ".green());
+                                        write_text(", hard limit: ".bold().green());
                                         write_text(
                                             Bytes::from(rlimit.rlim_cur as usize)
                                                 .to_string()
@@ -5389,21 +5542,21 @@ impl SyscallObject {
                                     }
                                     RLIMIT_LOCKS => {
                                         // maximum number of flock() locks and fcntl() leases
-                                        write_text("soft limit: ".green());
+                                        write_text("soft limit: ".bold().green());
                                         write_text((rlimit.rlim_cur as usize).to_string().blue());
-                                        write_text(", hard limit: ".green());
+                                        write_text(", hard limit: ".bold().green());
                                         write_text((rlimit.rlim_cur as usize).to_string().blue());
                                     }
                                     RLIMIT_MEMLOCK => {
                                         // maximum amount of memory that can be locked
                                         // affects mlock
-                                        write_text("soft limit: ".green());
+                                        write_text("soft limit: ".bold().green());
                                         write_text(
                                             Bytes::from(rlimit.rlim_cur as usize)
                                                 .to_string()
                                                 .blue(),
                                         );
-                                        write_text(", hard limit: ".green());
+                                        write_text(", hard limit: ".bold().green());
                                         write_text(
                                             Bytes::from(rlimit.rlim_cur as usize)
                                                 .to_string()
@@ -5412,13 +5565,13 @@ impl SyscallObject {
                                     }
                                     RLIMIT_MSGQUEUE => {
                                         // maximum number of bytes to use on message queues
-                                        write_text("soft limit: ".green());
+                                        write_text("soft limit: ".bold().green());
                                         write_text(
                                             Bytes::from(rlimit.rlim_cur as usize)
                                                 .to_string()
                                                 .blue(),
                                         );
-                                        write_text(", hard limit: ".green());
+                                        write_text(", hard limit: ".bold().green());
                                         write_text(
                                             Bytes::from(rlimit.rlim_cur as usize)
                                                 .to_string()
@@ -5427,30 +5580,30 @@ impl SyscallObject {
                                     }
                                     RLIMIT_NICE => {
                                         // maximum nice value
-                                        write_text("soft limit: ".green());
+                                        write_text("soft limit: ".bold().green());
                                         write_text((rlimit.rlim_cur as usize).to_string().blue());
-                                        write_text(", hard limit: ".green());
+                                        write_text(", hard limit: ".bold().green());
                                         write_text((rlimit.rlim_cur as usize).to_string().blue());
                                     }
                                     RLIMIT_NPROC => {
                                         // maximum number of threads
-                                        write_text("soft limit: ".green());
+                                        write_text("soft limit: ".bold().green());
                                         write_text((rlimit.rlim_cur as usize).to_string().blue());
-                                        write_text(" threads".green());
-                                        write_text(", hard limit: ".green());
+                                        write_text(" threads".bold().green());
+                                        write_text(", hard limit: ".bold().green());
                                         write_text((rlimit.rlim_cur as usize).to_string().blue());
-                                        write_text(" threads".green());
+                                        write_text(" threads".bold().green());
                                     }
                                     RLIMIT_RSS => {
                                         // maximum RSS memory
                                         // affects madvise
-                                        write_text("soft limit: ".green());
+                                        write_text("soft limit: ".bold().green());
                                         write_text(
                                             Bytes::from(rlimit.rlim_cur as usize)
                                                 .to_string()
                                                 .blue(),
                                         );
-                                        write_text(", hard limit: ".green());
+                                        write_text(", hard limit: ".bold().green());
                                         write_text(
                                             Bytes::from(rlimit.rlim_cur as usize)
                                                 .to_string()
@@ -5459,37 +5612,37 @@ impl SyscallObject {
                                     }
                                     RLIMIT_RTPRIO => {
                                         // real-time priority
-                                        write_text("soft limit: ".green());
+                                        write_text("soft limit: ".bold().green());
                                         write_text((rlimit.rlim_cur as usize).to_string().blue());
-                                        write_text(", hard limit: ".green());
+                                        write_text(", hard limit: ".bold().green());
                                         write_text((rlimit.rlim_cur as usize).to_string().blue());
                                     }
                                     RLIMIT_RTTIME => {
                                         // Specifies a limit (in microseconds) on the amount of CPU time
                                         // that a process scheduled under a real-time scheduling policy
                                         // may consume without making a blocking system call.
-                                        write_text("soft limit: ".green());
+                                        write_text("soft limit: ".bold().green());
                                         write_text((rlimit.rlim_cur as usize).to_string().blue());
-                                        write_text(" micro-seconds".green());
-                                        write_text(", hard limit: ".green());
+                                        write_text(" micro-seconds".bold().green());
+                                        write_text(", hard limit: ".bold().green());
                                         write_text((rlimit.rlim_cur as usize).to_string().blue());
-                                        write_text(" micro-seconds".green());
+                                        write_text(" micro-seconds".bold().green());
                                     }
                                     RLIMIT_SIGPENDING => {
                                         // maximum number of queued pending signals
-                                        write_text("soft limit: ".green());
+                                        write_text("soft limit: ".bold().green());
                                         write_text((rlimit.rlim_cur as usize).to_string().blue());
-                                        write_text(" signals".green());
-                                        write_text(", hard limit: ".green());
+                                        write_text(" signals".bold().green());
+                                        write_text(", hard limit: ".bold().green());
                                         write_text((rlimit.rlim_cur as usize).to_string().blue());
-                                        write_text(" signals".green());
+                                        write_text(" signals".bold().green());
                                     }
                                     _ => {}
                                 }
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -6072,12 +6225,12 @@ impl SyscallObject {
                         }
                     },
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
                                 match (!old_limit.is_null(), !new_limit.is_null()) {
                                     (true, true) => {
-                                        write_text("successfully set new limits, ".green());
+                                        write_text("successfully set new limits, ".bold().green());
 
                                         let rlimit = read_bytes_as_struct::<RLIMIT_SIZE, rlimit>(
                                             registers[3] as usize,
@@ -6086,13 +6239,15 @@ impl SyscallObject {
                                         .unwrap();
                                         match resource {
                                             RLIMIT_AS => {
-                                                write_text("previous soft limit: ".green());
+                                                write_text("previous soft limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", previous hard limit: ".green());
+                                                write_text(
+                                                    ", previous hard limit: ".bold().green(),
+                                                );
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6100,13 +6255,15 @@ impl SyscallObject {
                                                 );
                                             }
                                             RLIMIT_CORE => {
-                                                write_text("previous soft limit: ".green());
+                                                write_text("previous soft limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", previous hard limit: ".green());
+                                                write_text(
+                                                    ", previous hard limit: ".bold().green(),
+                                                );
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6115,30 +6272,34 @@ impl SyscallObject {
                                             }
                                             RLIMIT_CPU => {
                                                 // maximum time in seconds to use in the CPU
-                                                write_text("previous soft limit: ".green());
+                                                write_text("previous soft limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" seconds".green());
-                                                write_text(", previous hard limit: ".green());
+                                                write_text(" seconds".bold().green());
+                                                write_text(
+                                                    ", previous hard limit: ".bold().green(),
+                                                );
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" seconds".green());
+                                                write_text(" seconds".bold().green());
                                             }
                                             RLIMIT_DATA => {
                                                 // maximum data segment size
-                                                write_text("previous soft limit: ".green());
+                                                write_text("previous soft limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", previous hard limit: ".green());
+                                                write_text(
+                                                    ", previous hard limit: ".bold().green(),
+                                                );
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6147,13 +6308,15 @@ impl SyscallObject {
                                             }
                                             RLIMIT_FSIZE => {
                                                 // maximum allowed size of files to creates
-                                                write_text("previous soft limit: ".green());
+                                                write_text("previous soft limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", previous hard limit: ".green());
+                                                write_text(
+                                                    ", previous hard limit: ".bold().green(),
+                                                );
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6162,30 +6325,34 @@ impl SyscallObject {
                                             }
                                             RLIMIT_NOFILE => {
                                                 // maximum allowed open file descriptors
-                                                write_text("previous soft limit: ".green());
+                                                write_text("previous soft limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" fds".green());
-                                                write_text(", previous hard limit: ".green());
+                                                write_text(" fds".bold().green());
+                                                write_text(
+                                                    ", previous hard limit: ".bold().green(),
+                                                );
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" fds".green());
+                                                write_text(" fds".bold().green());
                                             }
                                             RLIMIT_STACK => {
                                                 // maximum stack size
-                                                write_text("previous soft limit: ".green());
+                                                write_text("previous soft limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", previous hard limit: ".green());
+                                                write_text(
+                                                    ", previous hard limit: ".bold().green(),
+                                                );
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6194,13 +6361,15 @@ impl SyscallObject {
                                             }
                                             RLIMIT_LOCKS => {
                                                 // maximum number of flock() locks and fcntl() leases
-                                                write_text("previous soft limit: ".green());
+                                                write_text("previous soft limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", previous hard limit: ".green());
+                                                write_text(
+                                                    ", previous hard limit: ".bold().green(),
+                                                );
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6210,13 +6379,15 @@ impl SyscallObject {
                                             RLIMIT_MEMLOCK => {
                                                 // maximum amount of memory that can be locked
                                                 // affects mlock
-                                                write_text("previous soft limit: ".green());
+                                                write_text("previous soft limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", previous hard limit: ".green());
+                                                write_text(
+                                                    ", previous hard limit: ".bold().green(),
+                                                );
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6225,13 +6396,15 @@ impl SyscallObject {
                                             }
                                             RLIMIT_MSGQUEUE => {
                                                 // maximum number of bytes to use on message queues
-                                                write_text("previous soft limit: ".green());
+                                                write_text("previous soft limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", previous hard limit: ".green());
+                                                write_text(
+                                                    ", previous hard limit: ".bold().green(),
+                                                );
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6240,13 +6413,15 @@ impl SyscallObject {
                                             }
                                             RLIMIT_NICE => {
                                                 // maximum nice value
-                                                write_text("previous soft limit: ".green());
+                                                write_text("previous soft limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", previous hard limit: ".green());
+                                                write_text(
+                                                    ", previous hard limit: ".bold().green(),
+                                                );
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6255,31 +6430,35 @@ impl SyscallObject {
                                             }
                                             RLIMIT_NPROC => {
                                                 // maximum number of threads
-                                                write_text("previous soft limit: ".green());
+                                                write_text("previous soft limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" threads".green());
-                                                write_text(", previous hard limit: ".green());
+                                                write_text(" threads".bold().green());
+                                                write_text(
+                                                    ", previous hard limit: ".bold().green(),
+                                                );
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" threads".green());
+                                                write_text(" threads".bold().green());
                                             }
                                             RLIMIT_RSS => {
                                                 // maximum RSS memory
                                                 // affects madvise
-                                                write_text("previous soft limit: ".green());
+                                                write_text("previous soft limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", previous hard limit: ".green());
+                                                write_text(
+                                                    ", previous hard limit: ".bold().green(),
+                                                );
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6288,13 +6467,15 @@ impl SyscallObject {
                                             }
                                             RLIMIT_RTPRIO => {
                                                 // real-time priority
-                                                write_text("previous soft limit: ".green());
+                                                write_text("previous soft limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", previous hard limit: ".green());
+                                                write_text(
+                                                    ", previous hard limit: ".bold().green(),
+                                                );
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6305,37 +6486,41 @@ impl SyscallObject {
                                                 // Specifies a limit (in microseconds) on the amount of CPU time
                                                 // that a process scheduled under a real-time scheduling policy
                                                 // may consume without making a blocking system call.
-                                                write_text("previous soft limit: ".green());
+                                                write_text("previous soft limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" micro-seconds".green());
-                                                write_text(", previous hard limit: ".green());
+                                                write_text(" micro-seconds".bold().green());
+                                                write_text(
+                                                    ", previous hard limit: ".bold().green(),
+                                                );
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" micro-seconds".green());
+                                                write_text(" micro-seconds".bold().green());
                                             }
                                             RLIMIT_SIGPENDING => {
                                                 // maximum number of queued pending signals
-                                                write_text("previous soft limit: ".green());
+                                                write_text("previous soft limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" signals".green());
-                                                write_text(", previous hard limit: ".green());
+                                                write_text(" signals".bold().green());
+                                                write_text(
+                                                    ", previous hard limit: ".bold().green(),
+                                                );
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" signals".green());
+                                                write_text(" signals".bold().green());
                                             }
                                             _ => {}
                                         }
@@ -6348,13 +6533,13 @@ impl SyscallObject {
                                         .unwrap();
                                         match resource {
                                             RLIMIT_AS => {
-                                                write_text("soft limit: ".green());
+                                                write_text("soft limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", hard limit: ".green());
+                                                write_text(", hard limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6362,13 +6547,13 @@ impl SyscallObject {
                                                 );
                                             }
                                             RLIMIT_CORE => {
-                                                write_text("soft limit: ".green());
+                                                write_text("soft limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", hard limit: ".green());
+                                                write_text(", hard limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6377,30 +6562,30 @@ impl SyscallObject {
                                             }
                                             RLIMIT_CPU => {
                                                 // maximum time in seconds to use in the CPU
-                                                write_text("soft limit: ".green());
+                                                write_text("soft limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" seconds".green());
-                                                write_text(", hard limit: ".green());
+                                                write_text(" seconds".bold().green());
+                                                write_text(", hard limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" seconds".green());
+                                                write_text(" seconds".bold().green());
                                             }
                                             RLIMIT_DATA => {
                                                 // maximum data segment size
-                                                write_text("soft limit: ".green());
+                                                write_text("soft limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", hard limit: ".green());
+                                                write_text(", hard limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6409,13 +6594,13 @@ impl SyscallObject {
                                             }
                                             RLIMIT_FSIZE => {
                                                 // maximum allowed size of files to creates
-                                                write_text("soft limit: ".green());
+                                                write_text("soft limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", hard limit: ".green());
+                                                write_text(", hard limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6424,30 +6609,30 @@ impl SyscallObject {
                                             }
                                             RLIMIT_NOFILE => {
                                                 // maximum allowed open file descriptors
-                                                write_text("soft limit: ".green());
+                                                write_text("soft limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" fds".green());
-                                                write_text(", hard limit: ".green());
+                                                write_text(" fds".bold().green());
+                                                write_text(", hard limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" fds".green());
+                                                write_text(" fds".bold().green());
                                             }
                                             RLIMIT_STACK => {
                                                 // maximum stack size
-                                                write_text("soft limit: ".green());
+                                                write_text("soft limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", hard limit: ".green());
+                                                write_text(", hard limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6456,13 +6641,13 @@ impl SyscallObject {
                                             }
                                             RLIMIT_LOCKS => {
                                                 // maximum number of flock() locks and fcntl() leases
-                                                write_text("soft limit: ".green());
+                                                write_text("soft limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", hard limit: ".green());
+                                                write_text(", hard limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6472,13 +6657,13 @@ impl SyscallObject {
                                             RLIMIT_MEMLOCK => {
                                                 // maximum amount of memory that can be locked
                                                 // affects mlock
-                                                write_text("soft limit: ".green());
+                                                write_text("soft limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", hard limit: ".green());
+                                                write_text(", hard limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6487,13 +6672,13 @@ impl SyscallObject {
                                             }
                                             RLIMIT_MSGQUEUE => {
                                                 // maximum number of bytes to use on message queues
-                                                write_text("soft limit: ".green());
+                                                write_text("soft limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", hard limit: ".green());
+                                                write_text(", hard limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6502,13 +6687,13 @@ impl SyscallObject {
                                             }
                                             RLIMIT_NICE => {
                                                 // maximum nice value
-                                                write_text("soft limit: ".green());
+                                                write_text("soft limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", hard limit: ".green());
+                                                write_text(", hard limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6517,31 +6702,31 @@ impl SyscallObject {
                                             }
                                             RLIMIT_NPROC => {
                                                 // maximum number of threads
-                                                write_text("soft limit: ".green());
+                                                write_text("soft limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" threads".green());
-                                                write_text(", hard limit: ".green());
+                                                write_text(" threads".bold().green());
+                                                write_text(", hard limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" threads".green());
+                                                write_text(" threads".bold().green());
                                             }
                                             RLIMIT_RSS => {
                                                 // maximum RSS memory
                                                 // affects madvise
-                                                write_text("soft limit: ".green());
+                                                write_text("soft limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", hard limit: ".green());
+                                                write_text(", hard limit: ".bold().green());
                                                 write_text(
                                                     Bytes::from(rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6550,13 +6735,13 @@ impl SyscallObject {
                                             }
                                             RLIMIT_RTPRIO => {
                                                 // real-time priority
-                                                write_text("soft limit: ".green());
+                                                write_text("soft limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(", hard limit: ".green());
+                                                write_text(", hard limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
@@ -6567,52 +6752,54 @@ impl SyscallObject {
                                                 // Specifies a limit (in microseconds) on the amount of CPU time
                                                 // that a process scheduled under a real-time scheduling policy
                                                 // may consume without making a blocking system call.
-                                                write_text("soft limit: ".green());
+                                                write_text("soft limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" micro-seconds".green());
-                                                write_text(", hard limit: ".green());
+                                                write_text(" micro-seconds".bold().green());
+                                                write_text(", hard limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" micro-seconds".green());
+                                                write_text(" micro-seconds".bold().green());
                                             }
                                             RLIMIT_SIGPENDING => {
                                                 // maximum number of queued pending signals
-                                                write_text("soft limit: ".green());
+                                                write_text("soft limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" signals".green());
-                                                write_text(", hard limit: ".green());
+                                                write_text(" signals".bold().green());
+                                                write_text(", hard limit: ".bold().green());
                                                 write_text(
                                                     (rlimit.rlim_cur as usize)
                                                         .to_string()
                                                         .custom_color(*PAGES_COLOR),
                                                 );
-                                                write_text(" signals".green());
+                                                write_text(" signals".bold().green());
                                             }
                                             _ => {}
                                         }
                                     }
                                     (false, true) => {
-                                        write_text("successfully set soft and hard limits".green());
+                                        write_text(
+                                            "successfully set soft and hard limits".bold().green(),
+                                        );
                                     }
                                     (false, false) => {
-                                        write_text("successful".green());
+                                        write_text("successful".bold().green());
                                     }
                                 }
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -6637,8 +6824,8 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 // TODO! granular
                                 // display important values from the rusage struct
                                 // struct rusage {
@@ -6660,11 +6847,11 @@ impl SyscallObject {
                                 //     long   ru_nivcsw;        /* involuntary context switches */
                                 // };
                                 write_general_text(" |=> ");
-                                write_text("successfully retrieved".green());
+                                write_text("successfully retrieved".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -6678,8 +6865,8 @@ impl SyscallObject {
                         );
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 // TODO! granular
                                 // display important values from the sysinfo struct
                                 // struct sysinfo {
@@ -6695,11 +6882,11 @@ impl SyscallObject {
                                 //     char _f[22];             /* Pads structure to 64 bytes */
                                 // };
                                 write_general_text(" |=> ");
-                                write_text("successfully retrieved".green());
+                                write_text("successfully retrieved".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -6713,22 +6900,22 @@ impl SyscallObject {
                         );
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 let clock_ticks = parse_as_int(registers[0]);
                                 write_general_text(" |=> ");
                                 // ~ because its not exactly system boot time
                                 //
-                                write_text("clock ticks since ~system boot time: ".green());
+                                write_text("clock ticks since ~system boot time: ".bold().green());
                                 write_text(clock_ticks.to_string().custom_color(*PAGES_COLOR));
                                 // TODO!
                                 // grannular
                                 // tms struct contains usertime and systemtime
                                 // for parent and children (sum for all children)
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -6764,15 +6951,15 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 // TODO! granular
                                 write_general_text(" |=> ");
-                                write_text("thread successfully locked".green());
+                                write_text("thread successfully locked".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -6792,10 +6979,10 @@ impl SyscallObject {
                         write_general_text(" is allowed to run on");
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("cores allowed: ".green());
+                                write_text("cores allowed: ".bold().green());
                                 let cpus = read_affinity_from_child(
                                     registers[2] as usize,
                                     self.tracee_pid,
@@ -6810,16 +6997,16 @@ impl SyscallObject {
                                             .custom_color(*PAGES_COLOR),
                                     );
                                     for cpu in cpu_iter {
-                                        write_text(", ".green());
+                                        write_text(", ".bold().green());
                                         write_text(
                                             format!("[CPU {}]", cpu).custom_color(*PAGES_COLOR),
                                         );
                                     }
                                 }
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -6843,9 +7030,13 @@ impl SyscallObject {
                         write_general_text(" |=> ");
                         // write_text("exit does not return".purple());
                         write_exiting(self.tracee_pid);
-                        flush_buffer();
-                        empty_buffer();
-                        // write_text("process exited with status ".green());
+                        if *FAILED_ONLY {
+                            empty_buffer();
+                        } else {
+                            flush_buffer();
+                            empty_buffer();
+                        }
+                        // write_text("process exited with status ".bold().green());
                         // write_text(status.to_string().custom_color(*PAGES_COLOR));
                     }
                     _ => unreachable!(),
@@ -6868,11 +7059,15 @@ impl SyscallObject {
                         //
                         write_general_text(" |=> ");
                         write_exiting(self.tracee_pid);
-                        flush_buffer();
-                        empty_buffer();
+                        if *FAILED_ONLY {
+                            empty_buffer();
+                        } else {
+                            flush_buffer();
+                            empty_buffer();
+                        }
                         // write_text("exit_group does not return".purple());
                         // print_exiting(self.tracee_pid);
-                        // write_text("all threads in the group exited with status ".green());
+                        // write_text("all threads in the group exited with status ".bold().green());
                         // write_text(status.to_string().blue());
                     }
                     _ => unreachable!(),
@@ -7200,95 +7395,98 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
                                 match operation {
                                     PTRACE_TRACEME => {
                                         write_text(
-                                            "process can be traced by its parent now".green(),
+                                            "process can be traced by its parent now"
+                                                .bold()
+                                                .green(),
                                         );
                                     }
                                     PTRACE_PEEKTEXT => {
-                                        write_text("successfully read one word".green());
+                                        write_text("successfully read one word".bold().green());
                                     }
                                     PTRACE_PEEKDATA => {
-                                        write_text("successfully read one word".green());
+                                        write_text("successfully read one word".bold().green());
                                     }
                                     PTRACE_PEEKUSER => {
-                                        write_text("successfully read one word".green());
+                                        write_text("successfully read one word".bold().green());
                                     }
                                     PTRACE_POKETEXT => {
-                                        write_text("successfully copied one word".green());
+                                        write_text("successfully copied one word".bold().green());
                                     }
                                     PTRACE_POKEDATA => {
-                                        write_text("successfully copied one word".green());
+                                        write_text("successfully copied one word".bold().green());
                                     }
                                     PTRACE_POKEUSER => {
-                                        write_text("successfully copied one word".green());
+                                        write_text("successfully copied one word".bold().green());
                                     }
                                     PTRACE_GETREGS => {
-                                        write_text("registers copied".green());
+                                        write_text("registers copied".bold().green());
                                     }
                                     PTRACE_GETFPREGS => {
-                                        write_text("registers copied".green());
+                                        write_text("registers copied".bold().green());
                                     }
                                     PTRACE_SETREGS => {
-                                        write_text("registers modifed".green());
+                                        write_text("registers modifed".bold().green());
                                     }
                                     PTRACE_SETFPREGS => {
-                                        write_text("registers modifed".green());
+                                        write_text("registers modifed".bold().green());
                                     }
                                     PTRACE_ATTACH => {
-                                        write_text("process attached".green());
+                                        write_text("process attached".bold().green());
                                     }
                                     PTRACE_SEIZE => {
-                                        write_text("process seized".green());
+                                        write_text("process seized".bold().green());
                                     }
                                     PTRACE_INTERRUPT => {
-                                        write_text("tracee stopped".green());
+                                        write_text("tracee stopped".bold().green());
                                     }
                                     PTRACE_DETACH => {
                                         write_text(
                                             "detached from the process and execution continued"
+                                                .bold()
                                                 .green(),
                                         );
                                     }
                                     PTRACE_CONT => {
-                                        write_text("execution continued".green());
+                                        write_text("execution continued".bold().green());
                                     }
                                     PTRACE_LISTEN => {
-                                        write_text("tracee continued".green());
+                                        write_text("tracee continued".bold().green());
                                     }
                                     PTRACE_KILL => {
-                                        write_text("tracee terminated".green());
+                                        write_text("tracee terminated".bold().green());
                                     }
                                     PTRACE_SINGLESTEP => {
-                                        write_text("execution continued".green());
+                                        write_text("execution continued".bold().green());
                                     }
                                     PTRACE_SYSCALL => {
-                                        write_text("execution continued".green());
+                                        write_text("execution continued".bold().green());
                                     }
                                     PTRACE_SETOPTIONS => {
-                                        write_text("options set".green());
+                                        write_text("options set".bold().green());
                                     }
                                     PTRACE_GETEVENTMSG => {
-                                        write_text("information retrieved".green());
+                                        write_text("information retrieved".bold().green());
                                     }
                                     PTRACE_GETREGSET => {
-                                        write_text("registers retrieved".green());
+                                        write_text("registers retrieved".bold().green());
                                     }
                                     PTRACE_SETREGSET => {
-                                        write_text("registers modified".green());
+                                        write_text("registers modified".bold().green());
                                     }
                                     PTRACE_GETSIGINFO => {
-                                        write_text("signal information retrieved".green());
+                                        write_text("signal information retrieved".bold().green());
                                     }
                                     PTRACE_SETSIGINFO => {
-                                        write_text("signal information modified".green());
+                                        write_text("signal information modified".bold().green());
                                     }
                                     PTRACE_PEEKSIGINFO => {
-                                        write_text("signal information retrieved".green());
+                                        write_text("signal information retrieved".bold().green());
                                     }
                                     //
                                     PTRACE_SYSEMU => unimplemented!(),
@@ -7298,9 +7496,9 @@ impl SyscallObject {
                                     _ => todo!(),
                                 }
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -7322,18 +7520,18 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
                                 if registering {
-                                    write_text("successfully registered".green());
+                                    write_text("successfully registered".bold().green());
                                 } else {
-                                    write_text("successfully unregistered".green());
+                                    write_text("successfully unregistered".bold().green());
                                 }
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -7345,15 +7543,15 @@ impl SyscallObject {
                         write_general_text("retrieve general system information");
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 // TODO! granular
                                 write_general_text(" |=> ");
-                                write_text("successfully retrieved".green());
+                                write_text("successfully retrieved".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -7365,16 +7563,16 @@ impl SyscallObject {
                         write_general_text("get the real user ID of the calling process");
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let user_id = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("real user ID retrieved: ".green());
+                                write_text("real user ID retrieved: ".bold().green());
                                 write_text(user_id.to_string().custom_color(*PAGES_COLOR));
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -7386,18 +7584,18 @@ impl SyscallObject {
                         write_general_text("get the effective user ID of the calling process");
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let effective_user_id = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("effective user ID retrieved: ".green());
+                                write_text("effective user ID retrieved: ".bold().green());
                                 write_text(
                                     effective_user_id.to_string().custom_color(*PAGES_COLOR),
                                 );
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -7409,16 +7607,16 @@ impl SyscallObject {
                         write_general_text("get the real group ID of the calling process");
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let real_group_id = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("real group ID retrieved: ".green());
+                                write_text("real group ID retrieved: ".bold().green());
                                 write_text(real_group_id.to_string().custom_color(*PAGES_COLOR));
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -7430,18 +7628,18 @@ impl SyscallObject {
                         write_general_text("get the effective group ID of the calling process");
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let effective_group_id = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("effective group ID retrieved: ".green());
+                                write_text("effective group ID retrieved: ".bold().green());
                                 write_text(
                                     effective_group_id.to_string().custom_color(*PAGES_COLOR),
                                 );
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -7470,109 +7668,133 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 // TODO! granular
                                 write_general_text(" |=> ");
-                                write_text("successful".green());
+                                write_text("successful".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
                 }
             }
             Sysno::futex => {
-                let uaddr_address = parse_as_address(registers[0] as usize);
+                let uaddr_address = parse_as_futex(registers[0] as usize);
                 let futex_op = parse_as_int(registers[1]);
                 let val = lower_32_bits(registers[2]);
                 // timespec_or_val2
                 let timespec_or_val2 = registers[3];
-                let uaddr2_address = parse_as_address(registers[4] as usize);
+                let uaddr2_address = parse_as_futex(registers[4] as usize);
                 let val3 = lower_32_bits(registers[5]);
                 match self.state {
                     Entering => {
                         // TODO!
                         // timeout information currently isnt handled
+                        //
+                        //
+                        // each non-blocking operation utilizes the least significant
+                        // four bytes of `timeout` differently
 
                         // futex flags have an operation part and an options part
                         //
                         // this mask gets rid of the options
                         let operations_only_mask = 0b01111111;
-                        if (futex_op & operations_only_mask) == FUTEX_WAIT {
-                            write_text(
-                                "block and wait for FUTEX_WAKE if comparison succeeds"
-                                    .custom_color(*OUR_YELLOW),
-                            );
-                        } else if (futex_op & operations_only_mask) == FUTEX_WAKE {
-                            write_general_text("wake a maximum of ");
-                            write_text(val.to_string().custom_color(*PAGES_COLOR));
-                            write_general_text(" waiters waiting on the futex at ");
-                            write_text(uaddr_address.custom_color(*OUR_YELLOW));
-                        } else if (futex_op & operations_only_mask) == FUTEX_FD {
-                            write_general_text("create a file descriptor for the futex at ");
-                            write_text(uaddr_address.custom_color(*OUR_YELLOW));
-                            write_general_text(" to use with asynchronous syscalls");
-                        } else if (futex_op & operations_only_mask) == FUTEX_CMP_REQUEUE {
-                            write_general_text("if comparison succeeds wake a maximum of ");
-                            write_text(val.to_string().custom_color(*PAGES_COLOR));
-                            write_general_text(" waiters waiting on the futex at ");
-                            write_text(uaddr_address.custom_color(*OUR_YELLOW));
-                            write_general_text(" and requeue a maximum of ");
-                            write_text(
-                                lower_32_bits(timespec_or_val2)
-                                    .to_string()
-                                    .custom_color(*PAGES_COLOR),
-                            );
-                            write_general_text(" from the remaining waiters to the futex at ");
-                            write_text(uaddr2_address.custom_color(*OUR_YELLOW));
-                        } else if (futex_op & operations_only_mask) == FUTEX_REQUEUE {
-                            write_general_text("without comparing wake a maximum of ");
-                            write_text(val.to_string().custom_color(*PAGES_COLOR));
-                            write_general_text(" waiters waiting on the futex at ");
-                            write_text(uaddr_address.custom_color(*OUR_YELLOW));
-                            write_general_text(" and requeue a maximum of ");
-                            write_text(
-                                lower_32_bits(timespec_or_val2)
-                                    .to_string()
-                                    .custom_color(*PAGES_COLOR),
-                            );
-                            write_general_text(" from the remaining waiters to the futex at ");
-                            write_text(uaddr2_address.custom_color(*OUR_YELLOW));
-                        } else if (futex_op & operations_only_mask) == FUTEX_WAKE_OP {
-                            write_general_text("operate on 2 futexes at the same time");
-                        } else if (futex_op & operations_only_mask) == FUTEX_WAIT_BITSET {
-                            write_general_text("if comparison succeeds block and wait for FUTEX_WAKE and register a bitmask for selective waiting");
-                        } else if (futex_op & operations_only_mask) == FUTEX_WAKE_BITSET {
-                            write_general_text("wake a maximum of ");
-                            write_text(val.to_string().custom_color(*PAGES_COLOR));
-                            write_general_text(" waiters waiting on the futex at ");
-                            write_text(uaddr_address.custom_color(*OUR_YELLOW));
-                            write_text(
-                                " from the provided waiters bitmask".custom_color(*OUR_YELLOW),
-                            );
-                        } else if (futex_op & operations_only_mask) == FUTEX_LOCK_PI {
-                            write_general_text("priority-inheritance futex operation ");
-                            write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_op & operations_only_mask) == FUTEX_LOCK_PI2 {
-                            write_general_text("priority-inheritance futex operation ");
-                            write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_op & operations_only_mask) == FUTEX_TRYLOCK_PI {
-                            write_general_text("priority-inheritance futex operation ");
-                            write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_op & operations_only_mask) == FUTEX_UNLOCK_PI {
-                            write_general_text("priority-inheritance futex operation ");
-                            write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_op & operations_only_mask) == FUTEX_CMP_REQUEUE_PI {
-                            write_general_text("priority-inheritance futex operation ");
-                            write_text("[intentrace: needs granularity]".bright_black());
-                        } else if (futex_op & operations_only_mask) == FUTEX_WAIT_REQUEUE_PI {
-                            write_general_text("priority-inheritance futex operation ");
-                            write_text("[intentrace: needs granularity]".bright_black());
-                        } else {
-                            write_text("[intentrace: unknown flag]".bright_black());
+                        match futex_op & operations_only_mask {
+                            FUTEX_WAIT => {
+                                write_text(
+                                    "if comparison succeeds block and wait for "
+                                        .custom_color(*OUR_YELLOW),
+                                );
+                                write_text("FUTEX_WAKE".custom_color(*PAGES_COLOR));
+                            }
+                            FUTEX_WAKE => {
+                                write_general_text("wake a maximum of ");
+                                write_text(val.to_string().custom_color(*PAGES_COLOR));
+                                write_general_text(" waiters waiting on futex: ");
+                                write_text(uaddr_address.custom_color(*OUR_YELLOW));
+                            }
+                            FUTEX_FD => {
+                                write_general_text("create a file descriptor for the futex at ");
+                                write_text(uaddr_address.custom_color(*OUR_YELLOW));
+                                write_general_text(" to use with asynchronous syscalls");
+                            }
+                            FUTEX_CMP_REQUEUE => {
+                                write_general_text("if comparison succeeds wake a maximum of ");
+                                write_text(val.to_string().custom_color(*PAGES_COLOR));
+                                write_general_text(" waiters waiting on futex: ");
+                                write_text(uaddr_address.custom_color(*OUR_YELLOW));
+                                write_general_text(" and requeue a maximum of ");
+                                write_text(
+                                    lower_32_bits(timespec_or_val2)
+                                        .to_string()
+                                        .custom_color(*PAGES_COLOR),
+                                );
+                                write_general_text(" from the remaining waiters to the futex at ");
+                                write_text(uaddr2_address.custom_color(*OUR_YELLOW));
+                            }
+                            FUTEX_REQUEUE => {
+                                write_general_text("without comparing wake a maximum of ");
+                                write_text(val.to_string().custom_color(*PAGES_COLOR));
+                                write_general_text(" waiters waiting on futex: ");
+                                write_text(uaddr_address.custom_color(*OUR_YELLOW));
+                                write_general_text(" and requeue a maximum of ");
+                                write_text(
+                                    lower_32_bits(timespec_or_val2)
+                                        .to_string()
+                                        .custom_color(*PAGES_COLOR),
+                                );
+                                write_general_text(" from the remaining waiters to the futex at ");
+                                write_text(uaddr2_address.custom_color(*OUR_YELLOW));
+                            }
+                            FUTEX_WAKE_OP => {
+                                write_general_text("operate on 2 futexes at the same time");
+                            }
+                            FUTEX_WAIT_BITSET => {
+                                write_general_text("if comparison succeeds block and wait for ");
+                                write_text("FUTEX_WAKE".custom_color(*PAGES_COLOR));
+                                write_general_text(" and register a bitmask for selective waiting");
+                            }
+                            FUTEX_WAKE_BITSET => {
+                                write_general_text("wake a maximum of ");
+                                write_text(val.to_string().custom_color(*PAGES_COLOR));
+                                write_general_text(" waiters waiting on futex: ");
+                                write_text(uaddr_address.custom_color(*OUR_YELLOW));
+                                write_text(
+                                    " from the provided waiters bitmask".custom_color(*OUR_YELLOW),
+                                );
+                            }
+                            FUTEX_LOCK_PI => {
+                                write_general_text("priority-inheritance futex operation ");
+                                write_text("[intentrace: needs granularity]".bright_black());
+                            }
+                            FUTEX_LOCK_PI2 => {
+                                write_general_text("priority-inheritance futex operation ");
+                                write_text("[intentrace: needs granularity]".bright_black());
+                            }
+                            FUTEX_TRYLOCK_PI => {
+                                write_general_text("priority-inheritance futex operation ");
+                                write_text("[intentrace: needs granularity]".bright_black());
+                            }
+                            FUTEX_UNLOCK_PI => {
+                                write_general_text("priority-inheritance futex operation ");
+                                write_text("[intentrace: needs granularity]".bright_black());
+                            }
+                            FUTEX_CMP_REQUEUE_PI => {
+                                write_general_text("priority-inheritance futex operation ");
+                                write_text("[intentrace: needs granularity]".bright_black());
+                            }
+                            FUTEX_WAIT_REQUEUE_PI => {
+                                write_general_text("priority-inheritance futex operation ");
+                                write_text("[intentrace: needs granularity]".bright_black());
+                            }
+
+                            _ => {
+                                write_text("[intentrace: unknown flag]".bright_black());
+                            }
                         }
                         // TODO! Priority-inheritance futexes
                         let mut directives = vec![];
@@ -7595,15 +7817,15 @@ impl SyscallObject {
                         write_directives(directives);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 // TODO! granular
                                 write_general_text(" |=> ");
-                                write_text("successful".green());
+                                write_text("successful".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -7613,7 +7835,9 @@ impl SyscallObject {
                 let thread_address = registers[0];
                 match self.state {
                     Entering => {
-                        write_general_text("set `clear_child_tid` for the calling thread to ");
+                        write_general_text("set ");
+                        write_text("clear_child_tid".custom_color(*PAGES_COLOR));
+                        write_general_text(" for the calling thread to ");
                         let thread_id =
                             match read_one_word(thread_address as usize, self.tracee_pid) {
                                 Some(word) => parse_as_int(lower_64_bits(word))
@@ -7626,18 +7850,18 @@ impl SyscallObject {
                         write_text(thread_id);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("thread id of the calling thread: ".green());
+                                write_text("thread id of the calling thread: ".bold().green());
                                 let callers_thread_id = parse_as_int(syscall_return);
                                 write_text(
                                     callers_thread_id.to_string().custom_color(*PAGES_COLOR),
                                 );
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -7654,17 +7878,17 @@ impl SyscallObject {
                         write_general_text(")");
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let file_descriptor =
                                     parse_as_file_descriptor(syscall_return, self.tracee_pid);
                                 write_general_text(" |=> ");
-                                write_text("created the eventfd: ".green());
+                                write_text("created the eventfd: ".bold().green());
                                 write_path_file(file_descriptor);
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -7704,17 +7928,17 @@ impl SyscallObject {
                         write_directives(directives);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let file_descriptor =
                                     parse_as_file_descriptor(syscall_return, self.tracee_pid);
                                 write_general_text(" |=> ");
-                                write_text("created the eventfd: ".green());
+                                write_text("created the eventfd: ".bold().green());
                                 write_path_file(file_descriptor);
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -7802,14 +8026,14 @@ impl SyscallObject {
                         write_directives(options_directives);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("Successful".green());
+                                write_text("Successful".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -7903,12 +8127,12 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let child_pid = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
                                 if wstatus_address == 0 {
-                                    write_text("successful".green());
+                                    write_text("successful".bold().green());
                                 } else {
                                     match read_one_word(wstatus_address as usize, self.tracee_pid) {
                                         Some(word) => {
@@ -7917,25 +8141,28 @@ impl SyscallObject {
                                             if nix::libc::WIFEXITED(wstatus) {
                                                 let status = nix::libc::WEXITSTATUS(wstatus);
                                                 write_text(
-                                                    "process exited with status code: ".green(),
+                                                    "process exited with status code: "
+                                                        .bold()
+                                                        .green(),
                                                 );
                                                 write_text(status.to_string().blue());
                                             } else if nix::libc::WIFSIGNALED(wstatus) {
                                                 let signal = parse_as_signal(wstatus);
-                                                write_text("process was killed by ".green());
+                                                write_text("process was killed by ".bold().green());
                                                 write_text(signal.to_string().blue());
                                                 if nix::libc::WCOREDUMP(wstatus) {
                                                     write_general_text(" ");
-                                                    write_text("(core dumped)".green());
+                                                    write_text("(core dumped)".bold().green());
                                                 }
                                             } else if nix::libc::WIFSTOPPED(wstatus) {
                                                 // TODO! Granularity needed here, this is currently a workaround
-                                                write_text("process was stopped".green());
-                                                // write_text("process was stopped by ".green());
+                                                write_text("process was stopped".bold().green());
+                                                // write_text("process was stopped by ".bold().green());
                                                 // write_text(signal.to_string().blue());
                                             } else {
                                                 write_text(
                                                     "process was resumed from a stop state by "
+                                                        .bold()
                                                         .green(),
                                                 );
                                                 write_text("SIGCONT".blue());
@@ -7952,7 +8179,7 @@ impl SyscallObject {
                                             //         status_code,
                                             //     ) => {
                                             //         write_text(
-                                            //             "process exited with status code: ".green(),
+                                            //             "process exited with status code: ".bold().green(),
                                             //         );
                                             //         write_text(status_code.to_string().blue());
                                             //     }
@@ -7961,18 +8188,18 @@ impl SyscallObject {
                                             //         signal,
                                             //         core_dump,
                                             //     ) => {
-                                            //         write_text("process was killed by ".green());
+                                            //         write_text("process was killed by ".bold().green());
                                             //         write_text(signal.to_string().blue());
                                             //         if core_dump {
                                             //             write_general_text(" ");
-                                            //             write_text("(core dumped)".green());
+                                            //             write_text("(core dumped)".bold().green());
                                             //         }
                                             //     }
                                             //     nix::sys::wait::WaitStatus::Stopped(
                                             //         pid,
                                             //         signal,
                                             //     ) => {
-                                            //         write_text("process was stopped by ".green());
+                                            //         write_text("process was stopped by ".bold().green());
                                             //         write_text(signal.to_string().blue());
                                             //     }
                                             //     nix::sys::wait::WaitStatus::PtraceEvent(
@@ -7980,30 +8207,30 @@ impl SyscallObject {
                                             //         signal,
                                             //         ptrace_event,
                                             //     ) => {
-                                            //         write_text("process was stopped by a ".green());
+                                            //         write_text("process was stopped by a ".bold().green());
                                             //         write_text(signal.to_string().blue());
                                             //         write_general_text(" signal due to ");
                                             //         let ptrace: nix::sys::ptrace::Event =
                                             //             unsafe { mem::transmute(ptrace_event) };
-                                            //         write_text(format!("{:?}", ptrace).green());
+                                            //         write_text(format!("{:?}", ptrace).bold().green());
                                             //     }
                                             //     nix::sys::wait::WaitStatus::PtraceSyscall(pid) => {
-                                            //         write_text("process stopped by ".green());
+                                            //         write_text("process stopped by ".bold().green());
                                             //         write_text("PTRACE_O_TRACESYSGOOD".blue());
                                             //         write_text(
-                                            //             " while executing a syscall".green(),
+                                            //             " while executing a syscall".bold().green(),
                                             //         );
                                             //     }
                                             //     nix::sys::wait::WaitStatus::Continued(pid) => {
                                             //         write_text(
                                             //             "process was resumed from a stop state by "
-                                            //                 .green(),
+                                            //                 .bold().green(),
                                             //         );
                                             //         write_text("SIGCONT".blue());
                                             //     }
                                             //     nix::sys::wait::WaitStatus::StillAlive => {
                                             //         write_text(
-                                            //             "no state changes to report".green(),
+                                            //             "no state changes to report".bold().green(),
                                             //         );
                                             //     }
                                             // }
@@ -8016,9 +8243,9 @@ impl SyscallObject {
                                     };
                                 }
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -8039,10 +8266,8 @@ impl SyscallObject {
                                     write_general_text("spawn a new thread with a ");
 
                                     write_text(
-                                        SyscallObject::style_bytes_page_aligned_ceil(
-                                            cl_args.stack_size,
-                                        )
-                                        .custom_color(*OUR_YELLOW),
+                                        parse_as_bytes_pages_ceil(cl_args.stack_size as usize)
+                                            .custom_color(*OUR_YELLOW),
                                     );
                                     write_general_text(" stack starting at ");
                                     write_text(
@@ -8208,7 +8433,7 @@ impl SyscallObject {
                                             .custom_color(*OUR_YELLOW),
                                     );
                                 }
-                                if (flags & CLONE_CLEAR_SIGHAND) == CLONE_CLEAR_SIGHAND {
+                                if flags == CLONE_CLEAR_SIGHAND {
                                     directives.push(
                                         "default all inherited signal handlers"
                                             .custom_color(*OUR_YELLOW),
@@ -8225,12 +8450,12 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let child_thread_id = parse_as_long(syscall_return);
 
                                 write_general_text(" |=> ");
-                                write_text("thread id of the child: ".green());
+                                write_text("thread id of the child: ".bold().green());
                                 write_text(child_thread_id.to_string().custom_color(*PAGES_COLOR));
                                 match read_bytes_as_struct::<CLONE3_ARGS_SIZE, clone_args>(
                                     registers[0] as usize,
@@ -8254,7 +8479,9 @@ impl SyscallObject {
                                 }
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -8429,7 +8656,7 @@ impl SyscallObject {
                                 "store the child TID in child's memory".custom_color(*OUR_YELLOW),
                             );
                         }
-                        if (flags & CLONE_CLEAR_SIGHAND) == CLONE_CLEAR_SIGHAND {
+                        if flags == CLONE_CLEAR_SIGHAND {
                             directives.push(
                                 "default all inherited signal handlers".custom_color(*OUR_YELLOW),
                             );
@@ -8437,11 +8664,11 @@ impl SyscallObject {
                         write_directives(directives);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let child_thread_id = parse_as_long(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("thread id of the child: ".green());
+                                write_text("thread id of the child: ".bold().green());
                                 write_text(child_thread_id.to_string().custom_color(*PAGES_COLOR));
                                 if (flags & CLONE_VM) == CLONE_VM {
                                     write_text(new_thread());
@@ -8450,7 +8677,9 @@ impl SyscallObject {
                                 }
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -8463,16 +8692,18 @@ impl SyscallObject {
                         );
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let child_process = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("child process created: ".green());
+                                write_text("child process created: ".bold().green());
                                 write_text(child_process.to_string().custom_color(*PAGES_COLOR));
                                 write_text(new_process());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -8483,16 +8714,18 @@ impl SyscallObject {
                         write_general_text("create a new child process with copy-on-write memory, (suspend execution until child terminates or calls an exec* syscall)");
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 let child_process = parse_as_int(syscall_return);
                                 write_general_text(" |=> ");
-                                write_text("child process created: ".green());
+                                write_text("child process created: ".bold().green());
                                 write_text(child_process.to_string().custom_color(*PAGES_COLOR));
                                 write_text(new_process());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -8508,13 +8741,15 @@ impl SyscallObject {
                         write_path_file(program_name);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("successful".green());
+                                write_text("successful".bold().green());
                             }
                             // TODO! granular
-                            SyscallResult::Fail(errno) => SyscallObject::one_line_error(errno),
+                            SyscallResult::Fail(_errno_variant) => {
+                                self.one_line_error();
+                            }
                         }
                     }
                 }
@@ -8531,31 +8766,35 @@ impl SyscallObject {
                         .unwrap();
                         write_general_text("suspend execution for ");
                         write_timespec_non_relative(duration.tv_sec, duration.tv_nsec);
+                        self.currently_blocking = true;
                     }
-                    Exiting => match self.result {
-                        SyscallResult::Success(syscall_return) => {
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
                             write_general_text(" |=> ");
-                            write_text("successful".green());
+                            write_text("successful".bold().green());
                         }
                         // TODO! granular
-                        SyscallResult::Fail(errno) => {
-                            if remaining != 0 && errno == Errno::EINTR {
-                                write_text("syscall interrupted by a signal handler, ".red());
-                                let remaining_time =
-                                    read_bytes_as_struct::<TIMESPEC_SIZE, timespec>(
-                                        registers[0] as usize,
-                                        self.tracee_pid as _,
-                                    )
-                                    .unwrap();
-                                write_text("sleep-time remaining: ".red());
-                                write_timespec_non_relative(
-                                    remaining_time.tv_sec,
-                                    remaining_time.tv_nsec,
-                                );
-                            } else {
-                                SyscallObject::one_line_error(errno)
+                        SyscallResult::Fail(errno_variant) => match errno_variant {
+                            ErrnoVariant::Userland(errno) => {
+                                if remaining != 0 && *errno == Errno::EINTR {
+                                    write_text("syscall interrupted by a signal handler, ".red());
+                                    let remaining_time =
+                                        read_bytes_as_struct::<TIMESPEC_SIZE, timespec>(
+                                            remaining as usize,
+                                            self.tracee_pid as _,
+                                        )
+                                        .unwrap();
+                                    write_text("sleep-time remaining: ".red());
+                                    write_timespec_non_relative(
+                                        remaining_time.tv_sec,
+                                        remaining_time.tv_nsec,
+                                    );
+                                } else {
+                                    self.one_line_error();
+                                }
                             }
-                        }
+                            _ => unreachable!(),
+                        },
                     },
                 }
             }
@@ -8576,24 +8815,26 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 write_general_text(" |=> ");
                                 if retrieving_abi_version {
-                                    write_text("ABI version retrieved: ".green());
+                                    write_text("ABI version retrieved: ".bold().green());
                                     write_text(
                                         syscall_return.to_string().custom_color(*PAGES_COLOR),
                                     );
                                 } else {
                                     let file_descriptor =
                                         parse_as_file_descriptor(syscall_return, self.tracee_pid);
-                                    write_text("created the ruleset file descriptor: ".green());
+                                    write_text(
+                                        "created the ruleset file descriptor: ".bold().green(),
+                                    );
                                     write_path_file(file_descriptor);
                                 }
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -8615,14 +8856,14 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("rule added".green());
+                                write_text("rule added".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -8639,14 +8880,14 @@ impl SyscallObject {
                         write_general_text(" on the calling process");
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("ruleset active".green());
+                                write_text("ruleset active".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -8759,15 +9000,15 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 // TODO! granular
                                 write_general_text(" |=> ");
-                                write_text("operation successful".green());
+                                write_text("operation successful".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -8818,12 +9059,12 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(syscall_return) => {
                                 // 40..1
                                 let kernel_space_nice = syscall_return as i64;
                                 write_general_text(" |=> ");
-                                write_text("scheduling priority retrieved: ".green());
+                                write_text("scheduling priority retrieved: ".bold().green());
                                 write_text(
                                     // -20..19
                                     (20 - kernel_space_nice)
@@ -8831,18 +9072,18 @@ impl SyscallObject {
                                         .custom_color(*PAGES_COLOR),
                                 );
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
                 }
             }
             Sysno::setpriority => {
-                let which = lower_32_bits(registers[1]);
+                let which = lower_32_bits(registers[0]);
                 let process = parse_as_int(registers[1]);
-                let prio = parse_as_int(registers[1]);
+                let prio = parse_as_int(registers[2]);
                 match self.state {
                     Entering => {
                         write_general_text("set the scheduling priority ");
@@ -8890,14 +9131,16 @@ impl SyscallObject {
                         }
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("successfully set the scheduling priority".green());
+                                write_text(
+                                    "successfully set the scheduling priority".bold().green(),
+                                );
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -8917,14 +9160,14 @@ impl SyscallObject {
                         write_path_file(directory);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("entries retrieved".green());
+                                write_text("entries retrieved".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }
@@ -8935,7 +9178,7 @@ impl SyscallObject {
                 let count = lower_32_bits(registers[2]);
                 match self.state {
                     Entering => {
-                        write_general_text("retrieve the entries ");
+                        write_general_text("retrieve the entries");
                         write_general_text(" (");
                         write_general_text("maximum: ");
                         write_text(count.to_string().custom_color(*PAGES_COLOR));
@@ -8944,14 +9187,14 @@ impl SyscallObject {
                         write_path_file(directory);
                     }
                     Exiting => {
-                        match self.result {
-                            SyscallResult::Success(syscall_return) => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("entries retrieved".green());
+                                write_text("entries retrieved".bold().green());
                             }
-                            SyscallResult::Fail(errno) => {
+                            SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
-                                SyscallObject::one_line_error(errno)
+                                self.one_line_error();
                             }
                         }
                     }

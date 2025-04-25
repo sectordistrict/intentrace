@@ -11,7 +11,7 @@ pub static ANNOT: AtomicBool = AtomicBool::new(false);
 pub static ATTACH_PID: LazyLock<Option<usize>> = LazyLock::new(|| INTENTRACE_ARGS.pid);
 pub static SUMMARY: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.summary);
 //
-pub static INTENTRACE_ARGS: LazyLock<IntentraceArgs> = LazyLock::new(|| IntentraceArgs::parse());
+pub static INTENTRACE_ARGS: LazyLock<IntentraceArgs> = LazyLock::new(IntentraceArgs::parse);
 pub static BINARY_AND_ARGS: LazyLock<&'static [String]> = LazyLock::new(|| {
     if let Some(Binary::Command(binary_and_args)) = INTENTRACE_ARGS.binary.as_ref() {
         binary_and_args

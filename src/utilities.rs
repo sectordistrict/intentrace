@@ -1,3 +1,6 @@
+// TODO!
+// start using Anyhow
+
 use core::sync::atomic::AtomicUsize;
 use std::{
     collections::HashMap,
@@ -10,23 +13,30 @@ use std::{
 };
 
 use colored::{ColoredString, Colorize};
-use nix::{errno::Errno, libc::AT_FDCWD, sys::signal::Signal, unistd::Pid};
+use nix::{
+    errno::Errno,
+    libc::{sysconf, AT_FDCWD, _SC_PAGESIZE},
+    sys::signal::Signal,
+    unistd::Pid,
+};
 use procfs::process::{MMapPath, MemoryMap};
 use syscalls::Sysno;
 
 use crate::{
+    auxiliary::{
+        constants::general::{GREEK, MAX_KERNEL_ULONG},
+        kernel_errno::KernelErrno,
+    },
     colors::{OUR_YELLOW, PAGES_COLOR},
     peeker_poker::{read_bytes_until_null, read_words_until_null},
-    syscall_annotations_map::initialize_annotations_map,
+    // syscall_annotations_map::initialize_annotations_map,
     syscall_categories::initialize_categories_map,
-    syscall_object::{SyscallObject, SyscallResult},
+    syscall_object::{ErrnoVariant, SyscallResult},
     syscall_skeleton_map::initialize_skeletons_map,
-    types::{BytesPagesRelevant, Category, SysAnnotations, Syscall_Shape}, write_text, writer::write_general_text,
+    types::{BytesPagesRelevant, Category, Syscall_Shape},
 };
 
-// pub static mut UNSUPPORTED: Vec<&'static str> = Vec::new();
-
-pub static PAGE_SIZE: LazyLock<usize> = LazyLock::new(rustix::param::page_size);
+pub static PAGE_SIZE: LazyLock<usize> = LazyLock::new(|| unsafe { sysconf(_SC_PAGESIZE) as usize });
 pub static PRE_CALL_PROGRAM_BREAK_POINT: AtomicUsize = AtomicUsize::new(0);
 pub static REGISTERS: Mutex<[u64; 6]> = Mutex::new([0; 6]);
 pub static HALT_TRACING: AtomicBool = AtomicBool::new(false);
@@ -35,16 +45,17 @@ pub static TABLE: LazyLock<Mutex<HashMap<Sysno, (usize, Duration)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 pub static TABLE_FOLLOW_FORKS: LazyLock<Mutex<HashMap<Sysno, usize>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
-pub static SYSANNOT_MAP: LazyLock<HashMap<Sysno, SysAnnotations>> =
-    LazyLock::new(|| initialize_annotations_map());
+// pub static SYSANNOT_MAP: LazyLock<HashMap<Sysno, SysAnnotations>> =
+//     LazyLock::new(|| initialize_annotations_map());
 pub static SYSKELETON_MAP: LazyLock<HashMap<Sysno, Syscall_Shape>> =
-    LazyLock::new(|| initialize_skeletons_map());
+    LazyLock::new(initialize_skeletons_map);
 pub static SYSCATEGORIES_MAP: LazyLock<HashMap<Sysno, Category>> =
-    LazyLock::new(|| initialize_categories_map());
+    LazyLock::new(initialize_categories_map);
+
+pub static FUTEXES: LazyLock<Mutex<HashMap<usize, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub fn static_handle_path_file(filename: String, vector: &mut Vec<ColoredString>) {
-    let mut pathname = String::new();
-
     let mut file_start = 0;
     for (index, chara) in filename.chars().rev().enumerate() {
         if chara == '/' && index != 0 {
@@ -53,7 +64,6 @@ pub fn static_handle_path_file(filename: String, vector: &mut Vec<ColoredString>
         }
     }
     vector.push(filename[0..file_start].custom_color(*OUR_YELLOW));
-
     vector.push(filename[file_start..].custom_color(*PAGES_COLOR));
 }
 
@@ -73,60 +83,58 @@ pub fn get_mem_difference_from_previous(post_call_brk: usize) -> isize {
     post_call_brk as isize - PRE_CALL_PROGRAM_BREAK_POINT.load(Ordering::SeqCst) as isize
 }
 
-pub fn match_enum_with_libc_flag(flags: u64, discriminant: i32) -> bool {
-    (flags & (discriminant as u64)) == discriminant as u64
-}
-
 pub fn set_memory_break(child: Pid) {
     let ptraced_process = procfs::process::Process::new(i32::from(child)).unwrap();
     let stat = ptraced_process.stat().unwrap();
     let pre_call_brk = stat.start_brk.unwrap() as usize;
 
-    let old_stored_brk = PRE_CALL_PROGRAM_BREAK_POINT.load(Ordering::SeqCst);
     PRE_CALL_PROGRAM_BREAK_POINT.store(pre_call_brk, Ordering::SeqCst);
 }
 
-pub fn where_in_childs_memory(child: Pid, address: u64) -> Option<MemoryMap> {
-    let ptraced_process = procfs::process::Process::new(i32::from(child)).unwrap();
-    let maps = ptraced_process.maps().unwrap().0;
+pub fn where_in_tracee_memory(child: Pid, address: u64) -> Option<MemoryMap> {
+    let ptraced_process = procfs::process::Process::new(i32::from(child)).ok()?;
+    let maps = ptraced_process.maps().ok()?.0;
     maps.into_iter()
-        .find(|x| (address >= x.address.0) && (address <= x.address.1))
+        .find(|map| (address >= map.address.0) && (address <= map.address.1))
 }
 
-pub fn get_child_memory_break(child: Pid) -> (usize, (u64, u64)) {
-    let ptraced_process = procfs::process::Process::new(i32::from(child)).unwrap();
-    let stat = ptraced_process.stat().unwrap();
-    let aa = ptraced_process.maps().unwrap().0;
-    let c = aa
+pub fn get_tracee_memory_break(tracee_pid: Pid) -> Option<(usize, (u64, u64))> {
+    let ptraced_process = procfs::process::Process::new(i32::from(tracee_pid)).ok()?;
+    let maps = ptraced_process.maps().ok()?.0;
+    let address_range = maps
         .into_iter()
-        .find(|x| x.pathname == MMapPath::Stack)
-        .map(|x| x.address)
+        .find(|map| map.pathname == MMapPath::Stack)
+        .map(|map| map.address)
         .unwrap_or((0, 0));
-    (PRE_CALL_PROGRAM_BREAK_POINT.load(Ordering::SeqCst), c)
+    Some((
+        PRE_CALL_PROGRAM_BREAK_POINT.load(Ordering::SeqCst),
+        address_range,
+    ))
 }
 
-pub fn get_syscall_result(return_register: u64) -> SyscallResult {
-    // When syscalls return errors,
-    // libc takes the negative error,        ->  -22
-    // negates it to get a positive number,  ->   22
-    // and stores it in errno
+pub fn interpret_syscall_result(return_register: u64) -> SyscallResult {
+    // TODO!
+    // abandon the KernelErrno check and make it manual in restartable syscalls
+    use ErrnoVariant::*;
+    use SyscallResult::*;
 
-    let max_errno = 4095;
     // strace does something similar to this
     // https://github.com/strace/strace/blob/0f9f46096fa8da84e2e6a6646cd1e326bf7e83c7/src/negated_errno.h#L17
     // https://github.com/strace/strace/blob/0f9f46096fa8da84e2e6a6646cd1e326bf7e83c7/src/linux/x86_64/get_error.c#L26
-    if return_register > max_errno {
-        let errno = (u32::MAX - return_register as u32).saturating_add(1);
-        let Errno: Errno = Errno::from_raw(errno as i32);
-        if matches!(Errno, Errno::UnknownErrno) {
-            // p!("Big number but not an error");
-            SyscallResult::Success(return_register)
-        } else {
-            SyscallResult::Fail(Errno)
+    if return_register > MAX_KERNEL_ULONG as u64 {
+        let errno_positive = parse_as_long(return_register) * -1;
+        let userland_errno = Errno::from_raw(errno_positive as i32);
+        if matches!(userland_errno, Errno::UnknownErrno) {
+            let kernel_errno = KernelErrno::from_i32(errno_positive as i32);
+            if matches!(kernel_errno, KernelErrno::UnknownErrno) {
+                // Large number but not an error
+                return Success(return_register);
+            }
+            return Fail(Kernel(kernel_errno));
         }
+        Fail(Userland(userland_errno))
     } else {
-        // p!("Not an error");
-        SyscallResult::Success(return_register)
+        Success(return_register)
     }
 }
 
@@ -136,11 +144,10 @@ pub fn display_unsupported() {
     // }
 }
 
-
 pub fn parse_as_signal(signum: i32) -> String {
     match Signal::try_from(signum) {
         Ok(signal) => signal.to_string(),
-        Err(_) => "[intentrace: signal not supported]".to_owned(),
+        Err(_e) => "[intentrace: signal not supported]".to_owned(),
     }
 }
 
@@ -168,10 +175,60 @@ pub fn lower_64_bits(value: usize) -> u64 {
 // CONVERSION OUTSIDE
 pub fn parse_as_address(register_value: usize) -> String {
     let pointer = register_value as *const ();
-    if pointer == std::ptr::null() {
-        format!("0xNull")
+    if pointer.is_null() {
+        "0xNull".to_string()
     } else {
         format!("{:p}", pointer)
+    }
+}
+
+// alphabetic aliasing
+// pub fn calculate_futex_alias(futex_count: usize) -> Vec<u8> {
+//     let mut collector: Vec<u8> = vec![];
+//     for _ in 0..(futex_count / 26) {
+//         collector.push('A' as u8);
+//     }
+//     collector.push((futex_count % 26) as u8 + 65);
+//     collector.push(58); // :
+//     collector
+// }
+
+// this makes futexes more searchable
+pub fn calculate_futex_alias(mut futex_count: usize) -> String {
+    let mut collector = String::new();
+
+    if futex_count >= 24 {
+        collector.push_str("alpha");
+        futex_count -= 24;
+        while futex_count >= 24 {
+            collector.push_str("-");
+            collector.push_str("alpha");
+            futex_count -= 24;
+        }
+        if futex_count > 0 {
+            collector.push('-');
+        } else {
+            return collector;
+        }
+    }
+    collector.push_str(GREEK[futex_count]);
+    collector.push(':');
+    collector
+}
+
+pub fn parse_as_futex(futex_address: usize) -> String {
+    let pointer = futex_address as *const ();
+    let mut futexes = FUTEXES.lock().unwrap();
+    match futexes.get(&futex_address) {
+        Some(futex_alias) => {
+            format!("{} {:p}", futex_alias.custom_color(*PAGES_COLOR), pointer)
+        }
+        None => {
+            let futex_alias = calculate_futex_alias(futexes.len() + 1);
+            let string = format!("{} {:p}", futex_alias.custom_color(*PAGES_COLOR), pointer);
+            futexes.insert(futex_address, futex_alias);
+            string
+        }
     }
 }
 
@@ -181,7 +238,7 @@ pub fn parse_as_signed_bytes(register_value: u64) -> String {
     let bytes = unsafe { std::mem::transmute::<u64, i64>(register_value) };
     // TODO!
     // phrasing should be checked for lseek and offsets in mmap
-    format!("{register_value} Bytes")
+    format!("{bytes} Bytes")
 }
 
 // Length_Of_Bytes_Specific
@@ -189,40 +246,41 @@ pub fn parse_as_signed_bytes(register_value: u64) -> String {
 pub fn parse_as_unsigned_bytes(register_value: u64) -> String {
     format!("{register_value} Bytes")
 }
+
 // usually a size_t in mem syscalls
 //
 pub fn parse_as_bytes_pages_ceil(register_value: usize) -> String {
-    let bytes_pages = BytesPagesRelevant::from_ceil(register_value as usize);
+    let bytes_pages = BytesPagesRelevant::from_ceil(register_value);
+    bytes_pages.to_string()
+}
+
+// usually a size_t in mem syscalls
+//
+fn parse_as_bytes_pages_floor(register_value: usize) -> String {
+    let bytes_pages = BytesPagesRelevant::from_floor(register_value);
     bytes_pages.to_string()
 }
 
 // Use process_vm_readv(2)
 pub fn string_from_pointer(address: usize, child: Pid) -> String {
-    // TODO! execve multi-threaded fails here for some reason
-    match read_bytes_until_null(address as usize, child) {
+    // TODO!
+    // multi-threaded execve fails here for some reason
+    match read_bytes_until_null(address, child) {
         Some(data) => String::from_utf8_lossy(&data).into_owned(),
         None => "".to_owned(),
     }
 }
 
 pub fn get_array_of_strings(address: usize, child: Pid) -> Vec<String> {
-    // TODO! execve fails this
-    let mut array_of_char_pointers = read_words_until_null(address, child).unwrap();
+    // TODO!
+    // execve fails this
+    let array_of_char_pointers = read_words_until_null(address, child).unwrap();
     let mut strings = vec![];
     for char_pointer in array_of_char_pointers {
         strings.push(string_from_pointer(char_pointer, child));
     }
     strings
 }
-
-// pub fn read_string_specific_length(
-//     addr: usize,
-//     child: Pid,
-//     size: usize,
-// ) -> Option<String> {
-//     let bytes_buffer = SyscallObject::read_bytes_specific_length(addr, child, size)?;
-//     Some(String::from_utf8_lossy(&bytes_buffer).into_owned())
-// }
 
 pub fn parse_as_file_descriptor_possible_dirfd(fd: u64, tracee_pid: Pid) -> String {
     let fd_compare = unsafe { std::mem::transmute::<u64, i64>(fd) } as i32;
@@ -258,12 +316,12 @@ pub fn parse_as_file_descriptor(file_descriptor: u64, tracee_pid: Pid) -> String
                     }
                 }
                 procfs::process::FDTarget::Socket(socket_number) => {
-                    use procfs;
-                    let mut tcp = procfs::net::tcp().unwrap();
-                    tcp.extend(procfs::net::tcp6().unwrap());
-                    let mut udp = procfs::net::udp().unwrap();
-                    udp.extend(procfs::net::udp6().unwrap());
-                    let unix = procfs::net::unix().unwrap();
+                    use procfs::net;
+                    let mut tcp = net::tcp().unwrap();
+                    tcp.extend(net::tcp6().unwrap());
+                    let mut udp = net::udp().unwrap();
+                    udp.extend(net::udp6().unwrap());
+                    let unix = net::unix().unwrap();
                     'lookup: {
                         for entry in &tcp {
                             if entry.inode == socket_number {
@@ -306,10 +364,10 @@ pub fn parse_as_file_descriptor(file_descriptor: u64, tracee_pid: Pid) -> String
                         }
                     }
                 }
-                procfs::process::FDTarget::Net(net) => {
+                procfs::process::FDTarget::Net(_net) => {
                     return format!("{} -> NET", file.fd).bright_blue().to_string()
                 }
-                procfs::process::FDTarget::Pipe(pipe) => {
+                procfs::process::FDTarget::Pipe(_pipe) => {
                     return format!("{} -> Unix Pipe", file.fd)
                         .bright_blue()
                         .to_string()
@@ -332,41 +390,33 @@ pub fn parse_as_file_descriptor(file_descriptor: u64, tracee_pid: Pid) -> String
                 procfs::process::FDTarget::MemFD(mem_fd) => {
                     return format!("{} -> {mem_fd}", file.fd).bright_blue().to_string()
                 }
-                procfs::process::FDTarget::Other(target, inode_number) => {
+                procfs::process::FDTarget::Other(target, _inode_number) => {
                     return format!("{} -> {target}", file.fd).bright_blue().to_string()
                 }
             },
-            Err(e) => return "ignored".to_owned(),
+            Err(_e) => return "ignored".to_owned(),
         }
     }
-    String::from_iter(colored_strings.into_iter().map(|x| x.to_string()))
+    String::from_iter(
+        colored_strings
+            .into_iter()
+            .map(|colored_string| colored_string.to_string()),
+    )
 }
 
-pub fn find_fd_for_tracee(fd: i32, tracee_pid: Pid) -> Option<String> {
+pub fn find_fd_for_tracee(file_descriptor: i32, tracee_pid: Pid) -> Option<String> {
     let mut fds = procfs::process::Process::new(tracee_pid.as_raw())
-        .unwrap()
+        .ok()?
         .fd()
-        .unwrap();
-    match fds.find(|fdee| {
-        if let Ok(fde) = fdee {
-            return fde.fd == fd;
-        } else {
-            return false;
-        }
-    }) {
-        Some(dirfd_found) => match dirfd_found {
-            Ok(dirfd_found_unwrapped) => match dirfd_found_unwrapped.target {
-                procfs::process::FDTarget::Path(path_buf) => {
-                    Some(path_buf.to_string_lossy().to_string())
-                }
-                _ => None,
-            },
-            Err(_) => None,
-        },
-        None => None,
+        .ok()?;
+    let descriptor_found = fds.find(|fd_iter| fd_iter.as_ref().unwrap().fd == file_descriptor)?;
+    let descriptor_unwrapped = descriptor_found.ok()?;
+    if let procfs::process::FDTarget::Path(path_buf) = descriptor_unwrapped.target {
+        Some(path_buf.to_string_lossy().to_string())
+    } else {
+        None
     }
 }
-
 
 pub fn new_process() -> ColoredString {
     "
@@ -394,4 +444,44 @@ pub fn new_thread() -> ColoredString {
   ╰────────────────╯
 "
     .green()
+}
+
+// TODO!
+// consider blinking arrows as replacement
+pub fn syscall_is_blocking() -> ColoredString {
+    "
+
+  ╭──────────────╮
+  │   BLOCKING   │
+  ╰──────────────╯
+"
+    .cyan()
+}
+
+// TODO! check how strace does this, maybe its better
+pub fn colorize_syscall_name(sysno: &Sysno, category: &Category) -> ColoredString {
+    match category {
+        // green
+        Category::Process => sysno.name().bold().green(),
+        Category::Thread => sysno.name().bold().green(),
+        Category::CPU => sysno.name().bold().green(),
+
+        Category::Network => sysno.name().bold().green(),
+
+        // ram
+        Category::Memory => sysno.name().bold().bright_red(),
+
+        // bluish
+        Category::FileOp => sysno.name().bold().blue(),
+        Category::DiskIO => sysno.name().bold().bright_blue(),
+        Category::Security => sysno.name().bold().bright_cyan(),
+
+        // black
+        Category::System => sysno.name().bold().cyan(),
+
+        // exotic
+        Category::Signals => sysno.name().bold().bright_purple(),
+        Category::Device => sysno.name().bold().bright_yellow(),
+        Category::AsyncIO => sysno.name().bold().purple(),
+    }
 }

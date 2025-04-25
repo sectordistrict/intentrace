@@ -1,4 +1,4 @@
-use crate::types::{Category,  SysReturn, Syscall_Shape};
+use crate::types::{SysReturn, Syscall_Shape};
 use std::collections::HashMap;
 use std::mem::MaybeUninit;
 use syscalls::Sysno;

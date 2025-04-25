@@ -36,7 +36,7 @@ Intentrace follows a similar working methodology to the one employed by the [Uni
 | -c<br/>--summary | provide a summary table at the end of tracing | `false`       |
 | -p `pid`<br/>--attach `pid` | attach to an already running proceess | `not enabled`       |
 | -f<br/>--follow-forks   | trace child process when traced programs create them | `false`       |
-| -z<br/>--failed-only   | only print failed syscalls | `false`       |
+| -Z<br/>--failed-only   | only print failed syscalls | `false`       |
 | -q<br/>--mute-stdout   | mute traced program's std output | `false`       |
 
 
