@@ -13,6 +13,15 @@ pub mod constants {
             "lambda", "mu", "nu", "xi", "omicron", "pi", "rho", "sigma", "tau", "upsilon", "phi",
             "chi", "psi", "omega",
         ];
+        // syscall: arch_prctl
+        pub const ARCH_SET_GS: i32 = 0x1001;
+        pub const ARCH_SET_FS: i32 = 0x1002;
+        pub const ARCH_GET_FS: i32 = 0x1003;
+        pub const ARCH_GET_GS: i32 = 0x1004;
+        pub const ARCH_GET_CPUID: i32 = 0x1011;
+        pub const ARCH_SET_CPUID: i32 = 0x1012;
+        // syscall: landlock_add_rule
+        pub const LANDLOCK_RULE_PATH_BENEATH: i32 = 1;
     }
 }
 

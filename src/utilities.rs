@@ -15,12 +15,14 @@ use std::{
 use colored::{ColoredString, Colorize};
 use nix::{
     errno::Errno,
-    libc::{sysconf, AT_FDCWD, _SC_PAGESIZE},
+    libc::{sysconf, _SC_PAGESIZE},
     sys::signal::Signal,
     unistd::Pid,
 };
 use procfs::process::{MMapPath, MemoryMap};
 use syscalls::Sysno;
+use unicode_segmentation::Graphemes;
+use uzers::{Groups, Users};
 
 use crate::{
     auxiliary::{
@@ -55,17 +57,8 @@ pub static SYSCATEGORIES_MAP: LazyLock<HashMap<Sysno, Category>> =
 pub static FUTEXES: LazyLock<Mutex<HashMap<usize, String>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-pub fn static_handle_path_file(filename: String, vector: &mut Vec<ColoredString>) {
-    let mut file_start = 0;
-    for (index, chara) in filename.chars().rev().enumerate() {
-        if chara == '/' && index != 0 {
-            file_start = filename.len() - index;
-            break;
-        }
-    }
-    vector.push(filename[0..file_start].custom_color(*OUR_YELLOW));
-    vector.push(filename[file_start..].custom_color(*PAGES_COLOR));
-}
+pub static UZERS_CACHE: LazyLock<Mutex<uzers::UsersCache>> =
+    LazyLock::new(|| Mutex::new(uzers::UsersCache::new()));
 
 pub fn lose_relativity_on_path(string: &str) -> &str {
     let mut chars = string.chars().enumerate().peekable();
@@ -83,16 +76,16 @@ pub fn get_mem_difference_from_previous(post_call_brk: usize) -> isize {
     post_call_brk as isize - PRE_CALL_PROGRAM_BREAK_POINT.load(Ordering::SeqCst) as isize
 }
 
-pub fn set_memory_break(child: Pid) {
-    let ptraced_process = procfs::process::Process::new(i32::from(child)).unwrap();
+pub fn set_memory_break(tracee_pid: Pid) {
+    let ptraced_process = procfs::process::Process::new(i32::from(tracee_pid)).unwrap();
     let stat = ptraced_process.stat().unwrap();
     let pre_call_brk = stat.start_brk.unwrap() as usize;
 
     PRE_CALL_PROGRAM_BREAK_POINT.store(pre_call_brk, Ordering::SeqCst);
 }
 
-pub fn where_in_tracee_memory(child: Pid, address: u64) -> Option<MemoryMap> {
-    let ptraced_process = procfs::process::Process::new(i32::from(child)).ok()?;
+pub fn where_in_tracee_memory(tracee_pid: Pid, address: u64) -> Option<MemoryMap> {
+    let ptraced_process = procfs::process::Process::new(i32::from(tracee_pid)).ok()?;
     let maps = ptraced_process.maps().ok()?.0;
     maps.into_iter()
         .find(|map| (address >= map.address.0) && (address <= map.address.1))
@@ -144,10 +137,45 @@ pub fn display_unsupported() {
     // }
 }
 
-pub fn parse_as_signal(signum: i32) -> String {
+pub fn parse_as_signal(signum: i32) -> &'static str {
     match Signal::try_from(signum) {
-        Ok(signal) => signal.to_string(),
-        Err(_e) => "[intentrace: signal not supported]".to_owned(),
+        Ok(signal) => signal.as_str(),
+        Err(_e) => match signum {
+            32 => "SIGRT_32",
+            33 => "SIGRT_33",
+            34 => "SIGRT_34",
+            35 => "SIGRT_35",
+            36 => "SIGRT_36",
+            37 => "SIGRT_37",
+            38 => "SIGRT_38",
+            39 => "SIGRT_39",
+            40 => "SIGRT_40",
+            41 => "SIGRT_41",
+            42 => "SIGRT_42",
+            43 => "SIGRT_43",
+            44 => "SIGRT_44",
+            45 => "SIGRT_45",
+            46 => "SIGRT_46",
+            47 => "SIGRT_47",
+            48 => "SIGRT_48",
+            49 => "SIGRT_49",
+            50 => "SIGRT_50",
+            51 => "SIGRT_51",
+            52 => "SIGRT_52",
+            53 => "SIGRT_53",
+            54 => "SIGRT_54",
+            55 => "SIGRT_55",
+            56 => "SIGRT_56",
+            57 => "SIGRT_57",
+            58 => "SIGRT_58",
+            59 => "SIGRT_59",
+            60 => "SIGRT_60",
+            61 => "SIGRT_61",
+            62 => "SIGRT_62",
+            63 => "SIGRT_63",
+            64 => "SIGRT_64",
+            _ => "[intentrace: signal not supported]",
+        },
     }
 }
 
@@ -248,72 +276,78 @@ pub fn parse_as_unsigned_bytes(register_value: u64) -> String {
 }
 
 // usually a size_t in mem syscalls
-//
 pub fn parse_as_bytes_pages_ceil(register_value: usize) -> String {
     let bytes_pages = BytesPagesRelevant::from_ceil(register_value);
     bytes_pages.to_string()
 }
 
 // usually a size_t in mem syscalls
-//
 fn parse_as_bytes_pages_floor(register_value: usize) -> String {
     let bytes_pages = BytesPagesRelevant::from_floor(register_value);
     bytes_pages.to_string()
 }
 
 // Use process_vm_readv(2)
-pub fn string_from_pointer(address: usize, child: Pid) -> String {
+pub fn string_from_pointer(address: usize, tracee_pid: Pid) -> String {
     // TODO!
     // multi-threaded execve fails here for some reason
-    match read_bytes_until_null(address, child) {
+    match read_bytes_until_null(address, tracee_pid) {
         Some(data) => String::from_utf8_lossy(&data).into_owned(),
         None => "".to_owned(),
     }
 }
 
-pub fn get_array_of_strings(address: usize, child: Pid) -> Vec<String> {
+pub fn get_array_of_strings(address: usize, tracee_pid: Pid) -> Vec<String> {
     // TODO!
     // execve fails this
-    let array_of_char_pointers = read_words_until_null(address, child).unwrap();
+    let array_of_char_pointers = read_words_until_null(address, tracee_pid).unwrap();
     let mut strings = vec![];
     for char_pointer in array_of_char_pointers {
-        strings.push(string_from_pointer(char_pointer, child));
+        strings.push(string_from_pointer(char_pointer, tracee_pid));
     }
     strings
 }
 
-pub fn parse_as_file_descriptor_possible_dirfd(fd: u64, tracee_pid: Pid) -> String {
-    let fd_compare = unsafe { std::mem::transmute::<u64, i64>(fd) } as i32;
-    if fd_compare == AT_FDCWD {
-        format!("{}", "AT_FDCWD -> Current Working Directory".bright_blue())
-    } else {
-        parse_as_file_descriptor(fd, tracee_pid)
-    }
+pub fn extract_final_dentry_index(graphemes: Graphemes) -> Option<usize> {
+    let size = graphemes.size_hint().1.unwrap();
+    graphemes
+        .rev()
+        .enumerate()
+        .find(|(_, chara)| *chara == "/")
+        .map(|(index, _)| size - index)
 }
 
-pub fn parse_as_file_descriptor(file_descriptor: u64, tracee_pid: Pid) -> String {
+pub fn parse_as_file_descriptor(file_descriptor: i32, tracee_pid: Pid) -> String {
     let mut colored_strings = Vec::new();
-    let fd = parse_as_int(file_descriptor);
-    if fd == 0 {
+    if file_descriptor == 0 {
         return "0 -> StdIn".bright_blue().to_string();
-    } else if fd == 1 {
+    } else if file_descriptor == 1 {
         return "1 -> StdOut".bright_blue().to_string();
-    } else if fd == 2 {
+    } else if file_descriptor == 2 {
         return "2 -> StdErr".bright_blue().to_string();
     } else {
-        let file_info = procfs::process::FDInfo::from_raw_fd(tracee_pid.into(), fd as RawFd);
+        let file_info =
+            procfs::process::FDInfo::from_raw_fd(tracee_pid.into(), file_descriptor as RawFd);
         match file_info {
             Ok(file) => match file.target {
                 procfs::process::FDTarget::Path(path) => {
+                    use unicode_segmentation::UnicodeSegmentation;
                     colored_strings.push(format!("{} -> ", file.fd).bright_blue());
-                    let mut formatted_path = vec![];
-                    static_handle_path_file(
-                        path.to_string_lossy().into_owned(),
-                        &mut formatted_path,
+                    let graphemes = path.to_str().unwrap().graphemes(true);
+                    let blue_start = extract_final_dentry_index(graphemes.clone()).unwrap_or(0);
+                    colored_strings.push(
+                        graphemes
+                            .clone()
+                            .take(blue_start)
+                            .collect::<String>()
+                            .custom_color(*OUR_YELLOW),
                     );
-                    for path_part in formatted_path {
-                        colored_strings.push(path_part);
-                    }
+                    colored_strings.push(
+                        graphemes
+                            .skip(blue_start)
+                            .collect::<String>()
+                            .custom_color(*PAGES_COLOR),
+                    );
                 }
                 procfs::process::FDTarget::Socket(socket_number) => {
                     use procfs::net;
@@ -418,6 +452,20 @@ pub fn find_fd_for_tracee(file_descriptor: i32, tracee_pid: Pid) -> Option<Strin
     }
 }
 
+pub fn get_username_from_uid(owner: u32) -> Option<&'static str> {
+    let cache = UZERS_CACHE.lock().unwrap();
+    let user = cache.get_user_by_uid(owner)?;
+    let name_str = user.name().to_str()?;
+    Some(name_str.to_owned().leak())
+}
+
+pub fn get_groupname_from_uid(group: u32) -> Option<&'static str> {
+    let cache = UZERS_CACHE.lock().unwrap();
+    let group_retrieved = cache.get_group_by_gid(group)?;
+    let group = group_retrieved.name().to_str()?;
+    Some(group.to_owned().leak())
+}
+
 pub fn new_process() -> ColoredString {
     "
 
@@ -449,11 +497,9 @@ pub fn new_thread() -> ColoredString {
 // TODO!
 // consider blinking arrows as replacement
 pub fn syscall_is_blocking() -> ColoredString {
-    "
-
-  ╭──────────────╮
-  │   BLOCKING   │
-  ╰──────────────╯
+    "  ╭─────────────────────╮
+  │   SYSCALL BLOCKED   │
+  ╰─────────────────────╯
 "
     .cyan()
 }

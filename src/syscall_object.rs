@@ -103,12 +103,12 @@ impl SyscallObject {
         unreachable!()
     }
 
-    pub(crate) fn build(child: Pid, sysno: Sysno) -> Option<Self> {
+    pub(crate) fn build(tracee_pid: Pid, sysno: Sysno) -> Option<Self> {
         let syscall = SYSKELETON_MAP.get(&sysno)?;
         let category = *SYSCATEGORIES_MAP.get(&sysno)?;
         Some(SyscallObject {
             sysno,
-            tracee_pid: child,
+            tracee_pid,
             ..Default::default()
         })
     }

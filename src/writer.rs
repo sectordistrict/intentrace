@@ -1,6 +1,6 @@
 use crate::{
     colors::{EXITED_BACKGROUND_COLOR, OUR_YELLOW, PAGES_COLOR, PID_BACKGROUND_COLOR},
-    utilities::lose_relativity_on_path,
+    utilities::{extract_final_dentry_index, lose_relativity_on_path},
 };
 
 use super::GENERAL_TEXT_COLOR;
@@ -81,19 +81,19 @@ pub fn write_syscall_not_covered(sysno: Sysno, tracee_pid: Pid) {
     flush_buffer();
 }
 
-pub fn write_path_file(filename: String) {
-    let mut file_start = 0;
-    for (index, chara) in filename.chars().rev().enumerate() {
-        if chara == '/' && index != 0 {
-            file_start = filename.len() - index;
-            break;
-        }
-    }
-    write_text(filename[0..file_start].custom_color(*OUR_YELLOW));
-    write_text(filename[file_start..].custom_color(*PAGES_COLOR));
+pub fn write_vanilla_path_file(filename: String) {
+    use unicode_segmentation::UnicodeSegmentation;
+    let graphemes = filename.graphemes(true);
+    let blue_start = extract_final_dentry_index(graphemes.clone()).unwrap_or(0);
+    write_text(graphemes.clone().take(blue_start).collect::<String>().custom_color(*OUR_YELLOW));
+    write_text(graphemes.skip(blue_start).collect::<String>().custom_color(*PAGES_COLOR));
 }
 
-pub fn write_possible_dirfd_file(dirfd: i32, filename: String, tracee_pid: Pid) {
+pub fn write_colored(filename: String) {
+    buffered_write(filename.normal())
+}
+
+pub fn write_possible_dirfd_anchor(dirfd: i32, filename: String, tracee_pid: Pid) {
     if filename.starts_with('.') {
         if dirfd == AT_FDCWD {
             let current_working_directory = procfs::process::Process::new(tracee_pid.into())
@@ -120,7 +120,7 @@ pub fn write_possible_dirfd_file(dirfd: i32, filename: String, tracee_pid: Pid) 
             }
         }
     } else {
-        write_path_file(filename);
+        write_vanilla_path_file(filename);
     }
 }
 
@@ -139,7 +139,7 @@ pub fn write_directives(vector: Vec<ColoredString>) {
     }
 }
 
-pub fn write_vanilla_commas(vector: Vec<ColoredString>) {
+pub fn write_commas(vector: Vec<ColoredString>) {
     let mut vector_iter = vector.into_iter().peekable();
     // first element
     if vector_iter.peek().is_some() {

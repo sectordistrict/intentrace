@@ -22,22 +22,21 @@ use nix::{
     unistd::Pid,
 };
 
-pub fn read_bytes<const N: usize>(addr: usize, child: Pid) -> Option<[u8; N]> {
+pub fn read_bytes<const N: usize>(addr: usize, pid: Pid) -> Option<[u8; N]> {
     let base = addr;
     let remote_iov = RemoteIoVec { base, len: N };
     // TODO!
     // large array sizes might overflow
     let mut bytes_buffer = [0u8; N];
-    let _ = process_vm_readv(
-        child,
+    process_vm_readv(
+        pid,
         &mut [IoSliceMut::new(&mut bytes_buffer)],
         &[remote_iov],
-    )
-    .ok()?;
+    ).ok()?;
     Some(bytes_buffer)
 }
 
-pub fn read_bytes_variable_length(base: usize, child: Pid, len: usize) -> Option<Vec<u8>> {
+pub fn read_bytes_variable_length(base: usize, pid: Pid, len: usize) -> Option<Vec<u8>> {
     let remote_iov = RemoteIoVec { base, len };
     let mut bytes_buffer = vec![0u8; len];
     // Note, however, that these system calls
@@ -55,7 +54,7 @@ pub fn read_bytes_variable_length(base: usize, child: Pid, len: usize) -> Option
     // and have them merge back into a single write local_iov entry.
     // The first read entry goes up to the page boundary,
     let _ = process_vm_readv(
-        child,
+        pid,
         &mut [IoSliceMut::new(&mut bytes_buffer)],
         &[remote_iov],
     )
@@ -63,19 +62,19 @@ pub fn read_bytes_variable_length(base: usize, child: Pid, len: usize) -> Option
     Some(bytes_buffer)
 }
 
-pub fn read_bytes_as_struct<const N: usize, T>(addr: usize, child: Pid) -> Option<T> {
-    let vec = read_bytes::<N>(addr, child)?;
+pub fn read_bytes_as_struct<const N: usize, T>(addr: usize, pid: Pid) -> Option<T> {
+    let vec = read_bytes::<N>(addr, pid)?;
     Some(unsafe { std::mem::transmute_copy(&vec) })
 }
 
-pub fn read_one_word(address: usize, child: Pid) -> Option<usize> {
+pub fn read_one_word(address: usize, pid: Pid) -> Option<usize> {
     let remote_iov = RemoteIoVec {
         base: address,
         len: 1,
     };
     let mut bytes_buffer = vec![0u8; 4];
     let _ = process_vm_readv(
-        child,
+        pid,
         &mut [IoSliceMut::new(&mut bytes_buffer)],
         &[remote_iov],
     )
@@ -83,14 +82,14 @@ pub fn read_one_word(address: usize, child: Pid) -> Option<usize> {
     Some(unsafe { std::mem::transmute(&bytes_buffer) })
 }
 
-pub fn read_bytes_until_null(address: usize, child: Pid) -> Option<Vec<u8>> {
+pub fn read_bytes_until_null(address: usize, pid: Pid) -> Option<Vec<u8>> {
     let mut address = address as *mut c_void;
     let mut data = vec![];
     'read_loop: loop {
         // TODO!
         // change this to be similar to read_words_until_null below
         // i.e. if err: return collected data so far
-        let word = ptrace::read(child, address).ok()?;
+        let word = ptrace::read(pid, address).ok()?;
         let bytes: [u8; WORD_SIZE] = unsafe { std::mem::transmute(word) };
         for byte in bytes {
             if byte == b'\0' {
@@ -104,11 +103,11 @@ pub fn read_bytes_until_null(address: usize, child: Pid) -> Option<Vec<u8>> {
 }
 
 // usually used to resolve array of pointers to *
-pub fn read_words_until_null(address: usize, child: Pid) -> Option<Vec<usize>> {
+pub fn read_words_until_null(address: usize, pid: Pid) -> Option<Vec<usize>> {
     let mut addr = address as *mut c_void;
     let mut data = vec![];
     'read_loop: loop {
-        match ptrace::read(child, addr) {
+        match ptrace::read(pid, addr) {
             Ok(word) => {
                 if word == 0 {
                     break 'read_loop;
@@ -122,10 +121,10 @@ pub fn read_words_until_null(address: usize, child: Pid) -> Option<Vec<usize>> {
     Some(data)
 }
 
-pub fn read_affinity_from_child(address: usize, child: Pid) -> Option<Vec<usize>> {
+pub fn read_affinity_from_child(address: usize, pid: Pid) -> Option<Vec<usize>> {
     const CPU_SET_USIZE: usize = (CPU_SETSIZE / WORD_SIZE as i32) as usize;
 
-    let cpu_set = read_bytes_as_struct::<CPU_SET_USIZE, cpu_set_t>(address, child)?;
+    let cpu_set = read_bytes_as_struct::<CPU_SET_USIZE, cpu_set_t>(address, pid)?;
 
     let mut vec = Vec::new();
     for cpu_number in 0..std::thread::available_parallelism()
@@ -139,15 +138,15 @@ pub fn read_affinity_from_child(address: usize, child: Pid) -> Option<Vec<usize>
     Some(vec)
 }
 
-pub fn read_string_specific_length(addr: usize, child: Pid, size: usize) -> Option<String> {
-    let bytes_buffer = read_bytes_variable_length(addr, child, size)?;
+pub fn read_string_specific_length(addr: usize, pid: Pid, size: usize) -> Option<String> {
+    let bytes_buffer = read_bytes_variable_length(addr, pid, size)?;
     Some(String::from_utf8_lossy(&bytes_buffer).into_owned())
 }
 
-pub fn write_bytes<const N: usize>(addr: usize, child: Pid, data: [u64; N]) -> Result<(), ()> {
+pub fn write_bytes<const N: usize>(addr: usize, pid: Pid, data: [u64; N]) -> Result<(), ()> {
     let mut addr = addr as *mut c_void;
     for word in data {
-        match ptrace::write(child, addr, word as _) {
+        match ptrace::write(pid, addr, word as _) {
             Ok(_void) => {
                 addr = unsafe { addr.byte_add(WORD_SIZE) };
             }

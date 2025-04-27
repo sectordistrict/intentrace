@@ -1,7 +1,13 @@
 #![allow(unused_variables)]
 
 use crate::{
-    auxiliary::constants::sizes::{CLONE3_ARGS_SIZE, RLIMIT_SIZE, SIGACTION_SIZE, TIMESPEC_SIZE},
+    auxiliary::constants::{
+        general::{
+            ARCH_GET_CPUID, ARCH_GET_FS, ARCH_GET_GS, ARCH_SET_CPUID, ARCH_SET_FS, ARCH_SET_GS,
+            LANDLOCK_RULE_PATH_BENEATH,
+        },
+        sizes::{CLONE3_ARGS_SIZE, RLIMIT_SIZE, SIGACTION_SIZE, TIMESPEC_SIZE},
+    },
     cli::{FAILED_ONLY, FOLLOW_FORKS},
     colors::{CONTINUED_COLOR, OUR_YELLOW, PAGES_COLOR, PID_NUMBER_COLOR},
     peeker_poker::{
@@ -11,18 +17,19 @@ use crate::{
     syscall_object::{ErrnoVariant, SyscallObject, SyscallResult},
     types::{Bytes, BytesPagesRelevant},
     utilities::{
-        colorize_syscall_name, find_fd_for_tracee, get_array_of_strings,
-        get_mem_difference_from_previous, lower_32_bits, lower_64_bits, new_process, new_thread,
+        colorize_syscall_name, extract_final_dentry_index, find_fd_for_tracee,
+        get_array_of_strings, get_groupname_from_uid, get_mem_difference_from_previous,
+        get_username_from_uid, lower_32_bits, lower_64_bits, new_process, new_thread,
         parse_as_address, parse_as_bytes_pages_ceil, parse_as_file_descriptor, parse_as_futex,
         parse_as_int, parse_as_long, parse_as_signal, parse_as_signed_bytes, parse_as_ssize_t,
         parse_as_unsigned_bytes, string_from_pointer, REGISTERS, SYSCATEGORIES_MAP,
     },
     write_text,
     writer::{
-        empty_buffer, errorize_pid_color, flush_buffer, write_anding, write_directives,
-        write_exiting, write_general_text, write_oring, write_parenthesis, write_path_file,
-        write_possible_dirfd_file, write_timespec, write_timespec_non_relative, write_timeval,
-        write_vanilla_commas,
+        empty_buffer, errorize_pid_color, flush_buffer, write_anding, write_colored, write_commas,
+        write_directives, write_exiting, write_general_text, write_oring, write_parenthesis,
+        write_possible_dirfd_anchor, write_timespec, write_timespec_non_relative, write_timeval,
+        write_vanilla_path_file,
     },
 };
 use colored::Colorize;
@@ -73,6 +80,7 @@ use nix::{
     },
 };
 use syscalls::Sysno;
+use unicode_segmentation::UnicodeSegmentation;
 
 impl SyscallObject {
     pub(crate) fn one_line_error(&self) {
@@ -157,10 +165,6 @@ impl SyscallObject {
             // preadv2
             // pwritev2
             // openat2
-            // creat
-            // chdir
-            // fchdir
-            // renameat2
             // ustat
             // cachestat
             // socket
@@ -183,13 +187,15 @@ impl SyscallObject {
             Sysno::open => {
                 match self.state {
                     Entering => {
-                        let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
+                        let filename =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        // ==================================================================
+                        write_general_text("open the file ");
+                        write_colored(filename);
                         // TODO!
                         //
-                        // fix open flags granularity
-                        // also fix file mode granularity
-                        write_general_text("open the file ");
-                        write_path_file(filename);
+                        // open flags granularity
+                        // file mode granularity
                     }
                     Exiting => match &self.result {
                         &SyscallResult::Success(_syscall_return) => {
@@ -206,9 +212,11 @@ impl SyscallObject {
 
             Sysno::close => match self.state {
                 Entering => {
+                    let filename =
+                        parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                    // ==================================================================
                     write_general_text("close the file: ");
-                    let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                    write_path_file(filename);
+                    write_colored(filename);
                 }
                 Exiting => match &self.result {
                     &SyscallResult::Success(_syscall_return) => {
@@ -223,11 +231,12 @@ impl SyscallObject {
             },
 
             Sysno::stat => {
-                let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        // ==================================================================
                         write_general_text("get the stats of the file: ");
-                        write_path_file(filename);
+                        write_vanilla_path_file(filename);
                     }
                     Exiting => match &self.result {
                         &SyscallResult::Success(_syscall_return) => {
@@ -241,12 +250,15 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::fstat => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let filename =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        // ==================================================================
                         write_general_text("get the stats of the file: ");
-                        write_path_file(filename);
+                        write_colored(filename);
                     }
                     Exiting => match &self.result {
                         &SyscallResult::Success(_syscall_return) => {
@@ -260,12 +272,14 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::lstat => {
-                let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        // ==================================================================
                         write_general_text("get the stats of the file: ");
-                        write_path_file(filename);
+                        write_vanilla_path_file(filename);
                         write_general_text(" and do not recurse symbolic links");
                     }
                     Exiting => match &self.result {
@@ -280,12 +294,14 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::statfs => {
-                let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        // ==================================================================
                         write_general_text("get stats for the filesystem mounted in: ");
-                        write_path_file(filename);
+                        write_vanilla_path_file(filename);
                     }
                     Exiting => match &self.result {
                         &SyscallResult::Success(_syscall_return) => {
@@ -299,12 +315,15 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::fstatfs => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let filename =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        // ==================================================================
                         write_general_text("get stats for the filesystem that contains the file: ");
-                        write_path_file(filename);
+                        write_colored(filename);
                     }
                     Exiting => match &self.result {
                         &SyscallResult::Success(_syscall_return) => {
@@ -318,14 +337,16 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::newfstatat => {
-                let dirfd = parse_as_int(registers[0]);
-                let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
-                let flags = parse_as_int(registers[3]);
                 match self.state {
                     Entering => {
+                        let dirfd = parse_as_int(registers[0]);
+                        let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
+                        let flags = parse_as_int(registers[3]);
+                        // ==================================================================
                         write_general_text("get the stats of the file: ");
-                        write_possible_dirfd_file(dirfd, filename, self.tracee_pid);
+                        write_possible_dirfd_anchor(dirfd, filename, self.tracee_pid);
                         let mut flag_directive = vec![];
                         if (flags & AT_SYMLINK_NOFOLLOW) == AT_SYMLINK_NOFOLLOW {
                             flag_directive.push(
@@ -376,27 +397,28 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::statx => {
-                let dirfd = parse_as_int(registers[0]);
-                let pathname = string_from_pointer(registers[1] as usize, self.tracee_pid);
-                let flags = parse_as_int(registers[2]);
                 match self.state {
                     Entering => {
+                        let dirfd = parse_as_int(registers[0]);
+                        let pathname = string_from_pointer(registers[1] as usize, self.tracee_pid);
+                        let flags = parse_as_int(registers[2]);
+                        // ==================================================================
                         write_general_text("get the stats of the file: ");
                         if pathname.starts_with('/') {
                             // absolute pathname
                             // dirfd is ignored
-                            write_path_file(pathname);
+                            write_vanilla_path_file(pathname);
                         } else {
-                            if pathname.is_empty() && (flags & AT_EMPTY_PATH) > 0 {
-                                // the pathname is empty
-                                let dirfd_parsed =
-                                    parse_as_file_descriptor(registers[0], self.tracee_pid);
-                                // if pathname is empty and AT_EMPTY_PATH is given, dirfd is used
-                                write_path_file(dirfd_parsed);
+                            // relative pathname
+                            if pathname.is_empty() && ((flags & AT_EMPTY_PATH) == AT_EMPTY_PATH) {
+                                // if pathname is empty and AT_EMPTY_PATH is given, operate on the dirfd
+                                let dirfd_parsed = parse_as_file_descriptor(dirfd, self.tracee_pid);
+                                write_vanilla_path_file(dirfd_parsed);
                             } else {
                                 // A relative pathname, dirfd = CWD, or a normal directory
-                                write_possible_dirfd_file(dirfd, pathname, self.tracee_pid);
+                                write_possible_dirfd_anchor(dirfd, pathname, self.tracee_pid);
                             }
                         }
                         let mut flag_directive = vec![];
@@ -432,7 +454,7 @@ impl SyscallObject {
                         write_directives(flag_directive);
 
                         // TODO!
-                        // unnecessary information
+                        // revise
                         // statx_mask is currently unhandled because it's unnecessary information
                     }
                     Exiting => match &self.result {
@@ -447,38 +469,34 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::chown => {
-                let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
                 let owner_given = lower_32_bits(registers[1]);
                 let group_given = lower_32_bits(registers[2]);
                 match self.state {
                     Entering => {
-                        use uzers::{Users, UsersCache};
-                        let cache = UsersCache::new();
+                        let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        // ==================================================================
                         // https://github.com/torvalds/linux/blob/cfb2e2c57aef75a414c0f18445c7441df5bc13be/fs/open.c#L768C1-L768C2
                         if owner_given != u32::MAX {
-                            let get_user_by_uid = cache.get_user_by_uid(owner_given as _);
-                            let user = get_user_by_uid.unwrap();
-                            let name = user.name();
-                            let owner = name.to_str().unwrap();
+                            let owner = get_username_from_uid(owner_given)
+                                .unwrap_or("[intentrace: could not get owner]");
                             write_general_text("change the owner of ");
-                            write_path_file(filename);
+                            write_vanilla_path_file(filename);
                             write_general_text(" to ");
                             write_text(owner.bold().green());
                             if group_given != u32::MAX {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
+                                let group = get_groupname_from_uid(group_given)
+                                    .unwrap_or("[intentrace: could not get group]");
                                 write_general_text(", and its group to ");
                                 write_text(group.bold().green());
                             }
                         } else {
                             if group_given != u32::MAX {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
+                                let group = get_groupname_from_uid(group_given)
+                                    .unwrap_or("[intentrace: could not get group]");
                                 write_general_text("change the group of the file: ");
-                                write_path_file(filename);
+                                write_vanilla_path_file(filename);
                                 write_general_text("to ");
                                 write_text(group.bold().green());
                             } else {
@@ -514,38 +532,35 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::fchown => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
                 let owner_given = lower_32_bits(registers[1]);
                 let group_given = lower_32_bits(registers[2]);
                 match self.state {
                     Entering => {
-                        use uzers::{Users, UsersCache};
-                        let cache = UsersCache::new();
+                        let filename =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        // ==================================================================
                         // https://github.com/torvalds/linux/blob/cfb2e2c57aef75a414c0f18445c7441df5bc13be/fs/open.c#L768C1-L768C2
                         if owner_given != u32::MAX {
-                            let get_user_by_uid = cache.get_user_by_uid(owner_given as _);
-                            let user = get_user_by_uid.unwrap();
-                            let name = user.name();
-                            let owner = name.to_str().unwrap();
+                            let owner = get_username_from_uid(owner_given)
+                                .unwrap_or("[intentrace: could not get owner]");
                             write_general_text("change the owner of ");
-                            write_path_file(filename);
+                            write_colored(filename);
                             write_general_text(" to ");
                             write_text(owner.bold().green());
                             if group_given != u32::MAX {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
+                                let group = get_groupname_from_uid(group_given)
+                                    .unwrap_or("[intentrace: could not get group]");
                                 write_general_text(", and its group to ");
                                 write_text(group.bold().green());
                             }
                         } else {
                             if group_given != u32::MAX {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
+                                let group = get_groupname_from_uid(group_given)
+                                    .unwrap_or("[intentrace: could not get group]");
                                 write_general_text("change the group of the file: ");
-                                write_path_file(filename);
+                                write_colored(filename);
                                 write_general_text("to ");
                                 write_text(group.bold().green());
                             } else {
@@ -581,28 +596,25 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::lchown => {
-                let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
                 let owner_given = lower_32_bits(registers[1]);
                 let group_given = lower_32_bits(registers[2]);
                 match self.state {
                     Entering => {
-                        use uzers::{Users, UsersCache};
-                        let cache = UsersCache::new();
+                        let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        // ==================================================================
                         // https://github.com/torvalds/linux/blob/cfb2e2c57aef75a414c0f18445c7441df5bc13be/fs/open.c#L768C1-L768C2
                         if owner_given != u32::MAX {
-                            let get_user_by_uid = cache.get_user_by_uid(owner_given as _);
-                            let user = get_user_by_uid.unwrap();
-                            let name = user.name();
-                            let owner = name.to_str().unwrap();
+                            let owner = get_username_from_uid(owner_given)
+                                .unwrap_or("[intentrace: could not get owner]");
                             write_general_text("change the owner of ");
-                            write_path_file(filename);
+                            write_vanilla_path_file(filename);
                             write_general_text(" to ");
                             write_text(owner.bold().green());
                             if group_given != u32::MAX {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
+                                let group = get_groupname_from_uid(group_given)
+                                    .unwrap_or("[intentrace: could not get group]");
                                 write_general_text(", and its group to ");
                                 write_text(group.bold().green());
                             }
@@ -611,11 +623,10 @@ impl SyscallObject {
                             write_general_text(")");
                         } else {
                             if group_given != u32::MAX {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
+                                let group = get_groupname_from_uid(group_given)
+                                    .unwrap_or("[intentrace: could not get group]");
                                 write_general_text("change the group of the file: ");
-                                write_path_file(filename);
+                                write_vanilla_path_file(filename);
                                 write_general_text("to ");
                                 write_text(group.bold().green());
                                 write_general_text(" (");
@@ -656,17 +667,16 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::fchownat => {
-                let dirfd = parse_as_int(registers[0]);
-                let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
                 let owner_given = lower_32_bits(registers[2]);
                 let group_given = lower_32_bits(registers[3]);
-                let flags = parse_as_int(registers[4]);
-
                 match self.state {
                     Entering => {
-                        use uzers::{Users, UsersCache};
-                        let cache = UsersCache::new();
+                        let dirfd = parse_as_int(registers[0]);
+                        let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
+                        let flags = parse_as_int(registers[4]);
+                        // ==================================================================
                         let flags_check = || {
                             let mut flag_directive = vec![];
                             if (flags & AT_SYMLINK_NOFOLLOW) == AT_SYMLINK_NOFOLLOW {
@@ -684,29 +694,25 @@ impl SyscallObject {
                             write_directives(flag_directive);
                         };
                         if owner_given != u32::MAX {
-                            let get_user_by_uid = cache.get_user_by_uid(owner_given as _);
-                            let user = get_user_by_uid.unwrap();
-                            let name = user.name();
-                            let owner = name.to_str().unwrap();
+                            let owner = get_username_from_uid(owner_given)
+                                .unwrap_or("[intentrace: could not get owner]");
                             write_general_text("change the owner of ");
-                            write_possible_dirfd_file(dirfd, filename, self.tracee_pid);
+                            write_possible_dirfd_anchor(dirfd, filename, self.tracee_pid);
                             write_general_text(" to ");
                             write_text(owner.bold().green());
                             if group_given != u32::MAX {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
+                                let group = get_groupname_from_uid(group_given)
+                                    .unwrap_or("[intentrace: could not get group]");
                                 write_general_text(", and its group to ");
                                 write_text(group.bold().green());
                             }
                             flags_check();
                         } else {
                             if group_given == u32::MAX {
-                                let get_user_by_uid = cache.get_user_by_uid(group_given as _);
-                                let user = get_user_by_uid.unwrap();
-                                let group = user.name().to_str().unwrap();
+                                let group = get_groupname_from_uid(group_given)
+                                    .unwrap_or("[intentrace: could not get group]");
                                 write_general_text("change the group of the file: ");
-                                write_path_file(filename);
+                                write_vanilla_path_file(filename);
                                 write_general_text("to ");
                                 write_text(group.bold().green());
                                 flags_check();
@@ -743,6 +749,7 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::brk => {
                 let brk_address = registers[0];
                 match self.state {
@@ -804,31 +811,33 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::mmap => {
-                let flags_num = parse_as_int(registers[3]);
-                let shared = (flags_num & MAP_SHARED) == MAP_SHARED;
-                let private = (flags_num & MAP_PRIVATE) == MAP_PRIVATE;
-                let shared_validate = (flags_num & MAP_SHARED_VALIDATE) == MAP_SHARED_VALIDATE;
-                let anonymous = ((flags_num & MAP_ANON) == MAP_ANON)
-                    || ((flags_num & MAP_ANONYMOUS) == MAP_ANONYMOUS);
-                let huge_pages_used = (flags_num & MAP_HUGETLB) == MAP_HUGETLB;
-                let populate = (flags_num & MAP_POPULATE) == MAP_POPULATE;
-                let lock = (flags_num & MAP_LOCKED) == MAP_LOCKED;
-                let fixed = (flags_num & MAP_FIXED) == MAP_FIXED;
-                let non_blocking = (flags_num & MAP_NONBLOCK) == MAP_NONBLOCK;
-                let no_reserve = (flags_num & MAP_NORESERVE) == MAP_NORESERVE;
-                let stack = (flags_num & MAP_STACK) == MAP_STACK;
-                let sync = (flags_num & MAP_SYNC) == MAP_SYNC;
-
-                let prot_flags = parse_as_int(registers[2]);
-                let bytes = parse_as_bytes_pages_ceil(registers[1] as usize);
-                let addr = registers[0] as *const ();
-                let address = parse_as_address(registers[0] as usize);
-                let offset_num = parse_as_long(registers[5]);
-                let offset = parse_as_signed_bytes(registers[5]);
-
                 match self.state {
                     Entering => {
+                        let flags_num = parse_as_int(registers[3]);
+                        let shared = (flags_num & MAP_SHARED) == MAP_SHARED;
+                        let private = (flags_num & MAP_PRIVATE) == MAP_PRIVATE;
+                        let shared_validate =
+                            (flags_num & MAP_SHARED_VALIDATE) == MAP_SHARED_VALIDATE;
+                        let anonymous = ((flags_num & MAP_ANON) == MAP_ANON)
+                            || ((flags_num & MAP_ANONYMOUS) == MAP_ANONYMOUS);
+                        let huge_pages_used = (flags_num & MAP_HUGETLB) == MAP_HUGETLB;
+                        let populate = (flags_num & MAP_POPULATE) == MAP_POPULATE;
+                        let lock = (flags_num & MAP_LOCKED) == MAP_LOCKED;
+                        let fixed = (flags_num & MAP_FIXED) == MAP_FIXED;
+                        let non_blocking = (flags_num & MAP_NONBLOCK) == MAP_NONBLOCK;
+                        let no_reserve = (flags_num & MAP_NORESERVE) == MAP_NORESERVE;
+                        let stack = (flags_num & MAP_STACK) == MAP_STACK;
+                        let sync = (flags_num & MAP_SYNC) == MAP_SYNC;
+
+                        let prot_flags = parse_as_int(registers[2]);
+                        let bytes = parse_as_bytes_pages_ceil(registers[1] as usize);
+                        let addr = registers[0] as *const ();
+                        let address = parse_as_address(registers[0] as usize);
+                        let offset_num = parse_as_long(registers[5]);
+                        let offset = parse_as_signed_bytes(registers[5]);
+                        // ==================================================================
                         if !anonymous {
                             write_general_text("map ");
                         } else {
@@ -841,14 +850,16 @@ impl SyscallObject {
                         //
                         if !anonymous {
                             write_general_text(" of the file: ");
-                            let filename = parse_as_file_descriptor(registers[4], self.tracee_pid);
-                            write_path_file(filename);
+                            let filename = parse_as_file_descriptor(
+                                parse_as_int(registers[4]),
+                                self.tracee_pid,
+                            );
+                            write_colored(filename);
                             if offset_num > 0 {
                                 write_general_text(" at an offset of ");
                                 write_text(offset.to_string().custom_color(*OUR_YELLOW));
                             }
                         }
-
                         write_general_text(" as ");
                         // PRIVATE VS SHARED
                         //
@@ -863,7 +874,6 @@ impl SyscallObject {
                         } else if private {
                             write_text("private copy-on-write memory".custom_color(*OUR_YELLOW));
                         }
-
                         // HUGE PAGES
                         //
                         //
@@ -897,7 +907,6 @@ impl SyscallObject {
                             }
                             write_text("hugepages".custom_color(*OUR_YELLOW));
                         }
-
                         // POPULATE
                         //
                         //
@@ -907,7 +916,6 @@ impl SyscallObject {
                             write_text("and prefault it".custom_color(*OUR_YELLOW));
                             // MAP_NON_BLOCK disables MAP_POPULATE since 2.5.46
                         }
-
                         let mut others = vec![];
                         if lock {
                             others.push("don't swap memory".custom_color(*OUR_YELLOW));
@@ -918,25 +926,21 @@ impl SyscallObject {
                             // preallocating it (more or less) gives a guaranty that the calling process will always have enough of it
                             others.push("don't reserve swap space".custom_color(*OUR_YELLOW));
                         }
-
                         if stack {
                             others.push(
                                 "choose an address suitable for a stack".custom_color(*OUR_YELLOW),
                             );
                         }
-
                         if sync && shared_validate {
                             others.push(
                                 "use Direct Access (DAX) for file writes".custom_color(*OUR_YELLOW),
                             );
                         }
-
                         if others.len() > 0 {
                             write_general_text(" (");
-                            write_vanilla_commas(others);
+                            write_commas(others);
                             write_general_text(")");
                         }
-
                         // ADDRESS
                         //
                         //
@@ -962,7 +966,6 @@ impl SyscallObject {
                             write_text("around ".custom_color(*OUR_YELLOW));
                             write_text(address.custom_color(*OUR_YELLOW));
                         }
-
                         // MEMORY DIRECTION
                         //
                         //
@@ -970,12 +973,10 @@ impl SyscallObject {
                         if (flags_num & MAP_GROWSDOWN) == MAP_GROWSDOWN {
                             write_text(" growing down,".custom_color(*OUR_YELLOW));
                         }
-
                         // PROTECTION
                         //
                         //
                         //
-
                         let mut flags = vec![];
                         if (prot_flags & PROT_READ) == PROT_READ {
                             flags.push("reading".custom_color(*OUR_YELLOW));
@@ -993,7 +994,7 @@ impl SyscallObject {
                             write_text(")".custom_color(*OUR_YELLOW));
                         } else {
                             write_general_text(" and allow ");
-                            write_vanilla_commas(flags);
+                            write_commas(flags);
                         }
                     }
                     Exiting => {
@@ -1002,6 +1003,7 @@ impl SyscallObject {
                                 write_general_text(" |=> ");
                                 write_text("new mapping address: ".bold().green());
                                 let address = parse_as_address(syscall_return as usize);
+
                                 write_text(address.custom_color(*OUR_YELLOW));
                                 // if anonymous {
                                 //     let k = get_child_memory_break(self.child);
@@ -1042,11 +1044,13 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::munmap => {
-                let address = parse_as_address(registers[0] as usize);
-                let len = parse_as_bytes_pages_ceil(registers[1] as usize);
                 match self.state {
                     Entering => {
+                        let address = parse_as_address(registers[0] as usize);
+                        let len = parse_as_bytes_pages_ceil(registers[1] as usize);
+                        // ==================================================================
                         write_general_text("unmap ");
                         write_text(len.custom_color(*OUR_YELLOW));
                         write_general_text(" from memory starting at ");
@@ -1064,13 +1068,15 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::madvise => {
-                // addr, len, adv
-                let address = parse_as_address(registers[0] as usize);
-                let len = parse_as_bytes_pages_ceil(registers[1] as usize);
-                let advice = parse_as_int(registers[2]);
                 match self.state {
                     Entering => {
+                        // addr, len, adv
+                        let address = parse_as_address(registers[0] as usize);
+                        let len = parse_as_bytes_pages_ceil(registers[1] as usize);
+                        let advice = parse_as_int(registers[2]);
+                        // ==================================================================
                         match advice {
                             MADV_NORMAL => {
                                 write_general_text("provide default treatment for ");
@@ -1281,12 +1287,14 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::msync => {
-                let address = parse_as_address(registers[0] as usize);
-                let bytes = parse_as_bytes_pages_ceil(registers[1] as usize);
-                let flags = parse_as_int(registers[2]);
                 match self.state {
                     Entering => {
+                        let address = parse_as_address(registers[0] as usize);
+                        let bytes = parse_as_bytes_pages_ceil(registers[1] as usize);
+                        let flags = parse_as_int(registers[2]);
+                        // ==================================================================
                         write_general_text("flush all changes made on ");
                         write_text(bytes.custom_color(*OUR_YELLOW));
                         write_general_text(" of memory starting from ");
@@ -1326,12 +1334,14 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::mprotect => {
-                let address = parse_as_address(registers[0] as usize);
-                let bytes = parse_as_bytes_pages_ceil(registers[1] as usize);
-                let prot_flags = parse_as_int(registers[2]);
                 match self.state {
                     Entering => {
+                        let address = parse_as_address(registers[0] as usize);
+                        let bytes = parse_as_bytes_pages_ceil(registers[1] as usize);
+                        let prot_flags = parse_as_int(registers[2]);
+                        // ==================================================================
                         // PROTECTION
                         //
                         //
@@ -1356,7 +1366,7 @@ impl SyscallObject {
                             if (prot_flags & PROT_EXEC) == PROT_EXEC {
                                 flags.push("execution".custom_color(*OUR_YELLOW))
                             }
-                            write_vanilla_commas(flags);
+                            write_commas(flags);
                         }
                         // AMOUNT OF BYTES
                         //
@@ -1384,19 +1394,21 @@ impl SyscallObject {
                     },
                 }
             }
-            Sysno::lseek => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                let offset_num = parse_as_long(registers[1]);
-                let offset = parse_as_signed_bytes(registers[1]);
-                let whence = parse_as_int(registers[2]);
 
+            Sysno::lseek => {
                 match self.state {
                     Entering => {
+                        let filename =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        let offset_num = parse_as_long(registers[1]);
+                        let offset = parse_as_signed_bytes(registers[1]);
+                        let whence = parse_as_int(registers[2]);
+                        // ==================================================================
                         match whence {
                             SEEK_SET => {
                                 if offset_num == 0 {
                                     write_general_text("move the file pointer of the file: ");
-                                    write_path_file(filename);
+                                    write_colored(filename);
                                     write_general_text(" to ");
                                     write_text(
                                         "the beginning of the file".custom_color(*OUR_YELLOW),
@@ -1410,7 +1422,7 @@ impl SyscallObject {
                             }
                             SEEK_CUR => {
                                 write_general_text("move the file pointer of the file: ");
-                                write_path_file(filename);
+                                write_colored(filename);
                                 write_general_text(" ");
                                 if offset_num == 0 {
                                     // write_general_text.push("[intentrace: redundant syscall (won't do anything)]");
@@ -1429,7 +1441,7 @@ impl SyscallObject {
                             }
                             SEEK_END => {
                                 write_general_text("move the file pointer of the file: ");
-                                write_path_file(filename);
+                                write_colored(filename);
                                 write_general_text(" ");
 
                                 if offset_num == 0 {
@@ -1447,7 +1459,7 @@ impl SyscallObject {
                             }
                             SEEK_DATA => {
                                 write_general_text("move the file pointer of the file: ");
-                                write_path_file(filename);
+                                write_colored(filename);
                                 write_general_text(" to ");
                                 write_text("the nearest data block".custom_color(*OUR_YELLOW));
                                 write_general_text(" you find ");
@@ -1469,7 +1481,7 @@ impl SyscallObject {
                             }
                             SEEK_HOLE => {
                                 write_general_text("move the file pointer of the file: ");
-                                write_path_file(filename);
+                                write_colored(filename);
                                 write_general_text(" to ");
                                 write_text("the nearest data hole".custom_color(*OUR_YELLOW));
                                 write_general_text(" you find ");
@@ -1506,8 +1518,10 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::mlock => {
                 let address = parse_as_address(registers[0] as usize);
+
                 let bytes = parse_as_bytes_pages_ceil(registers[1] as usize);
                 match self.state {
                     Entering => {
@@ -1528,8 +1542,10 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::mlock2 => {
                 let address = parse_as_address(registers[0] as usize);
+
                 let bytes = parse_as_bytes_pages_ceil(registers[1] as usize);
                 let flags = registers[2];
                 match self.state {
@@ -1559,8 +1575,10 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::munlock => {
                 let address = parse_as_address(registers[0] as usize);
+
                 let bytes = parse_as_bytes_pages_ceil(registers[1] as usize);
 
                 match self.state {
@@ -1582,6 +1600,7 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::munlockall => {
                 match self.state {
                     Entering => {
@@ -1601,9 +1620,11 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::mremap => {
                 // TODO! current mremap logic is not good and needs rewriting
                 let old_address_num = registers[0];
+
                 let old_address = parse_as_address(registers[0] as usize);
                 let old_len_num = registers[1];
                 let old_len = parse_as_bytes_pages_ceil(registers[1] as usize);
@@ -1673,8 +1694,10 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::mincore => {
                 let address_num = registers[0];
+
                 let address = parse_as_address(registers[0] as usize);
                 let length_num = registers[1];
                 let length = parse_as_bytes_pages_ceil(registers[1] as usize);
@@ -1705,6 +1728,7 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::mlockall => {
                 let flags_num = parse_as_int(registers[0]);
                 match self.state {
@@ -1755,8 +1779,10 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::read => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
+                let filename =
+                    parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
                 let bytes_to_read = registers[2];
                 let bytes = parse_as_unsigned_bytes(registers[2]);
 
@@ -1765,7 +1791,7 @@ impl SyscallObject {
                         write_general_text("read ");
                         write_text(bytes.custom_color(*OUR_YELLOW));
                         write_general_text(" from the file: ");
-                        write_path_file(filename);
+                        write_colored(filename);
                     }
                     Exiting => {
                         match &self.result {
@@ -1798,8 +1824,10 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::write => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
+                let filename =
+                    parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
                 let bytes_to_read = registers[2];
                 let bytes_to_write = registers[2];
                 match self.state {
@@ -1807,7 +1835,7 @@ impl SyscallObject {
                         write_general_text("write ");
                         write_text(parse_as_unsigned_bytes(registers[2]).custom_color(*OUR_YELLOW));
                         write_general_text(" into the file: ");
-                        write_path_file(filename);
+                        write_colored(filename);
                     }
                     Exiting => {
                         match &self.result {
@@ -1840,8 +1868,10 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::pread64 => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
+                let filename =
+                    parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
                 let bytes_to_read = registers[2];
                 let bytes = parse_as_unsigned_bytes(registers[2]);
                 let offset = parse_as_signed_bytes(registers[3]);
@@ -1850,7 +1880,7 @@ impl SyscallObject {
                         write_general_text("read ");
                         write_text(bytes.custom_color(*OUR_YELLOW));
                         write_general_text(" from the file: ");
-                        write_path_file(filename);
+                        write_colored(filename);
                         write_general_text(" at an offset of ");
                         write_text(offset.custom_color(*OUR_YELLOW));
                     }
@@ -1883,18 +1913,19 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::pwrite64 => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
+                let filename =
+                    parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
                 let bytes_to_write = registers[2];
                 let bytes = parse_as_unsigned_bytes(registers[2]);
                 let offset = parse_as_signed_bytes(registers[3]);
-
                 match self.state {
                     Entering => {
                         write_general_text("write ");
                         write_text(bytes.custom_color(*OUR_YELLOW));
                         write_general_text(" into the file: ");
-                        write_path_file(filename);
+                        write_colored(filename);
                         write_general_text(" at an offset of ");
                         write_text(offset.custom_color(*OUR_YELLOW));
                     }
@@ -1929,9 +1960,11 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::readv => {
                 let number_of_iovecs = registers[2];
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
+                let filename =
+                    parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
                 match self.state {
                     Entering => {
                         write_general_text("read from ");
@@ -1941,7 +1974,7 @@ impl SyscallObject {
                         } else {
                             write_general_text(" scattered regions of memory from the file: ");
                         }
-                        write_path_file(filename);
+                        write_colored(filename);
                     }
                     Exiting => {
                         match &self.result {
@@ -1959,10 +1992,11 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::writev => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
+                let filename =
+                    parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
                 let number_of_iovecs = registers[2];
-
                 match self.state {
                     Entering => {
                         write_general_text("write into ");
@@ -1972,7 +2006,7 @@ impl SyscallObject {
                         } else {
                             write_general_text(" scattered regions of memory of the file: ");
                         }
-                        write_path_file(filename);
+                        write_colored(filename);
                     }
                     Exiting => {
                         match &self.result {
@@ -1990,8 +2024,10 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::preadv => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
+                let filename =
+                    parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
                 let number_of_iovecs = registers[2];
                 let offset = parse_as_signed_bytes(registers[3]);
                 match self.state {
@@ -2003,7 +2039,7 @@ impl SyscallObject {
                         } else {
                             write_general_text(" scattered regions of memory from the file: ");
                         }
-                        write_path_file(filename);
+                        write_colored(filename);
                         write_general_text(" at an offset of ");
                         write_text(offset.custom_color(*OUR_YELLOW));
                     }
@@ -2023,8 +2059,10 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::pwritev => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
+                let filename =
+                    parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
                 let number_of_iovecs = registers[2];
                 let offset = parse_as_signed_bytes(registers[3]);
 
@@ -2037,7 +2075,7 @@ impl SyscallObject {
                         } else {
                             write_general_text(" scattered regions of memory of the file: ");
                         }
-                        write_path_file(filename);
+                        write_colored(filename);
                         write_general_text(" at an offset of ");
                         write_text(offset.custom_color(*OUR_YELLOW));
                     }
@@ -2057,6 +2095,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::pipe => {
                 match self.state {
                     Entering => {
@@ -2105,6 +2144,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::pipe2 => {
                 let flags = parse_as_int(registers[1]);
                 match self.state {
@@ -2125,19 +2165,13 @@ impl SyscallObject {
                                         };
                                         write_text("read end: ".custom_color(*OUR_YELLOW));
                                         write_text(
-                                            parse_as_file_descriptor(
-                                                pipes[0] as u64,
-                                                self.tracee_pid,
-                                            )
-                                            .custom_color(*PAGES_COLOR),
+                                            parse_as_file_descriptor(pipes[0], self.tracee_pid)
+                                                .custom_color(*PAGES_COLOR),
                                         );
                                         write_text(", write end: ".custom_color(*OUR_YELLOW));
                                         write_text(
-                                            parse_as_file_descriptor(
-                                                pipes[1] as u64,
-                                                self.tracee_pid,
-                                            )
-                                            .custom_color(*PAGES_COLOR),
+                                            parse_as_file_descriptor(pipes[1], self.tracee_pid)
+                                                .custom_color(*PAGES_COLOR),
                                         );
                                     }
                                     None => write_text("created the pipe".bold().green()),
@@ -2151,23 +2185,27 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::dup => {
-                let file_descriptor = parse_as_file_descriptor(registers[0], self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let filename =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
                         write_general_text("duplicate the file descriptor: ");
-                        write_path_file(file_descriptor);
+                        write_colored(filename);
                     }
                     Exiting => {
                         match &self.result {
                             &SyscallResult::Success(syscall_return) => {
-                                let file =
-                                    parse_as_file_descriptor(syscall_return, self.tracee_pid);
+                                let filename = parse_as_file_descriptor(
+                                    parse_as_int(syscall_return),
+                                    self.tracee_pid,
+                                );
                                 write_general_text(" |=> ");
                                 write_text(
                                     "created a new duplicate file descriptor: ".bold().green(),
                                 );
-                                write_path_file(file);
+                                write_colored(filename);
                             }
                             // TODO! granular
                             SyscallResult::Fail(_errno_variant) => {
@@ -2177,14 +2215,16 @@ impl SyscallObject {
                     }
                 }
             }
-            Sysno::dup2 => {
-                let file_to_be_duplicated = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                let file_duplicate = parse_as_int(registers[1]);
 
+            Sysno::dup2 => {
                 match self.state {
                     Entering => {
+                        let file_to_be_duplicated =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        let file_duplicate = parse_as_int(registers[1]);
+                        // ==================================================================
                         write_general_text("duplicate the file descriptor: ");
-                        write_path_file(file_to_be_duplicated);
+                        write_colored(file_to_be_duplicated);
                         write_general_text(" using the fd: ");
                         write_text(file_duplicate.to_string().custom_color(*PAGES_COLOR));
                         write_general_text(
@@ -2194,13 +2234,15 @@ impl SyscallObject {
                     Exiting => {
                         match &self.result {
                             &SyscallResult::Success(syscall_return) => {
-                                let file =
-                                    parse_as_file_descriptor(syscall_return, self.tracee_pid);
+                                let filename = parse_as_file_descriptor(
+                                    parse_as_int(syscall_return),
+                                    self.tracee_pid,
+                                );
                                 write_general_text(" |=> ");
                                 write_text(
                                     "created a new duplicate file descriptor: ".bold().green(),
                                 );
-                                write_path_file(file);
+                                write_colored(filename);
                             }
                             // TODO! granular
                             SyscallResult::Fail(_errno_variant) => {
@@ -2210,14 +2252,17 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::dup3 => {
-                let file_to_be_duplicated = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                let file_duplicate = parse_as_int(registers[1]);
-                let dup_flag = parse_as_int(registers[2]);
                 match self.state {
                     Entering => {
+                        let file_to_be_duplicated =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        let file_duplicate = parse_as_int(registers[1]);
+                        let dup_flag = parse_as_int(registers[2]);
+                        // ==================================================================
                         write_general_text("duplicate the file descriptor: ");
-                        write_path_file(file_to_be_duplicated);
+                        write_colored(file_to_be_duplicated);
                         write_general_text(" using the fd: ");
                         write_text(file_duplicate.to_string().custom_color(*PAGES_COLOR));
                         write_general_text(
@@ -2230,13 +2275,15 @@ impl SyscallObject {
                     Exiting => {
                         match &self.result {
                             &SyscallResult::Success(syscall_return) => {
-                                let file =
-                                    parse_as_file_descriptor(syscall_return, self.tracee_pid);
+                                let filename = parse_as_file_descriptor(
+                                    parse_as_int(syscall_return),
+                                    self.tracee_pid,
+                                );
                                 write_general_text(" |=> ");
                                 write_text(
                                     "created a new duplicate file descriptor: ".bold().green(),
                                 );
-                                write_path_file(file);
+                                write_colored(filename);
                             }
                             // TODO! granular
                             SyscallResult::Fail(_errno_variant) => {
@@ -2246,31 +2293,30 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::mkdir => {
-                let path = string_from_pointer(registers[0] as usize, self.tracee_pid);
                 match self.state {
                     Entering => {
-                        fn extract_final_dentry_index(path: &str) -> usize {
-                            for (index, chara) in path.chars().rev().enumerate() {
-                                if chara == '/' {
-                                    return path.len() - index;
-                                }
-                            }
-                            unreachable!()
-                        }
-                        // TODO!
-                        // scrutinize for edge cases
-                        //
-
+                        let path = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        // ==================================================================
                         if path.starts_with('/') {
-                            let final_dentry_starting_index = extract_final_dentry_index(&path);
+                            let graphemes = path.graphemes(true);
+                            let final_dentry_starting_index =
+                                extract_final_dentry_index(graphemes.clone()).unwrap_or(0);
                             write_general_text("create a new directory ");
                             write_text(
-                                path[final_dentry_starting_index..].custom_color(*OUR_YELLOW),
+                                graphemes
+                                    .clone()
+                                    .skip(final_dentry_starting_index)
+                                    .collect::<String>()
+                                    .custom_color(*OUR_YELLOW),
                             );
                             write_general_text(" inside: ");
                             write_text(
-                                path[..final_dentry_starting_index].custom_color(*OUR_YELLOW),
+                                graphemes
+                                    .take(final_dentry_starting_index)
+                                    .collect::<String>()
+                                    .custom_color(*OUR_YELLOW),
                             );
                         } else if path.starts_with("./") || path.starts_with("../") {
                             // TODO!
@@ -2283,15 +2329,23 @@ impl SyscallObject {
                             //     .unwrap()
                             //     .cwd()
                             //     .unwrap();
-
-                            let final_dentry_starting_index = extract_final_dentry_index(&path);
+                            let graphemes = path.graphemes(true);
+                            let final_dentry_starting_index =
+                                extract_final_dentry_index(graphemes.clone()).unwrap_or(0);
                             write_general_text("create a new directory ");
                             write_text(
-                                path[final_dentry_starting_index..].custom_color(*OUR_YELLOW),
+                                graphemes
+                                    .clone()
+                                    .skip(final_dentry_starting_index)
+                                    .collect::<String>()
+                                    .custom_color(*OUR_YELLOW),
                             );
                             write_general_text(" inside: ");
                             write_text(
-                                path[..final_dentry_starting_index].custom_color(*OUR_YELLOW),
+                                graphemes
+                                    .take(final_dentry_starting_index)
+                                    .collect::<String>()
+                                    .custom_color(*OUR_YELLOW),
                             );
                         } else {
                             write_general_text("create a new directory ");
@@ -2313,42 +2367,45 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::mkdirat => {
-                // If  the pathname given in pathname is relative,
-                // then it is interpreted relative to the directory
-                // referred to by the file descriptor dirfd
-                // (rather than relative to the current working directory
-                // of the calling process, as is done by mkdir()
-                // for a relative pathname).
-
-                // If pathname is relative and dirfd is the special value AT_FDCWD,
-                // then pathname is interpreted relative to the current working directory
-                // of the calling process (like mkdir()).
-
-                // If pathname is absolute, then dirfd is ignored.
-
-                let dirfd = parse_as_int(registers[0]);
-                let path = string_from_pointer(registers[1] as usize, self.tracee_pid);
-
                 match self.state {
                     Entering => {
-                        fn extract_final_dentry_index(path: &str) -> usize {
-                            for (index, chara) in path.chars().rev().enumerate() {
-                                if chara == '/' {
-                                    return path.len() - index;
-                                }
-                            }
-                            unreachable!()
-                        }
+                        // If  the pathname given in pathname is relative,
+                        // then it is interpreted relative to the directory
+                        // referred to by the file descriptor dirfd
+                        // (rather than relative to the current working directory
+                        // of the calling process, as is done by mkdir()
+                        // for a relative pathname).
+
+                        // If pathname is relative and dirfd is the special value AT_FDCWD,
+                        // then pathname is interpreted relative to the current working directory
+                        // of the calling process (like mkdir()).
+
+                        // If pathname is absolute, then dirfd is ignored.
+
+                        let dirfd = parse_as_int(registers[0]);
+                        let path = string_from_pointer(registers[1] as usize, self.tracee_pid);
+
+                        // ==================================================================
                         if path.starts_with('/') {
-                            let final_dentry_starting_index = extract_final_dentry_index(&path);
+                            let graphemes = path.graphemes(true);
+                            let final_dentry_starting_index =
+                                extract_final_dentry_index(graphemes.clone()).unwrap_or(0);
                             write_general_text("create a new directory ");
                             write_text(
-                                path[final_dentry_starting_index..].custom_color(*OUR_YELLOW),
+                                graphemes
+                                    .clone()
+                                    .skip(final_dentry_starting_index)
+                                    .collect::<String>()
+                                    .custom_color(*OUR_YELLOW),
                             );
                             write_general_text(" inside: ");
                             write_text(
-                                path[..final_dentry_starting_index].custom_color(*OUR_YELLOW),
+                                graphemes
+                                    .take(final_dentry_starting_index)
+                                    .collect::<String>()
+                                    .custom_color(*OUR_YELLOW),
                             );
                         } else if path.starts_with("./") || path.starts_with("../") {
                             // TODO!
@@ -2362,14 +2419,23 @@ impl SyscallObject {
                             //     .cwd()
                             //     .unwrap();
 
-                            let final_dentry_starting_index = extract_final_dentry_index(&path);
+                            let graphemes = path.graphemes(true);
+                            let final_dentry_starting_index =
+                                extract_final_dentry_index(graphemes.clone()).unwrap_or(0);
                             write_general_text("create a new directory ");
                             write_text(
-                                path[final_dentry_starting_index..].custom_color(*OUR_YELLOW),
+                                graphemes
+                                    .clone()
+                                    .skip(final_dentry_starting_index)
+                                    .collect::<String>()
+                                    .custom_color(*OUR_YELLOW),
                             );
                             write_general_text(" inside: ");
                             write_text(
-                                path[..final_dentry_starting_index].custom_color(*OUR_YELLOW),
+                                graphemes
+                                    .take(final_dentry_starting_index)
+                                    .collect::<String>()
+                                    .custom_color(*OUR_YELLOW),
                             );
                             if !dirfd == AT_FDCWD {
                                 write_general_text("(");
@@ -2399,14 +2465,16 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::link => {
-                let oldpath = string_from_pointer(registers[0] as usize, self.tracee_pid);
-                let newpath = string_from_pointer(registers[1] as usize, self.tracee_pid);
                 match self.state {
                     Entering => {
                         // If newpath exists, it will not be overwritten
                         // it should be impossible to tell after this syscall
                         // which hard link was the original
+                        let oldpath = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        let newpath = string_from_pointer(registers[1] as usize, self.tracee_pid);
+                        // ==================================================================
                         write_general_text("create a new hard link at: ");
                         write_text(newpath.custom_color(*OUR_YELLOW));
                         write_general_text(" for the file: ");
@@ -2426,15 +2494,17 @@ impl SyscallObject {
                     }
                 }
             }
-            Sysno::linkat => {
-                let olddirfd = parse_as_int(registers[0]);
-                let oldpath = string_from_pointer(registers[1] as usize, self.tracee_pid);
 
-                let newdirfd = parse_as_int(registers[2]);
-                let newpath = string_from_pointer(registers[3] as usize, self.tracee_pid);
-                let flags = parse_as_int(registers[4]);
+            Sysno::linkat => {
                 match self.state {
                     Entering => {
+                        let olddirfd = parse_as_int(registers[0]);
+                        let oldpath = string_from_pointer(registers[1] as usize, self.tracee_pid);
+
+                        let newdirfd = parse_as_int(registers[2]);
+                        let newpath = string_from_pointer(registers[3] as usize, self.tracee_pid);
+                        let flags = parse_as_int(registers[4]);
+                        // ==================================================================
                         // If newpath exists, it will not be overwritten
                         // it should be impossible to tell after this syscall
                         // which hard link was the original
@@ -2548,12 +2618,14 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::unlink => {
-                let path = string_from_pointer(registers[0] as usize, self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let path = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        // ==================================================================
                         write_general_text("unlink and possibly delete the file: ");
-                        write_path_file(path);
+                        write_vanilla_path_file(path);
                     }
                     Exiting => {
                         match &self.result {
@@ -2569,14 +2641,16 @@ impl SyscallObject {
                     } // caution: the file is deleted at this point
                 }
             }
+
             Sysno::unlinkat => {
-                let dirfd = parse_as_int(registers[0]);
-                let path = string_from_pointer(registers[1] as usize, self.tracee_pid);
-                let flag = parse_as_int(registers[2]);
                 match self.state {
                     Entering => {
+                        let dirfd = parse_as_int(registers[0]);
+                        let path = string_from_pointer(registers[1] as usize, self.tracee_pid);
+                        let flag = parse_as_int(registers[2]);
+                        // ==================================================================
                         write_general_text("unlink and possibly delete the file: ");
-                        write_possible_dirfd_file(dirfd, path, self.tracee_pid);
+                        write_possible_dirfd_anchor(dirfd, path, self.tracee_pid);
 
                         if (flag & AT_REMOVEDIR) == AT_REMOVEDIR {
                             write_general_text(" (");
@@ -2599,12 +2673,14 @@ impl SyscallObject {
                     } // caution: the file is deleted at this point
                 }
             }
+
             Sysno::rmdir => {
-                let directory = string_from_pointer(registers[0] as usize, self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let directory = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        // ==================================================================
                         write_general_text("delete the directory: ");
-                        write_path_file(directory);
+                        write_vanilla_path_file(directory);
                     }
                     Exiting => {
                         match &self.result {
@@ -2620,16 +2696,19 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::symlink => {
-                let target = string_from_pointer(registers[0] as usize, self.tracee_pid);
-                let symlink = string_from_pointer(registers[1] as usize, self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let target = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        let symlink = string_from_pointer(registers[1] as usize, self.tracee_pid);
+                        // ==================================================================
+
                         write_general_text("create the symlink: ");
-                        write_path_file(symlink);
+                        write_vanilla_path_file(symlink);
 
                         write_general_text(" and link it with: ");
-                        write_path_file(target);
+                        write_vanilla_path_file(target);
                     }
                     Exiting => {
                         match &self.result {
@@ -2645,17 +2724,18 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::symlinkat => {
-                let target = string_from_pointer(registers[0] as usize, self.tracee_pid);
-                let dirfd = parse_as_int(registers[1]);
-                let symlink = string_from_pointer(registers[2] as usize, self.tracee_pid);
-
                 match self.state {
                     Entering => {
+                        let target = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        let dirfd = parse_as_int(registers[1]);
+                        let symlink = string_from_pointer(registers[2] as usize, self.tracee_pid);
+                        // ==================================================================
                         write_general_text("create the symlink: ");
-                        write_possible_dirfd_file(dirfd, symlink, self.tracee_pid);
+                        write_possible_dirfd_anchor(dirfd, symlink, self.tracee_pid);
                         write_general_text(" and link it with: ");
-                        write_path_file(target);
+                        write_vanilla_path_file(target);
                     }
                     Exiting => {
                         match &self.result {
@@ -2671,12 +2751,14 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::readlink => {
-                let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        // ==================================================================
                         write_general_text("get the target path of the symbolic link: ");
-                        write_path_file(filename);
+                        write_vanilla_path_file(filename);
                     }
                     Exiting => {
                         match &self.result {
@@ -2688,7 +2770,7 @@ impl SyscallObject {
                                     self.tracee_pid,
                                     syscall_return as usize,
                                 ) {
-                                    Some(target) => write_path_file(target),
+                                    Some(target) => write_vanilla_path_file(target),
                                     None => {
                                         write_text(
                                             "[intentrace: could not get target]"
@@ -2706,19 +2788,14 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::readlinkat => {
-                let dirfd = parse_as_int(registers[0]);
-                let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let dirfd = parse_as_int(registers[0]);
+                        let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
+                        // ==================================================================
                         write_general_text("get the target path of the symbolic link: ");
-                        //
-                        //
-                        //
-                        //
-                        //
-                        //
-                        //
                         // same path rules (faccessat2, mkdir, mkdirat, readlinkat)
                         if filename.starts_with('/') {
                             write_text(filename.custom_color(*OUR_YELLOW));
@@ -2745,27 +2822,18 @@ impl SyscallObject {
                                 write_general_text(")");
                             }
                         }
-                        //
-                        //
-                        //
-                        //
-                        //
-                        //
-                        //
-                        //
-                        //
                     }
                     Exiting => {
                         match &self.result {
-                            &SyscallResult::Success(_syscall_return) => {
+                            &SyscallResult::Success(syscall_return) => {
                                 write_general_text(" |=> ");
                                 write_text("target retrieved: ".bold().green());
                                 match read_string_specific_length(
                                     registers[1] as usize,
                                     self.tracee_pid,
-                                    registers[2] as usize,
+                                    syscall_return as usize,
                                 ) {
-                                    Some(target) => write_path_file(target),
+                                    Some(target) => write_vanilla_path_file(target),
                                     None => todo!(),
                                 };
                             }
@@ -2779,13 +2847,14 @@ impl SyscallObject {
             }
 
             Sysno::access => {
-                let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
-                let access_mode = parse_as_int(registers[1]);
                 match self.state {
                     Entering => {
+                        let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        let access_mode = parse_as_int(registers[1]);
+                        // ==================================================================
                         if access_mode == F_OK {
                             write_general_text("check if the file: ");
-                            write_path_file(filename);
+                            write_vanilla_path_file(filename);
                             write_text(" exists".custom_color(*OUR_YELLOW));
                         } else {
                             let mut checks = vec![];
@@ -2801,9 +2870,9 @@ impl SyscallObject {
                             }
                             if !checks.is_empty() {
                                 write_general_text("check if the process is allowed to ");
-                                write_vanilla_commas(checks);
+                                write_commas(checks);
                                 write_general_text(" the file: ");
-                                write_path_file(filename);
+                                write_vanilla_path_file(filename);
                             }
                         }
                     }
@@ -2821,17 +2890,18 @@ impl SyscallObject {
                     }
                 }
             }
-            Sysno::faccessat => {
-                let dirfd = parse_as_int(registers[0]);
-                let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
-                let access_mode = parse_as_int(registers[2]);
-                let flags = parse_as_int(registers[3]);
 
+            Sysno::faccessat => {
                 match self.state {
                     Entering => {
+                        let dirfd = parse_as_int(registers[0]);
+                        let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
+                        let access_mode = parse_as_int(registers[2]);
+                        let flags = parse_as_int(registers[3]);
+                        // ==================================================================
                         if access_mode == F_OK {
                             write_general_text("check if the file: ");
-                            write_path_file(filename);
+                            write_vanilla_path_file(filename);
                             write_text(" exists".custom_color(*OUR_YELLOW));
                         } else {
                             let mut checks = vec![];
@@ -2847,9 +2917,9 @@ impl SyscallObject {
                             }
                             if !checks.is_empty() {
                                 write_general_text("check if the process is allowed to ");
-                                write_vanilla_commas(checks);
+                                write_commas(checks);
                                 write_general_text(" the file: ");
-                                write_path_file(filename);
+                                write_vanilla_path_file(filename);
                             }
                         }
                         let mut flag_directive = vec![];
@@ -2896,14 +2966,16 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::faccessat2 => {
-                let dirfd = parse_as_int(registers[0]);
-                let dirfd_parsed = find_fd_for_tracee(dirfd, self.tracee_pid);
-                let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
-                let access_mode = parse_as_int(registers[2]);
-                let flags = parse_as_int(registers[3]);
                 match self.state {
                     Entering => {
+                        let dirfd = parse_as_int(registers[0]);
+                        let dirfd_parsed = find_fd_for_tracee(dirfd, self.tracee_pid);
+                        let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
+                        let access_mode = parse_as_int(registers[2]);
+                        let flags = parse_as_int(registers[3]);
+                        // ==================================================================
                         if access_mode == F_OK {
                             write_general_text("check if the file: ");
                             //
@@ -2959,7 +3031,7 @@ impl SyscallObject {
                             }
                             if !checks.is_empty() {
                                 write_general_text("check if the process is allowed to ");
-                                write_vanilla_commas(checks);
+                                write_commas(checks);
                                 write_general_text(" the file: ");
                                 //
                                 //
@@ -3051,14 +3123,15 @@ impl SyscallObject {
             // TODO! granular
             // check if the file was moved only or renamed only or moved and renamed at the same time
             Sysno::rename => {
-                let old_path = string_from_pointer(registers[0] as usize, self.tracee_pid);
-                let new_path = string_from_pointer(registers[1] as usize, self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let old_path = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        let new_path = string_from_pointer(registers[1] as usize, self.tracee_pid);
+                        // ==================================================================
                         write_general_text("move the file: ");
-                        write_path_file(old_path);
+                        write_vanilla_path_file(old_path);
                         write_general_text(" to: ");
-                        write_path_file(new_path);
+                        write_vanilla_path_file(new_path);
                     }
                     Exiting => {
                         match &self.result {
@@ -3075,18 +3148,22 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::renameat => {
-                let old_dirfd = parse_as_int(registers[0]);
-                let old_filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
-                let new_dirfd = parse_as_int(registers[2]);
-                let new_filename = string_from_pointer(registers[3] as usize, self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let old_dirfd = parse_as_int(registers[0]);
+                        let old_filename =
+                            string_from_pointer(registers[1] as usize, self.tracee_pid);
+                        let new_dirfd = parse_as_int(registers[2]);
+                        let new_filename =
+                            string_from_pointer(registers[3] as usize, self.tracee_pid);
+                        // ==================================================================
                         write_general_text("move the file: ");
-                        write_possible_dirfd_file(old_dirfd, old_filename, self.tracee_pid);
+                        write_possible_dirfd_anchor(old_dirfd, old_filename, self.tracee_pid);
 
                         write_general_text(" to: ");
-                        write_possible_dirfd_file(new_dirfd, new_filename, self.tracee_pid);
+                        write_possible_dirfd_anchor(new_dirfd, new_filename, self.tracee_pid);
                     }
                     Exiting => {
                         match &self.result {
@@ -3103,19 +3180,23 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::renameat2 => {
-                let old_dirfd = parse_as_int(registers[0]);
-                let old_filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
-                let new_dirfd = parse_as_int(registers[2]);
-                let new_filename = string_from_pointer(registers[3] as usize, self.tracee_pid);
-                let flags = lower_32_bits(registers[4]);
                 match self.state {
                     Entering => {
+                        let old_dirfd = parse_as_int(registers[0]);
+                        let old_filename =
+                            string_from_pointer(registers[1] as usize, self.tracee_pid);
+                        let new_dirfd = parse_as_int(registers[2]);
+                        let new_filename =
+                            string_from_pointer(registers[3] as usize, self.tracee_pid);
+                        let flags = lower_32_bits(registers[4]);
+                        // ==================================================================
                         write_general_text("move the file: ");
-                        write_possible_dirfd_file(old_dirfd, old_filename, self.tracee_pid);
+                        write_possible_dirfd_anchor(old_dirfd, old_filename, self.tracee_pid);
 
                         write_general_text(" to: ");
-                        write_possible_dirfd_file(new_dirfd, new_filename, self.tracee_pid);
+                        write_possible_dirfd_anchor(new_dirfd, new_filename, self.tracee_pid);
 
                         let mut directives = vec![];
                         if (flags & RENAME_EXCHANGE) == RENAME_EXCHANGE {
@@ -3147,12 +3228,14 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::openat => {
-                let dirfd = parse_as_int(registers[0]);
-                let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
-                let flags_num = parse_as_int(registers[2]);
                 match self.state {
                     Entering => {
+                        let dirfd = parse_as_int(registers[0]);
+                        let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
+                        let flags_num = parse_as_int(registers[2]);
+                        // ==================================================================
                         // TODO!
                         //
                         // fix open flags granularity
@@ -3162,7 +3245,7 @@ impl SyscallObject {
                         } else {
                             write_general_text("open the file: ");
                         }
-                        write_possible_dirfd_file(dirfd, filename, self.tracee_pid);
+                        write_possible_dirfd_anchor(dirfd, filename, self.tracee_pid);
 
                         let mut directives = vec![];
                         if (flags_num & O_APPEND) == O_APPEND {
@@ -3269,12 +3352,14 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::creat => {
-                let file = string_from_pointer(registers[0] as usize, self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let file = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        // ==================================================================
                         write_general_text("create a new file: ");
-                        write_path_file(file);
+                        write_vanilla_path_file(file);
                         write_general_text(", or rewrite it if it exists");
                         // TODO!
                         // mode granularity
@@ -3293,6 +3378,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::getcwd => {
                 match self.state {
                     Entering => {
@@ -3315,12 +3401,14 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::chdir => {
-                let directory = string_from_pointer(registers[0] as usize, self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let directory = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        // ==================================================================
                         write_general_text("changes the current working directory to: ");
-                        write_path_file(directory);
+                        write_vanilla_path_file(directory);
                     }
                     Exiting => {
                         match &self.result {
@@ -3336,12 +3424,15 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::fchdir => {
-                let directory = parse_as_file_descriptor(registers[0], self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let directory =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        // ==================================================================
                         write_general_text("changes the current working directory to: ");
-                        write_path_file(directory);
+                        write_colored(directory);
                     }
                     Exiting => {
                         match &self.result {
@@ -3357,13 +3448,15 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::chmod => {
-                let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
-                let mode = registers[1] as u32;
                 match self.state {
                     Entering => {
+                        let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        let mode = registers[1] as u32;
+                        // ==================================================================
                         write_general_text("change the mode of the file: ");
-                        write_path_file(filename);
+                        write_vanilla_path_file(filename);
                         self.mode_matcher(mode);
                     }
                     Exiting => {
@@ -3380,13 +3473,16 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::fchmod => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                let mode = registers[1] as u32;
                 match self.state {
                     Entering => {
+                        let filename =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        let mode = registers[1] as u32;
+                        // ==================================================================
                         write_general_text("change the mode of the file: ");
-                        write_path_file(filename);
+                        write_colored(filename);
                         self.mode_matcher(mode);
                     }
                     Exiting => {
@@ -3403,16 +3499,18 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::fchmodat => {
-                let dirfd = parse_as_int(registers[0]);
-                let dirfd_parsed = find_fd_for_tracee(dirfd, self.tracee_pid);
-                let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
-                let mode = lower_32_bits(registers[2]);
-                let flag = parse_as_int(registers[3]);
                 match self.state {
                     Entering => {
+                        let dirfd = parse_as_int(registers[0]);
+                        let dirfd_parsed = find_fd_for_tracee(dirfd, self.tracee_pid);
+                        let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
+                        let mode = lower_32_bits(registers[2]);
+                        let flag = parse_as_int(registers[3]);
+                        // ==================================================================
                         write_general_text("change the mode of the file: ");
-                        write_possible_dirfd_file(dirfd, filename, self.tracee_pid);
+                        write_possible_dirfd_anchor(dirfd, filename, self.tracee_pid);
                         self.mode_matcher(mode);
                         write_general_text(" and ");
                         if flag == AT_SYMLINK_NOFOLLOW {
@@ -3435,6 +3533,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::sync => {
                 match self.state {
                     Entering => {
@@ -3454,12 +3553,15 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::syncfs => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let filename =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        // ==================================================================
                         write_general_text("flush all pending filesystem data and metadata writes for the filesystem that contains the file: ");
-                        write_path_file(filename);
+                        write_colored(filename);
                     }
                     Exiting => {
                         match &self.result {
@@ -3475,14 +3577,17 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::fsync => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let filename =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        // ==================================================================
                         write_general_text(
                             "flush all pending data and metadata writes for the file: ",
                         );
-                        write_path_file(filename);
+                        write_colored(filename);
                     }
                     Exiting => {
                         match &self.result {
@@ -3498,12 +3603,15 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::fdatasync => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let filename =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        // ==================================================================
                         write_general_text("flush all pending data and critical metadata writes (ignore non-critical metadata) for the file: ");
-                        write_path_file(filename);
+                        write_colored(filename);
                     }
                     Exiting => {
                         match &self.result {
@@ -3521,12 +3629,13 @@ impl SyscallObject {
             }
 
             Sysno::truncate => {
-                let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
-                let length = parse_as_signed_bytes(registers[1]);
                 match self.state {
                     Entering => {
+                        let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        let length = parse_as_signed_bytes(registers[1]);
+                        // ==================================================================
                         write_general_text("change the size of the file: ");
-                        write_path_file(filename);
+                        write_vanilla_path_file(filename);
                         write_general_text(" to precisely ");
                         write_text(length.custom_color(*OUR_YELLOW));
                     }
@@ -3544,13 +3653,16 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::ftruncate => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                let length = parse_as_signed_bytes(registers[1]);
                 match self.state {
                     Entering => {
+                        let filename =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        let length = parse_as_signed_bytes(registers[1]);
+                        // ==================================================================
                         write_general_text("change the size of the file: ");
-                        write_path_file(filename);
+                        write_colored(filename);
                         write_general_text(" to precisely ");
                         write_text(length.custom_color(*OUR_YELLOW));
                     }
@@ -3575,13 +3687,14 @@ impl SyscallObject {
                 // poll() or epoll() should be used instead
                 // they don't have this limitation.
 
-                let highest_fd = parse_as_int(registers[0]);
-                let readfds = registers[1];
-                let writefds = registers[2];
-                let exceptfds = registers[3];
-                let timeout = registers[4];
                 match self.state {
                     Entering => {
+                        let highest_fd = parse_as_int(registers[0]);
+                        let readfds = registers[1];
+                        let writefds = registers[2];
+                        let exceptfds = registers[3];
+                        let timeout = registers[4];
+                        // ==================================================================
                         write_general_text("block all ");
                         let mut blockers = vec![];
                         if readfds != 0 {
@@ -3640,15 +3753,17 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::pselect6 => {
-                let highest_fd = parse_as_int(registers[0]);
-                let readfds = registers[1];
-                let writefds = registers[2];
-                let exceptfds = registers[3];
-                let timeout = registers[4];
-                let signal_mask = registers[5];
                 match self.state {
                     Entering => {
+                        let highest_fd = parse_as_int(registers[0]);
+                        let readfds = registers[1];
+                        let writefds = registers[2];
+                        let exceptfds = registers[3];
+                        let timeout = registers[4];
+                        let signal_mask = registers[5];
+                        // ==================================================================
                         write_general_text("block for events on all ");
                         let mut blockers = vec![];
                         if readfds != 0 {
@@ -3715,14 +3830,16 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::poll => {
-                let nfds = registers[1];
-                // 0 => return immediately
-                // -n => timeout indefinitely
-                // n => timeout for n
-                let timeout = parse_as_int(registers[2]);
                 match self.state {
                     Entering => {
+                        let nfds = registers[1];
+                        // 0 => return immediately
+                        // -n => timeout indefinitely
+                        // n => timeout for n
+                        let timeout = parse_as_int(registers[2]);
+                        // ==================================================================
                         write_general_text("block for new events on ");
                         write_text(nfds.to_string().blue());
                         write_general_text(" provided file descriptors, ");
@@ -3757,13 +3874,14 @@ impl SyscallObject {
                     }
                 }
             }
-            Sysno::ppoll => {
-                let nfds = registers[1];
-                let timespec = registers[2];
-                let signal_mask = registers[3];
 
+            Sysno::ppoll => {
                 match self.state {
                     Entering => {
+                        let nfds = registers[1];
+                        let timespec = registers[2];
+                        let signal_mask = registers[3];
+                        // ==================================================================
                         write_general_text("block for new events on the ");
                         write_text(nfds.to_string().blue());
                         write_general_text(" provided file descriptors");
@@ -3812,11 +3930,13 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::epoll_create => {
-                // the size argument is ignored since 2.6, but must be greater than zero.
-                let size = parse_as_int(registers[0]);
                 match self.state {
                     Entering => {
+                        // the size argument is ignored since 2.6, but must be greater than zero.
+                        let size = parse_as_int(registers[0]);
+                        // ==================================================================
                         write_general_text("create an epoll instance with a capacity of ");
                         write_text(size.to_string().custom_color(*OUR_YELLOW));
                         write_general_text(" file descriptors");
@@ -3839,10 +3959,12 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::epoll_create1 => {
-                let flag = parse_as_int(registers[0]);
                 match self.state {
                     Entering => {
+                        let flag = parse_as_int(registers[0]);
+                        // ==================================================================
                         write_general_text("create a new epoll instance ");
                         if (flag & EPOLL_CLOEXEC) == EPOLL_CLOEXEC {
                             write_general_text(" (");
@@ -3871,16 +3993,18 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::epoll_wait => {
-                let epoll_instance = parse_as_int(registers[0]);
-                // maxevents must be greater than zero
-                let max_events = parse_as_int(registers[2]);
-                // 0 => return immediately
-                // -n => timeout indefinitely
-                // n => timeout for n
-                let timeout = parse_as_int(registers[3]);
                 match self.state {
                     Entering => {
+                        let epoll_instance = parse_as_int(registers[0]);
+                        // maxevents must be greater than zero
+                        let max_events = parse_as_int(registers[2]);
+                        // 0 => return immediately
+                        // -n => timeout indefinitely
+                        // n => timeout for n
+                        let timeout = parse_as_int(registers[3]);
+                        // ==================================================================
                         write_general_text("block until a maximum of ");
                         write_text(max_events.to_string().custom_color(*PAGES_COLOR));
                         write_general_text(" events occur on epoll instance: ");
@@ -3916,18 +4040,20 @@ impl SyscallObject {
                     }
                 }
             }
-            Sysno::epoll_pwait => {
-                let epoll_instance = parse_as_int(registers[0]);
 
-                // maxevents must be greater than zero
-                let max_events = parse_as_int(registers[2]);
-                // 0 => return immediately
-                // -n => timeout indefinitely
-                // n => timeout for n
-                let timeout = parse_as_int(registers[3]);
-                let signal_mask = registers[4];
+            Sysno::epoll_pwait => {
                 match self.state {
                     Entering => {
+                        let epoll_instance = parse_as_int(registers[0]);
+
+                        // maxevents must be greater than zero
+                        let max_events = parse_as_int(registers[2]);
+                        // 0 => return immediately
+                        // -n => timeout indefinitely
+                        // n => timeout for n
+                        let timeout = parse_as_int(registers[3]);
+                        let signal_mask = registers[4];
+                        // ==================================================================
                         write_general_text("block until a maximum of ");
                         write_text(max_events.to_string().custom_color(*PAGES_COLOR));
                         write_general_text(" events occur on epoll instance: ");
@@ -3971,15 +4097,17 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::epoll_pwait2 => {
-                let epoll_instance = parse_as_int(registers[0]);
-                // maxevents must be greater than zero
-                let max_events = parse_as_int(registers[2]);
-                // timespec
-                let timeout = parse_as_int(registers[3]);
-                let signal_mask = registers[4];
                 match self.state {
                     Entering => {
+                        let epoll_instance = parse_as_int(registers[0]);
+                        // maxevents must be greater than zero
+                        let max_events = parse_as_int(registers[2]);
+                        // timespec
+                        let timeout = parse_as_int(registers[3]);
+                        let signal_mask = registers[4];
+                        // ==================================================================
                         write_general_text("block until a maximum of ");
                         write_text(max_events.to_string().custom_color(*PAGES_COLOR));
                         write_general_text(" events occur on epoll instance: ");
@@ -4030,12 +4158,14 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::epoll_ctl => {
-                let epoll_instance = parse_as_int(registers[0]);
-                let operation = parse_as_int(registers[1]);
-                let file_descriptor = parse_as_int(registers[2]);
                 match self.state {
                     Entering => {
+                        let epoll_instance = parse_as_int(registers[0]);
+                        let operation = parse_as_int(registers[1]);
+                        let file_descriptor = parse_as_int(registers[2]);
+                        // ==================================================================
                         if (operation & EPOLL_CTL_ADD) == EPOLL_CTL_ADD {
                             write_text("add".custom_color(*OUR_YELLOW));
                             write_general_text(" file descriptor ");
@@ -4071,15 +4201,18 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::ioctl => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                let operation = registers[1];
                 match self.state {
                     Entering => {
+                        let filename =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        let operation = registers[1];
+                        // ==================================================================
                         write_general_text("perform operation ");
                         write_text(format!("#{}", operation).custom_color(*PAGES_COLOR));
                         write_general_text(" on the device: ");
-                        write_path_file(filename);
+                        write_colored(filename);
                     }
                     Exiting => {
                         match &self.result {
@@ -4113,15 +4246,18 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::fcntl => {
-                let filename = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                let operation = parse_as_int(registers[1]);
                 match self.state {
                     Entering => {
+                        let filename =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        let operation = parse_as_int(registers[1]);
+                        // ==================================================================
                         write_general_text("perform operation ");
                         write_text(format!("#{}", operation).custom_color(*OUR_YELLOW));
                         write_general_text(" on the file: ");
-                        write_path_file(filename);
+                        write_colored(filename);
                     }
                     Exiting => {
                         match &self.result {
@@ -4137,18 +4273,10 @@ impl SyscallObject {
                     }
                 }
             }
-            Sysno::arch_prctl => {
-                // workaround values for now
-                let ARCH_SET_GS = 0x1001;
-                let ARCH_SET_FS = 0x1002;
-                let ARCH_GET_FS = 0x1003;
-                let ARCH_GET_GS = 0x1004;
-                let ARCH_GET_CPUID = 0x1011;
-                let ARCH_SET_CPUID = 0x1012;
 
+            Sysno::arch_prctl => {
                 let operation = parse_as_int(registers[0]);
                 let addr = registers[1];
-
                 match self.state {
                     Entering => {
                         if (operation & ARCH_SET_CPUID) == ARCH_SET_CPUID {
@@ -4248,6 +4376,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::sched_yield => {
                 match self.state {
                     Entering => {
@@ -4269,13 +4398,14 @@ impl SyscallObject {
                     }
                 }
             }
-            Sysno::rt_sigaction => {
-                let signal_number = parse_as_int(registers[0]);
-                let signal_action = registers[1] as *const ();
-                let old_signal_action = registers[2] as *const ();
 
+            Sysno::rt_sigaction => {
                 match self.state {
                     Entering => {
+                        let signal_number = parse_as_int(registers[0]);
+                        let signal_action = registers[1] as *const ();
+                        let old_signal_action = registers[2] as *const ();
+                        // ==================================================================
                         // a rt_sigaction call must only use one of the first two arguments, never both
 
                         // struct sigaction {
@@ -4298,25 +4428,6 @@ impl SyscallObject {
 
                         //     void     (*sa_restorer)(void);
                         // };
-
-                        // TODO! Granularity
-                        // if !signal_action.is_null() {
-                        //     let sigaction = read_bytes_as_struct::<152, sigaction>(
-                        //         registers[1] as usize,
-                        //         self.child as _,
-                        //     )
-                        //     .unwrap();
-                        //     pp!("sigaction",sigaction);
-                        // }
-
-                        // if !old_signal_action.is_null() {
-                        //     let old_sigaction = read_bytes_as_struct::<152, sigaction>(
-                        //         registers[2] as usize,
-                        //         self.child as _,
-                        //     )
-                        //     .unwrap();
-                        //     pp!("old_sigaction",old_sigaction);
-                        // }
 
                         let signal_as_string = parse_as_signal(signal_number);
 
@@ -4396,6 +4507,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::rt_sigprocmask => {
                 let how = parse_as_int(registers[0]);
                 let set = registers[1];
@@ -4463,6 +4575,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::rt_sigsuspend => {
                 match self.state {
                     Entering => {
@@ -4489,6 +4602,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::sigaltstack => {
                 let new_stack_null = registers[0] == 0;
                 let old_stack_null = registers[1] == 0;
@@ -4538,6 +4652,7 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::rt_sigreturn => match self.state {
                 Entering => {
                     write_general_text("return from signal handler and cleanup");
@@ -4547,7 +4662,12 @@ impl SyscallObject {
                         write_general_text(" |=> ");
                         write_text("successful".bold().green());
                     }
-                    SyscallResult::Fail(_errno_variant) => unreachable!(),
+                    SyscallResult::Fail(errno_variant) => {
+                        // TODO!
+                        // check latrer
+                        // rt_sigreturn is interruptible while testing on some linux software
+                        self.one_line_error()
+                    }
                 },
             },
             Sysno::rt_sigpending => match self.state {
@@ -4564,10 +4684,10 @@ impl SyscallObject {
                 },
             },
             Sysno::rt_sigtimedwait => {
-                let timeout = registers[2];
                 match self.state {
                     Entering => {
-                        // TODO! use the timespec struct
+                        let timeout = registers[2];
+                        // ==================================================================
                         let duration = read_bytes_as_struct::<TIMESPEC_SIZE, timespec>(
                             timeout as usize,
                             self.tracee_pid as _,
@@ -4591,11 +4711,13 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::rt_sigqueueinfo => {
-                let thread_group = parse_as_int(registers[0]);
-                let signal_number = parse_as_int(registers[1]);
                 match self.state {
                     Entering => {
+                        let thread_group = parse_as_int(registers[0]);
+                        let signal_number = parse_as_int(registers[1]);
+                        // ==================================================================
                         let signal_as_string = parse_as_signal(signal_number);
                         write_general_text("send the attached data and ");
                         write_text(signal_as_string.custom_color(*OUR_YELLOW));
@@ -4616,12 +4738,14 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::rt_tgsigqueueinfo => {
-                let thread_group = parse_as_int(registers[0]);
-                let thread = parse_as_int(registers[1]);
-                let signal_number = parse_as_int(registers[2]);
                 match self.state {
                     Entering => {
+                        let thread_group = parse_as_int(registers[0]);
+                        let thread = parse_as_int(registers[1]);
+                        let signal_number = parse_as_int(registers[2]);
+                        // ==================================================================
                         let signal_as_string = parse_as_signal(signal_number);
                         write_general_text("send the attached data and ");
                         write_text(signal_as_string.custom_color(*OUR_YELLOW));
@@ -4644,12 +4768,14 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::pidfd_send_signal => {
-                let pidfd = parse_as_int(registers[0]);
-                let signal_number = parse_as_int(registers[1]);
-                let flags = parse_as_int(registers[3]);
                 match self.state {
                     Entering => {
+                        let pidfd = parse_as_int(registers[0]);
+                        let signal_number = parse_as_int(registers[1]);
+                        let flags = parse_as_int(registers[3]);
+                        // ==================================================================
                         let signal_as_string = parse_as_signal(signal_number);
                         write_general_text("send a ");
                         write_text(signal_as_string.custom_color(*OUR_YELLOW));
@@ -4670,10 +4796,12 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::signalfd => {
-                let fd = parse_as_int(registers[0]);
                 match self.state {
                     Entering => {
+                        let fd = parse_as_int(registers[0]);
+                        // ==================================================================
                         if fd == -1 {
                             write_general_text("create a new file descriptor for receiving signals using the provided signal mask");
                         } else {
@@ -4700,11 +4828,13 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::signalfd4 => {
-                let fd = parse_as_int(registers[0]);
-                let flags = parse_as_int(registers[2]);
                 match self.state {
                     Entering => {
+                        let fd = parse_as_int(registers[0]);
+                        let flags = parse_as_int(registers[2]);
+                        // ==================================================================
                         if fd == -1 {
                             write_general_text("create a new file descriptor for receiving signals using the provided signal mask");
                         } else {
@@ -4746,10 +4876,11 @@ impl SyscallObject {
             }
 
             Sysno::kill => {
-                let pid = parse_as_int(registers[0]);
-                let signal_number = parse_as_int(registers[1]);
                 match self.state {
                     Entering => {
+                        let pid = parse_as_int(registers[0]);
+                        let signal_number = parse_as_int(registers[1]);
+                        // ==================================================================
                         if signal_number == 0 {
                             // this is a way to check if a process is alive or dead, (sending signal 0 -not a real signal-)
                             // TODO!
@@ -4792,18 +4923,20 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::tgkill => {
-                let thread_group = parse_as_int(registers[0]);
-                let thread = parse_as_int(registers[1]);
-                let signal_number = parse_as_int(registers[2]);
                 match self.state {
                     Entering => {
+                        let thread_group = parse_as_int(registers[0]);
+                        let thread = parse_as_int(registers[1]);
+                        let signal_number = parse_as_int(registers[2]);
+                        // ==================================================================
                         let signal_as_string = parse_as_signal(signal_number);
                         write_general_text("send ");
                         write_text(signal_as_string.custom_color(*PAGES_COLOR));
-                        write_general_text(" to thread: ");
+                        write_general_text(" to thread ");
                         write_text(thread.to_string().custom_color(*PAGES_COLOR));
-                        write_general_text(" in thread group: ");
+                        write_general_text(" in thread group ");
                         write_text(thread_group.to_string().custom_color(*PAGES_COLOR));
                     }
                     Exiting => {
@@ -4821,15 +4954,17 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::tkill => {
-                let thread = parse_as_int(registers[0]);
-                let signal_number = parse_as_int(registers[1]);
                 match self.state {
                     Entering => {
+                        let thread = parse_as_int(registers[0]);
+                        let signal_number = parse_as_int(registers[1]);
+                        // ==================================================================
                         let signal_as_string = parse_as_signal(signal_number);
                         write_general_text("send ");
                         write_text(signal_as_string.custom_color(*PAGES_COLOR));
-                        write_general_text(" to thread: ");
+                        write_general_text(" to thread ");
                         write_text(thread.to_string().custom_color(*PAGES_COLOR));
                     }
                     Exiting => {
@@ -4847,6 +4982,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::pause => {
                 match self.state {
                     Entering => {
@@ -4867,6 +5003,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::gettid => {
                 match self.state {
                     Entering => {
@@ -4889,6 +5026,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::getpid => {
                 match self.state {
                     Entering => {
@@ -4911,6 +5049,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::getppid => {
                 match self.state {
                     Entering => {
@@ -4933,74 +5072,13 @@ impl SyscallObject {
                     }
                 }
             }
-            Sysno::get_robust_list => {
-                let process_id = parse_as_int(registers[0]);
-                let len_ptr = registers[2];
-                match self.state {
-                    Entering => {
-                        write_general_text("get the list of the robust futexes for ");
-                        if process_id == 0 {
-                            write_text("the calling thread".custom_color(*OUR_YELLOW));
-                        } else {
-                            write_general_text("thread: ");
-                            write_text(process_id.to_string().custom_color(*PAGES_COLOR));
-                        }
-                    }
-                    Exiting => {
-                        match &self.result {
-                            &SyscallResult::Success(_syscall_return) => {
-                                write_general_text(" |=> ");
-                                write_text("list retrieved with length ".bold().green());
-                                let parsed_length =
-                                    match read_one_word(len_ptr as usize, self.tracee_pid) {
-                                        Some(word) => lower_64_bits(word)
-                                            .to_string()
-                                            .custom_color(*PAGES_COLOR),
-                                        None => "[intentrace: could not get robust list length]"
-                                            .blink()
-                                            .bright_black(),
-                                    };
-                                write_text(parsed_length.to_string().custom_color(*PAGES_COLOR));
-                            }
-                            SyscallResult::Fail(_errno_variant) => {
-                                // TODO! granular
-                                self.one_line_error();
-                            }
-                        }
-                    }
-                }
-            }
-            Sysno::set_robust_list => {
-                let address = parse_as_address(registers[0] as usize);
-                let length_of_list = registers[1];
-                match self.state {
-                    Entering => {
-                        write_general_text(
-                            "set the calling thread's robust futexes list to the list at ",
-                        );
-                        write_text(address.custom_color(*OUR_YELLOW));
-                        write_general_text(" with length ");
-                        write_text(length_of_list.to_string().custom_color(*PAGES_COLOR));
-                    }
-                    Exiting => {
-                        match &self.result {
-                            &SyscallResult::Success(_syscall_return) => {
-                                write_general_text(" |=> ");
-                                write_text("successfully set robust list".bold().green());
-                            }
-                            SyscallResult::Fail(_errno_variant) => {
-                                // TODO! granular
-                                self.one_line_error();
-                            }
-                        }
-                    }
-                }
-            }
+
             Sysno::setpgid => {
-                let process_id = parse_as_int(registers[0]);
-                let new_pgid = parse_as_int(registers[1]);
                 match self.state {
                     Entering => {
+                        let process_id = parse_as_int(registers[0]);
+                        let new_pgid = parse_as_int(registers[1]);
+                        // ==================================================================
                         if process_id == 0 {
                             write_general_text("set the process group ID of ");
                             write_text("the calling thread".custom_color(*OUR_YELLOW));
@@ -5030,10 +5108,12 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::getpgid => {
-                let process_id = parse_as_int(registers[0]);
                 match self.state {
                     Entering => {
+                        let process_id = parse_as_int(registers[0]);
+                        // ==================================================================
                         if process_id == 0 {
                             write_general_text("get the process group ID of ");
                             write_text("the calling thread".custom_color(*OUR_YELLOW));
@@ -5058,6 +5138,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::getpgrp => {
                 match self.state {
                     Entering => {
@@ -5079,12 +5160,14 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::getrandom => {
                 let bytes_num = registers[1];
-                let bytes = parse_as_unsigned_bytes(registers[1]);
-                let random_flags = lower_32_bits(registers[2]);
                 match self.state {
                     Entering => {
+                        let bytes = parse_as_unsigned_bytes(registers[1]);
+                        let random_flags = lower_32_bits(registers[2]);
+                        // ==================================================================
                         write_general_text("get ");
                         write_text(bytes.custom_color(*OUR_YELLOW));
                         write_general_text(" of random bytes from the ");
@@ -5148,12 +5231,14 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::setrlimit => {
-                let resource = lower_32_bits(registers[0]);
-                let rlim = registers[1];
                 match self.state {
                     Entering => {
-                        write_general_text("set the process's ");
+                        let resource = lower_32_bits(registers[0]);
+                        let rlim = registers[1];
+                        // ==================================================================
+                        write_general_text("set the calling process's ");
                         write_general_text(" limits for ");
                         self.resource_matcher(resource);
                         let rlimit = read_bytes_as_struct::<RLIMIT_SIZE, rlimit>(
@@ -5432,11 +5517,14 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::getrlimit => {
                 let resource = lower_32_bits(registers[0]);
                 match self.state {
                     Entering => {
-                        write_general_text("get the soft and hard limits for the process's ");
+                        write_general_text(
+                            "get the soft and hard limits for the calling process's ",
+                        );
                         self.resource_matcher(resource);
                     }
                     Exiting => {
@@ -5648,12 +5736,14 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::prlimit64 => {
                 let pid = parse_as_int(registers[0]);
                 let resource = lower_32_bits(registers[1]);
                 let new_limit = registers[2] as *const ();
                 let old_limit = registers[3] as *const ();
                 let pid_of_self = pid == 0;
+
                 match self.state {
                     Entering => match (!old_limit.is_null(), !new_limit.is_null()) {
                         (true, true) => {
@@ -6805,10 +6895,12 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::getrusage => {
-                let resource = parse_as_int(registers[0]);
                 match self.state {
                     Entering => {
+                        let resource = parse_as_int(registers[0]);
+                        // ==================================================================
                         write_general_text("get resource usage metrics for ");
                         match resource {
                             RUSAGE_SELF => {
@@ -6857,6 +6949,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::sysinfo => {
                 match self.state {
                     Entering => {
@@ -6892,6 +6985,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::times => {
                 match self.state {
                     Entering => {
@@ -6921,12 +7015,14 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::sched_setaffinity => {
-                let thread_id = parse_as_int(registers[0]);
-                let cpus =
-                    read_affinity_from_child(registers[2] as usize, self.tracee_pid).unwrap();
                 match self.state {
                     Entering => {
+                        let thread_id = parse_as_int(registers[0]);
+                        let cpus = read_affinity_from_child(registers[2] as usize, self.tracee_pid)
+                            .unwrap();
+                        // ==================================================================
                         if !cpus.is_empty() {
                             write_general_text("restrict ");
                             if thread_id == 0 {
@@ -6965,10 +7061,12 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::sched_getaffinity => {
-                let thread_id = parse_as_int(registers[0]);
                 match self.state {
                     Entering => {
+                        let thread_id = parse_as_int(registers[0]);
+                        // ==================================================================
                         write_general_text("retrieve the cores that ");
                         if thread_id == 0 {
                             write_text("the calling thread".custom_color(*OUR_YELLOW));
@@ -7012,10 +7110,12 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::exit => {
-                let status = parse_as_int(registers[0]);
                 match self.state {
                     Entering => {
+                        let status = parse_as_int(registers[0]);
+                        // ==================================================================
                         write_general_text("exit the calling process with status: ");
                         if status < 0 {
                             write_text(status.to_string().red());
@@ -7042,10 +7142,12 @@ impl SyscallObject {
                     _ => unreachable!(),
                 }
             }
+
             Sysno::exit_group => {
-                let status = parse_as_int(registers[0]);
                 match self.state {
                     Entering => {
+                        let status = parse_as_int(registers[0]);
+                        // ==================================================================
                         write_general_text("exit all threads in the group with status: ");
                         if status < 0 {
                             write_text(status.to_string().red());
@@ -7504,6 +7606,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::rseq => {
                 // TODO!
                 // scrutinize
@@ -7537,6 +7640,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::uname => {
                 match self.state {
                     Entering => {
@@ -7557,6 +7661,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::getuid => {
                 match self.state {
                     Entering => {
@@ -7578,6 +7683,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::geteuid => {
                 match self.state {
                     Entering => {
@@ -7601,6 +7707,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::getgid => {
                 match self.state {
                     Entering => {
@@ -7622,6 +7729,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::getegid => {
                 match self.state {
                     Entering => {
@@ -7645,26 +7753,28 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::shutdown => {
-                // let socket = parse_as_int(registers[0]);
-                let socket = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                let shutdown_how_num = parse_as_int(registers[1]);
                 match self.state {
                     Entering => {
+                        let socket =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        let shutdown_how_num = parse_as_int(registers[1]);
+                        // ==================================================================
                         if shutdown_how_num == 0 {
                             // SHUT_RD = 0
                             write_general_text("stop incoming reception of data into the socket: ");
-                            write_text(socket.custom_color(*PAGES_COLOR));
+                            write_colored(socket);
                         } else if shutdown_how_num == 1 {
                             // SHUT_WR = 1
                             write_general_text(
                                 "stop outgoing transmission of data from the socket: ",
                             );
-                            write_text(socket.custom_color(*PAGES_COLOR));
+                            write_colored(socket);
                         } else if shutdown_how_num == 2 {
                             // SHUT_RDWR = 2
                             write_general_text("terminate incoming and outgoing data communication with the socket: ");
-                            write_text(socket.custom_color(*PAGES_COLOR));
+                            write_colored(socket);
                         }
                     }
                     Exiting => {
@@ -7682,16 +7792,18 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::futex => {
-                let uaddr_address = parse_as_futex(registers[0] as usize);
-                let futex_op = parse_as_int(registers[1]);
-                let val = lower_32_bits(registers[2]);
-                // timespec_or_val2
-                let timespec_or_val2 = registers[3];
-                let uaddr2_address = parse_as_futex(registers[4] as usize);
-                let val3 = lower_32_bits(registers[5]);
                 match self.state {
                     Entering => {
+                        let uaddr_address = parse_as_futex(registers[0] as usize);
+                        let futex_op = parse_as_int(registers[1]);
+                        let val = lower_32_bits(registers[2]);
+                        // timespec_or_val2
+                        let timespec_or_val2 = registers[3];
+                        let uaddr2_address = parse_as_futex(registers[4] as usize);
+                        let val3 = lower_32_bits(registers[5]);
+                        // ==================================================================
                         // TODO!
                         // timeout information currently isnt handled
                         //
@@ -7796,7 +7908,8 @@ impl SyscallObject {
                                 write_text("[intentrace: unknown flag]".bright_black());
                             }
                         }
-                        // TODO! Priority-inheritance futexes
+                        // TODO!
+                        // Priority-inheritance futexes
                         let mut directives = vec![];
                         if (futex_op & FUTEX_PRIVATE_FLAG) == FUTEX_PRIVATE_FLAG {
                             directives.push(
@@ -7831,10 +7944,79 @@ impl SyscallObject {
                     }
                 }
             }
-            Sysno::set_tid_address => {
-                let thread_address = registers[0];
+
+            Sysno::get_robust_list => {
+                let len_ptr = registers[2];
                 match self.state {
                     Entering => {
+                        let process_id = parse_as_int(registers[0]);
+                        // ==================================================================
+                        write_general_text("get the list of the robust futexes for ");
+                        if process_id == 0 {
+                            write_text("the calling thread".custom_color(*OUR_YELLOW));
+                        } else {
+                            write_general_text("thread: ");
+                            write_text(process_id.to_string().custom_color(*PAGES_COLOR));
+                        }
+                    }
+                    Exiting => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
+                                write_general_text(" |=> ");
+                                write_text("list retrieved with length ".bold().green());
+                                let parsed_length =
+                                    match read_one_word(len_ptr as usize, self.tracee_pid) {
+                                        Some(word) => lower_64_bits(word)
+                                            .to_string()
+                                            .custom_color(*PAGES_COLOR),
+                                        None => "[intentrace: could not get robust list length]"
+                                            .blink()
+                                            .bright_black(),
+                                    };
+                                write_text(parsed_length.to_string().custom_color(*PAGES_COLOR));
+                            }
+                            SyscallResult::Fail(_errno_variant) => {
+                                // TODO! granular
+                                self.one_line_error();
+                            }
+                        }
+                    }
+                }
+            }
+
+            Sysno::set_robust_list => {
+                match self.state {
+                    Entering => {
+                        let address = parse_as_address(registers[0] as usize);
+                        let length_of_list = registers[1];
+                        // ==================================================================
+                        write_general_text(
+                            "set the calling thread's robust futexes list to the list at ",
+                        );
+                        write_text(address.custom_color(*OUR_YELLOW));
+                        write_general_text(" with length ");
+                        write_text(length_of_list.to_string().custom_color(*PAGES_COLOR));
+                    }
+                    Exiting => {
+                        match &self.result {
+                            &SyscallResult::Success(_syscall_return) => {
+                                write_general_text(" |=> ");
+                                write_text("successfully set robust list".bold().green());
+                            }
+                            SyscallResult::Fail(_errno_variant) => {
+                                // TODO! granular
+                                self.one_line_error();
+                            }
+                        }
+                    }
+                }
+            }
+
+            Sysno::set_tid_address => {
+                match self.state {
+                    Entering => {
+                        let thread_address = registers[0];
+                        // ==================================================================
                         write_general_text("set ");
                         write_text("clear_child_tid".custom_color(*PAGES_COLOR));
                         write_general_text(" for the calling thread to ");
@@ -7867,10 +8049,12 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::eventfd => {
-                let initval = parse_as_int(registers[0]);
                 match self.state {
                     Entering => {
+                        let initval = parse_as_int(registers[0]);
+                        // ==================================================================
                         write_general_text("create a file descriptor for notifications/waiting");
                         write_general_text(" (");
                         write_general_text("initialize the count value to: ");
@@ -7880,11 +8064,13 @@ impl SyscallObject {
                     Exiting => {
                         match &self.result {
                             &SyscallResult::Success(syscall_return) => {
-                                let file_descriptor =
-                                    parse_as_file_descriptor(syscall_return, self.tracee_pid);
+                                let filename = parse_as_file_descriptor(
+                                    parse_as_int(syscall_return),
+                                    self.tracee_pid,
+                                );
                                 write_general_text(" |=> ");
                                 write_text("created the eventfd: ".bold().green());
-                                write_path_file(file_descriptor);
+                                write_colored(filename);
                             }
                             SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
@@ -7894,11 +8080,13 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::eventfd2 => {
-                let initval = parse_as_int(registers[0]);
-                let flags = parse_as_int(registers[1]);
                 match self.state {
                     Entering => {
+                        let initval = parse_as_int(registers[0]);
+                        let flags = parse_as_int(registers[1]);
+                        // ==================================================================
                         // TODO!
                         // revise wording
                         // write_general_text("create a file descriptor for notifications/waiting");
@@ -7930,11 +8118,13 @@ impl SyscallObject {
                     Exiting => {
                         match &self.result {
                             &SyscallResult::Success(syscall_return) => {
-                                let file_descriptor =
-                                    parse_as_file_descriptor(syscall_return, self.tracee_pid);
+                                let filename = parse_as_file_descriptor(
+                                    parse_as_int(syscall_return),
+                                    self.tracee_pid,
+                                );
                                 write_general_text(" |=> ");
                                 write_text("created the eventfd: ".bold().green());
-                                write_path_file(file_descriptor);
+                                write_colored(filename);
                             }
                             SyscallResult::Fail(_errno_variant) => {
                                 // TODO! granular
@@ -7944,13 +8134,15 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::waitid => {
-                let id_type = lower_32_bits(registers[0]);
-                let id = parse_as_int(registers[1]);
-                let options = parse_as_int(registers[3]);
-                let rusage = registers[4] as *const ();
                 match self.state {
                     Entering => {
+                        let id_type = lower_32_bits(registers[0]);
+                        let id = parse_as_int(registers[1]);
+                        let options = parse_as_int(registers[3]);
+                        let rusage = registers[4] as *const ();
+                        // ==================================================================
                         match id_type {
                             P_ALL => {
                                 write_general_text("wait until any child ");
@@ -8039,12 +8231,14 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::wait4 => {
-                let pid = parse_as_int(registers[0]);
                 let wstatus_address = registers[1];
-                let options = parse_as_int(registers[2]);
                 match self.state {
                     Entering => {
+                        let pid = parse_as_int(registers[0]);
+                        let options = parse_as_int(registers[2]);
+                        // ==================================================================
                         let mut options_ticked = vec![];
                         if (options & WEXITED) == WEXITED {
                             options_ticked.push("exits".custom_color(*OUR_YELLOW));
@@ -8251,6 +8445,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::clone3 => {
                 // TODO!
                 // sometimes register[0] isn't a pointer, investigate later
@@ -8486,6 +8681,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::clone => {
                 // TODO!
                 // revise
@@ -8494,10 +8690,10 @@ impl SyscallObject {
                 // the linux kernel clears the upper 32 bits anyways
                 // so its safe for intentrace to clear them as well
                 let flags = parse_as_int(registers[0]);
-                let stack = registers[1];
-
                 match self.state {
                     Entering => {
+                        let stack = registers[1];
+                        // ==================================================================
                         if (flags & CLONE_VM) == CLONE_VM {
                             write_general_text("spawn a new thread at stack address ");
                             write_text(format!("0x{:x}", stack).custom_color(*OUR_YELLOW));
@@ -8684,6 +8880,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::fork => {
                 match self.state {
                     Entering => {
@@ -8708,6 +8905,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::vfork => {
                 match self.state {
                     Entering => {
@@ -8730,15 +8928,19 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::execve => {
-                let program_name = string_from_pointer(registers[0] as usize, self.tracee_pid);
-                let arguments = get_array_of_strings(registers[1] as usize, self.tracee_pid);
                 match self.state {
                     Entering => {
+                        let program_name =
+                            string_from_pointer(registers[0] as usize, self.tracee_pid);
+                        let arguments =
+                            get_array_of_strings(registers[1] as usize, self.tracee_pid);
+                        // ==================================================================
                         write_general_text(
                             "replace the current program with the following program and its arguments: ",
                         );
-                        write_path_file(program_name);
+                        write_vanilla_path_file(program_name);
                     }
                     Exiting => {
                         match &self.result {
@@ -8754,6 +8956,7 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::nanosleep => {
                 // The value of the nanoseconds field must be in the range [0, 999999999]
                 let remaining = registers[1];
@@ -8798,6 +9001,7 @@ impl SyscallObject {
                     },
                 }
             }
+
             Sysno::landlock_create_ruleset => {
                 let attr = registers[0] as *const ();
                 let size = registers[1];
@@ -8824,12 +9028,14 @@ impl SyscallObject {
                                         syscall_return.to_string().custom_color(*PAGES_COLOR),
                                     );
                                 } else {
-                                    let file_descriptor =
-                                        parse_as_file_descriptor(syscall_return, self.tracee_pid);
+                                    let filename = parse_as_file_descriptor(
+                                        parse_as_int(syscall_return),
+                                        self.tracee_pid,
+                                    );
                                     write_text(
                                         "created the ruleset file descriptor: ".bold().green(),
                                     );
-                                    write_path_file(file_descriptor);
+                                    write_colored(filename);
                                 }
                             }
                             SyscallResult::Fail(_errno_variant) => {
@@ -8840,15 +9046,16 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::landlock_add_rule => {
-                let ruleset_fd = parse_as_int(registers[0]);
-                let rule_type_num = registers[1];
-                // should be 0
-                let flags = lower_32_bits(registers[0]);
                 match self.state {
                     Entering => {
-                        // LANDLOCK_RULE_PATH_BENEATH = 1
-                        if (rule_type_num & 1) == 1 {
+                        let ruleset_fd = parse_as_int(registers[0]);
+                        let rule_type = parse_as_int(registers[1]);
+                        // should be 0
+                        let flags = lower_32_bits(registers[0]);
+                        // ==================================================================
+                        if (rule_type & LANDLOCK_RULE_PATH_BENEATH) == LANDLOCK_RULE_PATH_BENEATH {
                             write_general_text("add a new rule for ");
                             write_text(
                                 "file system path-beneath access rights".custom_color(*OUR_YELLOW),
@@ -8869,14 +9076,17 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::landlock_restrict_self => {
-                let ruleset_fd = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                // should be 0
-                let flags = lower_32_bits(registers[0]);
                 match self.state {
                     Entering => {
+                        let ruleset_fd =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        // should be 0
+                        let flags = lower_32_bits(registers[0]);
+                        // ==================================================================
                         write_general_text("enforce the landlock ruleset inside: ");
-                        write_general_text(&ruleset_fd);
+                        write_colored(ruleset_fd);
                         write_general_text(" on the calling process");
                     }
                     Exiting => {
@@ -8893,14 +9103,17 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::fallocate => {
-                let file_descriptor = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                let mode = parse_as_int(registers[1]);
-                let offset = parse_as_int(registers[2]);
-                let offset_string = parse_as_signed_bytes(registers[2]);
-                let bytes = parse_as_signed_bytes(registers[3]);
                 match self.state {
                     Entering => {
+                        let filename =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        let mode = parse_as_int(registers[1]);
+                        let offset = parse_as_int(registers[2]);
+                        let offset_string = parse_as_signed_bytes(registers[2]);
+                        let bytes = parse_as_signed_bytes(registers[3]);
+                        // ==================================================================
                         if mode == 0
                             || (mode & FALLOC_FL_KEEP_SIZE) == FALLOC_FL_KEEP_SIZE
                             || (mode & FALLOC_FL_UNSHARE_RANGE) == FALLOC_FL_UNSHARE_RANGE
@@ -8914,7 +9127,7 @@ impl SyscallObject {
                                 write_text(offset_string.custom_color(*PAGES_COLOR));
                                 write_general_text(" from the beginning of the file: ");
                             }
-                            write_path_file(file_descriptor);
+                            write_colored(filename);
                             if (mode & FALLOC_FL_KEEP_SIZE) == FALLOC_FL_KEEP_SIZE
                                 && !(mode & FALLOC_FL_PUNCH_HOLE) == FALLOC_FL_PUNCH_HOLE
                             {
@@ -8951,7 +9164,7 @@ impl SyscallObject {
                                 write_text(offset_string.custom_color(*PAGES_COLOR));
                                 write_general_text(" from the beginning of the file: ");
                             }
-                            write_path_file(file_descriptor);
+                            write_colored(filename);
                         } else if (mode & FALLOC_FL_COLLAPSE_RANGE) == FALLOC_FL_COLLAPSE_RANGE {
                             write_text("remove ".magenta());
                             write_text(bytes.custom_color(*PAGES_COLOR));
@@ -8962,7 +9175,7 @@ impl SyscallObject {
                                 write_text(offset_string.custom_color(*PAGES_COLOR));
                                 write_general_text(" from the beginning of the file: ");
                             }
-                            write_path_file(file_descriptor);
+                            write_colored(filename);
                             write_text(" without leaving a hole".custom_color(*OUR_YELLOW));
                         } else if (mode & FALLOC_FL_ZERO_RANGE) == FALLOC_FL_ZERO_RANGE {
                             write_text("zeroize ".magenta());
@@ -8974,7 +9187,7 @@ impl SyscallObject {
                                 write_text(offset_string.custom_color(*PAGES_COLOR));
                                 write_general_text(" from the beginning of the file: ");
                             }
-                            write_path_file(file_descriptor);
+                            write_colored(filename);
                             if (mode & FALLOC_FL_KEEP_SIZE) == FALLOC_FL_KEEP_SIZE {
                                 write_general_text(" (");
                                 write_text(
@@ -8995,7 +9208,7 @@ impl SyscallObject {
                                 write_text(offset_string.custom_color(*PAGES_COLOR));
                                 write_general_text(" from the beginning of the file: ");
                             }
-                            write_path_file(file_descriptor);
+                            write_colored(filename);
                             write_general_text(" and displace any existing data");
                         }
                     }
@@ -9014,12 +9227,13 @@ impl SyscallObject {
                     }
                 }
             }
-            Sysno::getpriority => {
-                let which = lower_32_bits(registers[0]);
-                let process = parse_as_int(registers[1]);
 
+            Sysno::getpriority => {
                 match self.state {
                     Entering => {
+                        let which = lower_32_bits(registers[0]);
+                        let process = parse_as_int(registers[1]);
+                        // ==================================================================
                         write_general_text("get the scheduling priority ");
                         match which {
                             PRIO_PROCESS => {
@@ -9080,12 +9294,14 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::setpriority => {
-                let which = lower_32_bits(registers[0]);
-                let process = parse_as_int(registers[1]);
-                let prio = parse_as_int(registers[2]);
                 match self.state {
                     Entering => {
+                        let which = lower_32_bits(registers[0]);
+                        let process = parse_as_int(registers[1]);
+                        let prio = parse_as_int(registers[2]);
+                        // ==================================================================
                         write_general_text("set the scheduling priority ");
                         match which {
                             PRIO_PROCESS => {
@@ -9146,18 +9362,21 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::getdents => {
-                let directory = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                let count = lower_32_bits(registers[2]);
                 match self.state {
                     Entering => {
+                        let directory =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        let count = lower_32_bits(registers[2]);
+                        // ==================================================================
                         write_general_text("retrieve the entries ");
                         write_general_text(" (");
                         write_general_text("maximum: ");
                         write_text(count.to_string().custom_color(*PAGES_COLOR));
                         write_general_text(")");
                         write_general_text(" inside the directory: ");
-                        write_path_file(directory);
+                        write_colored(directory);
                     }
                     Exiting => {
                         match &self.result {
@@ -9173,18 +9392,21 @@ impl SyscallObject {
                     }
                 }
             }
+
             Sysno::getdents64 => {
-                let directory = parse_as_file_descriptor(registers[0], self.tracee_pid);
-                let count = lower_32_bits(registers[2]);
                 match self.state {
                     Entering => {
+                        let directory =
+                            parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        let count = lower_32_bits(registers[2]);
+                        // ==================================================================
                         write_general_text("retrieve the entries");
                         write_general_text(" (");
                         write_general_text("maximum: ");
                         write_text(count.to_string().custom_color(*PAGES_COLOR));
                         write_general_text(")");
                         write_general_text(" inside the directory: ");
-                        write_path_file(directory);
+                        write_colored(directory);
                     }
                     Exiting => {
                         match &self.result {
@@ -9224,7 +9446,7 @@ impl SyscallObject {
         }
         if !perms.is_empty() {
             write_general_text(" allowing the user to ");
-            write_vanilla_commas(perms);
+            write_commas(perms);
             write_general_text(", ");
         }
 
@@ -9241,7 +9463,7 @@ impl SyscallObject {
         }
         if !group_perms.is_empty() {
             write_general_text(" allowing the group to ");
-            write_vanilla_commas(group_perms);
+            write_commas(group_perms);
             write_general_text(", ");
         }
         // OTHER
@@ -9257,7 +9479,7 @@ impl SyscallObject {
         }
         if !other_perms.is_empty() {
             write_general_text(" allowing others to ");
-            write_vanilla_commas(other_perms);
+            write_commas(other_perms);
             write_general_text(", ");
         }
 
@@ -9272,7 +9494,7 @@ impl SyscallObject {
         }
         if !sets.is_empty() {
             write_general_text(" and set ");
-            write_vanilla_commas(sets);
+            write_commas(sets);
         }
     }
 
