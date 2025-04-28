@@ -8,11 +8,6 @@ pub mod constants {
     }
     pub mod general {
         pub const MAX_KERNEL_ULONG: usize = unsafe { std::mem::transmute::<isize, usize>(-4095) };
-        pub const GREEK: [&str; 24] = [
-            "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa",
-            "lambda", "mu", "nu", "xi", "omicron", "pi", "rho", "sigma", "tau", "upsilon", "phi",
-            "chi", "psi", "omega",
-        ];
         // syscall: arch_prctl
         pub const ARCH_SET_GS: i32 = 0x1001;
         pub const ARCH_SET_FS: i32 = 0x1002;

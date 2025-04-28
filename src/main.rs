@@ -5,7 +5,7 @@
     unused_macros,
     non_snake_case,
     invalid_value,
-    unused_assignments,
+    unused_assignments
 )]
 
 macro_rules! p {

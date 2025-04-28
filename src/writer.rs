@@ -1,6 +1,6 @@
 use crate::{
     colors::{EXITED_BACKGROUND_COLOR, OUR_YELLOW, PAGES_COLOR, PID_BACKGROUND_COLOR},
-    utilities::{extract_final_dentry_index, lose_relativity_on_path},
+    utilities::{calculate_futex_alias, lose_relativity_on_path, partition_by_final_dentry, FUTEXES},
 };
 
 use super::GENERAL_TEXT_COLOR;
@@ -84,9 +84,18 @@ pub fn write_syscall_not_covered(sysno: Sysno, tracee_pid: Pid) {
 pub fn write_vanilla_path_file(filename: String) {
     use unicode_segmentation::UnicodeSegmentation;
     let graphemes = filename.graphemes(true);
-    let blue_start = extract_final_dentry_index(graphemes.clone()).unwrap_or(0);
-    write_text(graphemes.clone().take(blue_start).collect::<String>().custom_color(*OUR_YELLOW));
-    write_text(graphemes.skip(blue_start).collect::<String>().custom_color(*PAGES_COLOR));
+    let (yellow, blue) = partition_by_final_dentry(graphemes);
+    write_text(
+        yellow
+            .into_iter()
+            .collect::<String>()
+            .custom_color(*OUR_YELLOW),
+    );
+    write_text(
+        blue.into_iter()
+            .collect::<String>()
+            .custom_color(*PAGES_COLOR),
+    );
 }
 
 pub fn write_colored(filename: String) {
@@ -245,6 +254,23 @@ pub fn write_timeval(seconds: i64, microseconds: i64) {
             write_general_text(", ");
             write_text(microseconds.to_string().custom_color(*PAGES_COLOR));
             write_text(" microseconds".custom_color(*OUR_YELLOW));
+        }
+    }
+}
+
+
+pub fn write_futex(futex_address: usize) {
+    let mut futexes = FUTEXES.lock().unwrap();
+    match futexes.get(&futex_address) {
+        Some(futex_alias) => {
+            write_text(futex_alias.clone());
+            write_text(format!(" {:p}", futex_address as *const ()).custom_color(*OUR_YELLOW));
+        }
+        None => {
+            let futex_alias = calculate_futex_alias(futexes.len() as _).custom_color(*PAGES_COLOR);
+            write_text(futex_alias.clone());
+            write_text(format!(" {:p}", futex_address as *const ()).custom_color(*OUR_YELLOW));
+            futexes.insert(futex_address, futex_alias);
         }
     }
 }

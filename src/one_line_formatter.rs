@@ -17,19 +17,19 @@ use crate::{
     syscall_object::{ErrnoVariant, SyscallObject, SyscallResult},
     types::{Bytes, BytesPagesRelevant},
     utilities::{
-        colorize_syscall_name, extract_final_dentry_index, find_fd_for_tracee,
-        get_array_of_strings, get_groupname_from_uid, get_mem_difference_from_previous,
-        get_username_from_uid, lower_32_bits, lower_64_bits, new_process, new_thread,
-        parse_as_address, parse_as_bytes_pages_ceil, parse_as_file_descriptor, parse_as_futex,
-        parse_as_int, parse_as_long, parse_as_signal, parse_as_signed_bytes, parse_as_ssize_t,
-        parse_as_unsigned_bytes, string_from_pointer, REGISTERS, SYSCATEGORIES_MAP,
+        colorize_syscall_name, find_fd_for_tracee, get_array_of_strings, get_groupname_from_uid,
+        get_mem_difference_from_previous, get_username_from_uid, lower_32_bits, lower_64_bits,
+        new_process, new_thread, parse_as_address, parse_as_bytes_pages_ceil,
+        parse_as_file_descriptor, parse_as_int, parse_as_long, parse_as_signal,
+        parse_as_signed_bytes, parse_as_ssize_t, parse_as_unsigned_bytes, partition_by_final_dentry,
+        string_from_pointer, REGISTERS, SYSCATEGORIES_MAP,
     },
     write_text,
     writer::{
         empty_buffer, errorize_pid_color, flush_buffer, write_anding, write_colored, write_commas,
-        write_directives, write_exiting, write_general_text, write_oring, write_parenthesis,
-        write_possible_dirfd_anchor, write_timespec, write_timespec_non_relative, write_timeval,
-        write_vanilla_path_file,
+        write_directives, write_exiting, write_futex, write_general_text, write_oring,
+        write_parenthesis, write_possible_dirfd_anchor, write_timespec,
+        write_timespec_non_relative, write_timeval, write_vanilla_path_file,
     },
 };
 use colored::Colorize;
@@ -2300,21 +2300,17 @@ impl SyscallObject {
                         let path = string_from_pointer(registers[0] as usize, self.tracee_pid);
                         // ==================================================================
                         if path.starts_with('/') {
-                            let graphemes = path.graphemes(true);
-                            let final_dentry_starting_index =
-                                extract_final_dentry_index(graphemes.clone()).unwrap_or(0);
+                            let (yellow, blue) = partition_by_final_dentry(path.graphemes(true));
                             write_general_text("create a new directory ");
                             write_text(
-                                graphemes
-                                    .clone()
-                                    .skip(final_dentry_starting_index)
+                                blue.into_iter()
                                     .collect::<String>()
-                                    .custom_color(*OUR_YELLOW),
+                                    .custom_color(*PAGES_COLOR),
                             );
                             write_general_text(" inside: ");
                             write_text(
-                                graphemes
-                                    .take(final_dentry_starting_index)
+                                yellow
+                                    .into_iter()
                                     .collect::<String>()
                                     .custom_color(*OUR_YELLOW),
                             );
@@ -2329,28 +2325,25 @@ impl SyscallObject {
                             //     .unwrap()
                             //     .cwd()
                             //     .unwrap();
-                            let graphemes = path.graphemes(true);
-                            let final_dentry_starting_index =
-                                extract_final_dentry_index(graphemes.clone()).unwrap_or(0);
+                            let (yellow, blue) = partition_by_final_dentry(path.graphemes(true));
                             write_general_text("create a new directory ");
                             write_text(
-                                graphemes
-                                    .clone()
-                                    .skip(final_dentry_starting_index)
+                                blue.into_iter()
                                     .collect::<String>()
-                                    .custom_color(*OUR_YELLOW),
+                                    .custom_color(*PAGES_COLOR),
                             );
                             write_general_text(" inside: ");
                             write_text(
-                                graphemes
-                                    .take(final_dentry_starting_index)
+                                yellow
+                                    .into_iter()
                                     .collect::<String>()
                                     .custom_color(*OUR_YELLOW),
                             );
                         } else {
                             write_general_text("create a new directory ");
                             write_text(path.custom_color(*OUR_YELLOW));
-                            write_general_text(" inside the current working directory");
+                            write_general_text(" inside ");
+                            write_text("the current working directory".custom_color(*OUR_YELLOW));
                         }
                     }
                     Exiting => {
@@ -2389,21 +2382,17 @@ impl SyscallObject {
 
                         // ==================================================================
                         if path.starts_with('/') {
-                            let graphemes = path.graphemes(true);
-                            let final_dentry_starting_index =
-                                extract_final_dentry_index(graphemes.clone()).unwrap_or(0);
+                            let (yellow, blue) = partition_by_final_dentry(path.graphemes(true));
                             write_general_text("create a new directory ");
                             write_text(
-                                graphemes
-                                    .clone()
-                                    .skip(final_dentry_starting_index)
+                                blue.into_iter()
                                     .collect::<String>()
-                                    .custom_color(*OUR_YELLOW),
+                                    .custom_color(*PAGES_COLOR),
                             );
                             write_general_text(" inside: ");
                             write_text(
-                                graphemes
-                                    .take(final_dentry_starting_index)
+                                yellow
+                                    .into_iter()
                                     .collect::<String>()
                                     .custom_color(*OUR_YELLOW),
                             );
@@ -2419,21 +2408,17 @@ impl SyscallObject {
                             //     .cwd()
                             //     .unwrap();
 
-                            let graphemes = path.graphemes(true);
-                            let final_dentry_starting_index =
-                                extract_final_dentry_index(graphemes.clone()).unwrap_or(0);
+                            let (yellow, blue) = partition_by_final_dentry(path.graphemes(true));
                             write_general_text("create a new directory ");
                             write_text(
-                                graphemes
-                                    .clone()
-                                    .skip(final_dentry_starting_index)
+                                blue.into_iter()
                                     .collect::<String>()
-                                    .custom_color(*OUR_YELLOW),
+                                    .custom_color(*PAGES_COLOR),
                             );
                             write_general_text(" inside: ");
                             write_text(
-                                graphemes
-                                    .take(final_dentry_starting_index)
+                                yellow
+                                    .into_iter()
                                     .collect::<String>()
                                     .custom_color(*OUR_YELLOW),
                             );
@@ -7796,12 +7781,12 @@ impl SyscallObject {
             Sysno::futex => {
                 match self.state {
                     Entering => {
-                        let uaddr_address = parse_as_futex(registers[0] as usize);
+                        let uaddr_address = registers[0] as usize;
                         let futex_op = parse_as_int(registers[1]);
                         let val = lower_32_bits(registers[2]);
                         // timespec_or_val2
                         let timespec_or_val2 = registers[3];
-                        let uaddr2_address = parse_as_futex(registers[4] as usize);
+                        let uaddr2_address = registers[4] as usize;
                         let val3 = lower_32_bits(registers[5]);
                         // ==================================================================
                         // TODO!
@@ -7827,18 +7812,18 @@ impl SyscallObject {
                                 write_general_text("wake a maximum of ");
                                 write_text(val.to_string().custom_color(*PAGES_COLOR));
                                 write_general_text(" waiters waiting on futex: ");
-                                write_text(uaddr_address.custom_color(*OUR_YELLOW));
+                                write_futex(uaddr_address);
                             }
                             FUTEX_FD => {
                                 write_general_text("create a file descriptor for the futex at ");
-                                write_text(uaddr_address.custom_color(*OUR_YELLOW));
+                                write_futex(uaddr_address);
                                 write_general_text(" to use with asynchronous syscalls");
                             }
                             FUTEX_CMP_REQUEUE => {
                                 write_general_text("if comparison succeeds wake a maximum of ");
                                 write_text(val.to_string().custom_color(*PAGES_COLOR));
                                 write_general_text(" waiters waiting on futex: ");
-                                write_text(uaddr_address.custom_color(*OUR_YELLOW));
+                                write_futex(uaddr_address);
                                 write_general_text(" and requeue a maximum of ");
                                 write_text(
                                     lower_32_bits(timespec_or_val2)
@@ -7846,13 +7831,13 @@ impl SyscallObject {
                                         .custom_color(*PAGES_COLOR),
                                 );
                                 write_general_text(" from the remaining waiters to the futex at ");
-                                write_text(uaddr2_address.custom_color(*OUR_YELLOW));
+                                write_futex(uaddr2_address);
                             }
                             FUTEX_REQUEUE => {
                                 write_general_text("without comparing wake a maximum of ");
                                 write_text(val.to_string().custom_color(*PAGES_COLOR));
                                 write_general_text(" waiters waiting on futex: ");
-                                write_text(uaddr_address.custom_color(*OUR_YELLOW));
+                                write_futex(uaddr_address);
                                 write_general_text(" and requeue a maximum of ");
                                 write_text(
                                     lower_32_bits(timespec_or_val2)
@@ -7860,7 +7845,7 @@ impl SyscallObject {
                                         .custom_color(*PAGES_COLOR),
                                 );
                                 write_general_text(" from the remaining waiters to the futex at ");
-                                write_text(uaddr2_address.custom_color(*OUR_YELLOW));
+                                write_futex(uaddr2_address);
                             }
                             FUTEX_WAKE_OP => {
                                 write_general_text("operate on 2 futexes at the same time");
@@ -7874,7 +7859,7 @@ impl SyscallObject {
                                 write_general_text("wake a maximum of ");
                                 write_text(val.to_string().custom_color(*PAGES_COLOR));
                                 write_general_text(" waiters waiting on futex: ");
-                                write_text(uaddr_address.custom_color(*OUR_YELLOW));
+                                write_futex(uaddr_address);
                                 write_text(
                                     " from the provided waiters bitmask".custom_color(*OUR_YELLOW),
                                 );

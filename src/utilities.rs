@@ -25,10 +25,7 @@ use unicode_segmentation::Graphemes;
 use uzers::{Groups, Users};
 
 use crate::{
-    auxiliary::{
-        constants::general::{GREEK, MAX_KERNEL_ULONG},
-        kernel_errno::KernelErrno,
-    },
+    auxiliary::{constants::general::MAX_KERNEL_ULONG, kernel_errno::KernelErrno},
     colors::{OUR_YELLOW, PAGES_COLOR},
     peeker_poker::{read_bytes_until_null, read_words_until_null},
     // syscall_annotations_map::initialize_annotations_map,
@@ -54,7 +51,7 @@ pub static SYSKELETON_MAP: LazyLock<HashMap<Sysno, Syscall_Shape>> =
 pub static SYSCATEGORIES_MAP: LazyLock<HashMap<Sysno, Category>> =
     LazyLock::new(initialize_categories_map);
 
-pub static FUTEXES: LazyLock<Mutex<HashMap<usize, String>>> =
+pub static FUTEXES: LazyLock<Mutex<HashMap<usize, ColoredString>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub static UZERS_CACHE: LazyLock<Mutex<uzers::UsersCache>> =
@@ -137,6 +134,19 @@ pub fn display_unsupported() {
     // }
 }
 
+// this makes futexes more searchable
+pub fn calculate_futex_alias(mut futex_count: i32) -> String {
+    let mut collector = String::new();
+    while futex_count >= 0 {
+        let remainder = futex_count % 26;
+        let letter = (b'A' + remainder as u8) as char;
+        collector.insert(0, letter);
+        futex_count = (futex_count / 26) - 1;
+    }
+    collector.push_str(" ->");
+    collector
+}
+
 pub fn parse_as_signal(signum: i32) -> &'static str {
     match Signal::try_from(signum) {
         Ok(signal) => signal.as_str(),
@@ -210,56 +220,6 @@ pub fn parse_as_address(register_value: usize) -> String {
     }
 }
 
-// alphabetic aliasing
-// pub fn calculate_futex_alias(futex_count: usize) -> Vec<u8> {
-//     let mut collector: Vec<u8> = vec![];
-//     for _ in 0..(futex_count / 26) {
-//         collector.push('A' as u8);
-//     }
-//     collector.push((futex_count % 26) as u8 + 65);
-//     collector.push(58); // :
-//     collector
-// }
-
-// this makes futexes more searchable
-pub fn calculate_futex_alias(mut futex_count: usize) -> String {
-    let mut collector = String::new();
-
-    if futex_count >= 24 {
-        collector.push_str("alpha");
-        futex_count -= 24;
-        while futex_count >= 24 {
-            collector.push_str("-");
-            collector.push_str("alpha");
-            futex_count -= 24;
-        }
-        if futex_count > 0 {
-            collector.push('-');
-        } else {
-            return collector;
-        }
-    }
-    collector.push_str(GREEK[futex_count]);
-    collector.push(':');
-    collector
-}
-
-pub fn parse_as_futex(futex_address: usize) -> String {
-    let pointer = futex_address as *const ();
-    let mut futexes = FUTEXES.lock().unwrap();
-    match futexes.get(&futex_address) {
-        Some(futex_alias) => {
-            format!("{} {:p}", futex_alias.custom_color(*PAGES_COLOR), pointer)
-        }
-        None => {
-            let futex_alias = calculate_futex_alias(futexes.len() + 1);
-            let string = format!("{} {:p}", futex_alias.custom_color(*PAGES_COLOR), pointer);
-            futexes.insert(futex_address, futex_alias);
-            string
-        }
-    }
-}
-
 // Length_Of_Bytes_Specific
 // memory and file indexers and seekers where negative is expected
 pub fn parse_as_signed_bytes(register_value: u64) -> String {
@@ -308,13 +268,21 @@ pub fn get_array_of_strings(address: usize, tracee_pid: Pid) -> Vec<String> {
     strings
 }
 
-pub fn extract_final_dentry_index(graphemes: Graphemes) -> Option<usize> {
-    let size = graphemes.size_hint().1.unwrap();
-    graphemes
-        .rev()
-        .enumerate()
-        .find(|(_, chara)| *chara == "/")
-        .map(|(index, _)| size - index)
+pub fn partition_by_final_dentry(graphemes: Graphemes) -> (Vec<&str>, Vec<&str>) {
+    let mut graphemes_revved = graphemes.rev();
+    let mut in_final_dentry = true;
+    let blue = graphemes_revved
+        .by_ref()
+        .take_while(|chara| {
+            if *chara == "/" {
+                in_final_dentry = false
+            }
+            in_final_dentry
+        })
+        .collect::<Vec<&str>>();
+    let mut yellow = graphemes_revved.rev().collect::<Vec<&str>>();
+    yellow.push("/");
+    (yellow, blue.into_iter().rev().collect::<_>())
 }
 
 pub fn parse_as_file_descriptor(file_descriptor: i32, tracee_pid: Pid) -> String {
@@ -334,17 +302,15 @@ pub fn parse_as_file_descriptor(file_descriptor: i32, tracee_pid: Pid) -> String
                     use unicode_segmentation::UnicodeSegmentation;
                     colored_strings.push(format!("{} -> ", file.fd).bright_blue());
                     let graphemes = path.to_str().unwrap().graphemes(true);
-                    let blue_start = extract_final_dentry_index(graphemes.clone()).unwrap_or(0);
+                    let (yellow, blue) = partition_by_final_dentry(graphemes);
                     colored_strings.push(
-                        graphemes
-                            .clone()
-                            .take(blue_start)
+                        yellow
+                            .into_iter()
                             .collect::<String>()
                             .custom_color(*OUR_YELLOW),
                     );
                     colored_strings.push(
-                        graphemes
-                            .skip(blue_start)
+                        blue.into_iter()
                             .collect::<String>()
                             .custom_color(*PAGES_COLOR),
                     );
