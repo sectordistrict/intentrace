@@ -24,7 +24,7 @@ pub static STOPPED_COLOR: LazyLock<CustomColor> =
 // TODO!
 // find a good alternate color for light mode terminals
 pub static PARTITION_1_COLOR: LazyLock<CustomColor> =
-    LazyLock::new(|| from_terminal_theme((186, 171, 35), (0, 169, 223)));
+    LazyLock::new(|| from_terminal_theme((112, 127, 35), (186, 171, 35)));
 pub static PARTITION_2_COLOR: LazyLock<[CustomColor; 3]> =
     LazyLock::new(|| match *TERMINAL_THEME {
         termbg::Theme::Light => [CustomColor::new(0, 169, 223), CustomColor::new(0, 169, 223), CustomColor::new(0, 169, 223)],
