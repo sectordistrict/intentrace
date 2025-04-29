@@ -48,8 +48,8 @@ use nix::{
 use pete::{Ptracer, Restart, Stop};
 use syscalls::Sysno;
 use utilities::{
-    interpret_syscall_result, set_memory_break, syscall_is_blocking, HALT_TRACING, REGISTERS,
-    TABLE, TABLE_FOLLOW_FORKS,
+    initialize_writer, interpret_syscall_result, set_memory_break, syscall_is_blocking,
+    HALT_TRACING, REGISTERS, TABLE, TABLE_FOLLOW_FORKS,
 };
 use writer::{empty_buffer, flush_buffer, write_exiting, write_syscall_not_covered, write_text};
 
@@ -69,41 +69,35 @@ mod return_resolvers;
 mod utilities;
 mod writer;
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     IntentraceArgs::parse();
+    initialize_writer();
     ctrlc::set_handler(|| {
         flush_buffer();
         HALT_TRACING.store(true, Ordering::SeqCst);
-
         if *SUMMARY {
             print_table();
         }
         std::process::exit(0);
-    })
-    .unwrap();
-    runner(&BINARY_AND_ARGS);
-}
-
-fn runner(command_line: &[String]) {
-    let attach_pid = *ATTACH_PID;
+    })?;
     if *FOLLOW_FORKS {
-        match attach_pid {
+        match *ATTACH_PID {
             Some(_) => follow_forks(None),
-            None => follow_forks(Some(command_line)),
+            None => follow_forks(Some(*BINARY_AND_ARGS)),
         }
     } else {
-        match attach_pid {
+        match *ATTACH_PID {
             Some(pid) => {
                 let child = Pid::from_raw(pid as i32);
-                ptrace::attach(child).unwrap();
+                ptrace::attach(child)?;
                 parent(child);
             }
-            None => match unsafe { fork() }.expect("Error: Fork Failed") {
+            None => match unsafe { fork() }? {
                 Parent { child } => {
                     parent(child);
                 }
                 Child => {
-                    child_trace_me(command_line);
+                    child_trace_me(*BINARY_AND_ARGS);
                 }
             },
         }
@@ -114,7 +108,9 @@ fn runner(command_line: &[String]) {
     if *SUMMARY {
         print_table();
     }
+    Ok(())
 }
+
 
 fn child_trace_me(comm: &[String]) {
     let mut command = Command::new(&comm[0]);

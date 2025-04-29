@@ -1,5 +1,5 @@
-use std::sync::LazyLock;
 use colored::CustomColor;
+use std::sync::{LazyLock, Mutex};
 
 pub static TERMINAL_THEME: LazyLock<termbg::Theme> = LazyLock::new(|| {
     termbg::theme(std::time::Duration::from_millis(10)).unwrap_or(termbg::Theme::Dark)
@@ -21,6 +21,16 @@ pub static CONTINUED_COLOR: LazyLock<CustomColor> =
     LazyLock::new(|| from_terminal_theme((188, 210, 230), (17, 38, 21)));
 pub static STOPPED_COLOR: LazyLock<CustomColor> =
     LazyLock::new(|| from_terminal_theme((82, 138, 174), (47, 86, 54)));
+// TODO!
+// find a good alternate color for light mode terminals
+pub static PARTITION_1_COLOR: LazyLock<CustomColor> =
+    LazyLock::new(|| from_terminal_theme((186, 171, 35), (0, 169, 223)));
+pub static PARTITION_2_COLOR: LazyLock<[CustomColor; 3]> =
+    LazyLock::new(|| match *TERMINAL_THEME {
+        termbg::Theme::Light => [CustomColor::new(0, 169, 223), CustomColor::new(0, 169, 223), CustomColor::new(0, 169, 223)],
+        termbg::Theme::Dark => [CustomColor::new(0, 169, 233), CustomColor::new(92, 92, 255), CustomColor::new(0, 218, 233)],
+    });
+pub static PATHLIKE_ALTERNATOR: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 fn from_terminal_theme(
     (light_R, light_G, light_B): (u8, u8, u8),
@@ -30,4 +40,9 @@ fn from_terminal_theme(
         termbg::Theme::Light => CustomColor::new(light_R, light_G, light_B),
         termbg::Theme::Dark => CustomColor::new(dark_R, dark_G, dark_B),
     }
+}
+
+pub fn switch_pathlike_color() {
+    let prev = *PATHLIKE_ALTERNATOR.lock().unwrap();
+    *PATHLIKE_ALTERNATOR.lock().unwrap() = (prev + 1) % 3;
 }

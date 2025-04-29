@@ -1,14 +1,19 @@
 use crate::{
+    cli::OUTPUT_FILE,
     colors::{EXITED_BACKGROUND_COLOR, OUR_YELLOW, PAGES_COLOR, PID_BACKGROUND_COLOR},
-    utilities::{calculate_futex_alias, lose_relativity_on_path, partition_by_final_dentry, FUTEXES},
+    utilities::{
+        calculate_futex_alias, get_colors_consider_repetition, lose_relativity_on_path,
+        partition_by_final_dentry, FUTEXES,
+    },
 };
 
 use super::GENERAL_TEXT_COLOR;
 use colored::{ColoredString, Colorize};
 use nix::{libc::AT_FDCWD, unistd::Pid};
 use std::{
-    io::{BufWriter, Stdout},
-    sync::{LazyLock, Mutex},
+    fs::File,
+    io::{BufWriter, Stderr},
+    sync::{LazyLock, Mutex, OnceLock},
 };
 use syscalls::Sysno;
 //
@@ -16,10 +21,8 @@ use syscalls::Sysno;
 //
 //
 pub static BUFFER: LazyLock<Mutex<Vec<ColoredString>>> = LazyLock::new(|| Mutex::new(Vec::new()));
-pub static WRITER_LAZY: LazyLock<Mutex<BufWriter<Stdout>>> = LazyLock::new(|| {
-    let stdout = std::io::stdout();
-    Mutex::new(BufWriter::new(stdout))
-});
+pub static WRITER_STDERR: OnceLock<Mutex<BufWriter<Stderr>>> = OnceLock::new();
+pub static WRITER_FILE: OnceLock<Mutex<BufWriter<File>>> = OnceLock::new();
 //
 //
 //
@@ -57,10 +60,19 @@ pub fn empty_buffer() {
 pub fn flush_buffer() {
     use std::io::Write;
     let mut buffer = BUFFER.lock().unwrap();
-    for colored_text in buffer.iter_mut() {
-        write!(WRITER_LAZY.lock().unwrap(), "{}", colored_text).unwrap();
+    if let Some(_) = *OUTPUT_FILE {
+        let mut writer = WRITER_FILE.get().unwrap().lock().unwrap();
+        for colored_text in buffer.iter_mut() {
+            write!(writer, "{}", colored_text).unwrap();
+        }
+        writer.flush().unwrap();
+    } else {
+        let mut writer = WRITER_STDERR.get().unwrap().lock().unwrap();
+        for colored_text in buffer.iter_mut() {
+            write!(writer, "{}", colored_text).unwrap();
+        }
+        writer.flush().unwrap();
     }
-    WRITER_LAZY.lock().unwrap().flush().unwrap();
 }
 
 #[inline(always)]
@@ -84,46 +96,42 @@ pub fn write_syscall_not_covered(sysno: Sysno, tracee_pid: Pid) {
 pub fn write_vanilla_path_file(filename: String) {
     use unicode_segmentation::UnicodeSegmentation;
     let graphemes = filename.graphemes(true);
-    let (yellow, blue) = partition_by_final_dentry(graphemes);
-    write_text(
-        yellow
-            .into_iter()
-            .collect::<String>()
-            .custom_color(*OUR_YELLOW),
-    );
-    write_text(
-        blue.into_iter()
-            .collect::<String>()
-            .custom_color(*PAGES_COLOR),
-    );
+    let (partition1, partition2) = partition_by_final_dentry(graphemes);
+    let yellow = partition1.into_iter().collect::<String>();
+    let repetition_dependent = partition2.into_iter().collect::<String>();
+
+    write_path_consider_repetition(&yellow, &repetition_dependent);
 }
 
 pub fn write_colored(filename: String) {
     buffered_write(filename.normal())
 }
 
-pub fn write_possible_dirfd_anchor(dirfd: i32, filename: String, tracee_pid: Pid) {
+pub fn write_path_consider_repetition(yellow: &str, repetition_dependent: &str) {
+    let (color1, color2) = get_colors_consider_repetition(repetition_dependent);
+    buffered_write(yellow.custom_color(color1));
+    buffered_write(repetition_dependent.custom_color(color2));
+}
+
+pub fn write_possible_dirfd_anchor(
+    dirfd: i32,
+    filename: String,
+    tracee_pid: Pid,
+) -> anyhow::Result<()> {
     if filename.starts_with('.') {
         if dirfd == AT_FDCWD {
-            let current_working_directory = procfs::process::Process::new(tracee_pid.into())
-                .unwrap()
-                .cwd()
-                .unwrap();
-            write_text(
-                current_working_directory
-                    .to_str()
-                    .unwrap()
-                    .custom_color(*OUR_YELLOW),
-            );
-            write_text(lose_relativity_on_path(filename.as_ref()).custom_color(*PAGES_COLOR));
+            let current_working_directory =
+                procfs::process::Process::new(tracee_pid.into())?.cwd()?;
+            let yellow = current_working_directory.to_str().unwrap();
+            let repetition_dependent = lose_relativity_on_path(filename.as_ref());
+            write_path_consider_repetition(yellow, repetition_dependent);
         } else {
-            let file_info = procfs::process::FDInfo::from_raw_fd(tracee_pid.into(), dirfd).unwrap();
+            let file_info = procfs::process::FDInfo::from_raw_fd(tracee_pid.into(), dirfd)?;
             match file_info.target {
                 procfs::process::FDTarget::Path(path) => {
-                    write_text(path.to_str().unwrap().custom_color(*OUR_YELLOW));
-                    write_text(
-                        lose_relativity_on_path(filename.as_ref()).custom_color(*PAGES_COLOR),
-                    );
+                    let yellow = path.to_str().unwrap();
+                    let repetition_dependent = lose_relativity_on_path(filename.as_ref());
+                    write_path_consider_repetition(yellow, repetition_dependent);
                 }
                 _ => unreachable!(),
             }
@@ -131,6 +139,7 @@ pub fn write_possible_dirfd_anchor(dirfd: i32, filename: String, tracee_pid: Pid
     } else {
         write_vanilla_path_file(filename);
     }
+    Ok(())
 }
 
 pub fn write_directives(vector: Vec<ColoredString>) {
@@ -148,47 +157,40 @@ pub fn write_directives(vector: Vec<ColoredString>) {
     }
 }
 
-pub fn write_commas(vector: Vec<ColoredString>) {
-    let mut vector_iter = vector.into_iter().peekable();
-    // first element
-    if vector_iter.peek().is_some() {
-        write_text(vector_iter.next().unwrap());
-    }
-    // remaining elements
-    for entry in vector_iter {
-        write_general_text(", ");
-        write_text(entry);
+pub fn write_commas(mut vector: Vec<ColoredString>) {
+    if !vector.is_empty() {
+        // first element
+        write_text(vector.pop().unwrap());
+        // remaining elements
+        for entry in vector {
+            write_general_text(", ");
+            write_text(entry);
+        }
     }
 }
 
 pub fn write_oring(vector: Vec<ColoredString>) {
-    let mut vector_iter = vector.into_iter().peekable();
+    let mut vector_iter = vector.into_iter();
     // first element
-    if vector_iter.peek().is_some() {
-        write_text(vector_iter.next().unwrap());
-    }
-    // second element
-    if vector_iter.peek().is_some() {
-        write_general_text(", or ");
-        write_text(vector_iter.next().unwrap());
-    }
-    // remaining elements
-    for entry in vector_iter {
-        write_general_text(", or ");
+    if let Some(entry) = vector_iter.next() {
         write_text(entry);
+    }
+    // second and remaining elements
+    for more in vector_iter {
+        write_general_text(", or ");
+        write_text(more);
     }
 }
 
 pub fn write_anding(vector: Vec<ColoredString>) {
-    let mut vector_iter = vector.into_iter().peekable();
+    let mut vector_iter = vector.into_iter();
     // first element
-    if vector_iter.peek().is_some() {
-        write_text(vector_iter.next().unwrap());
+    if let Some(entry) = vector_iter.next() {
+        write_text(entry);
     }
     // second and remaining elements
     if let Some(second_as_last) = vector_iter.next() {
-        let third_and_forward = vector_iter;
-        for entry in third_and_forward {
+        for entry in vector_iter {
             write_general_text(", ");
             write_text(entry);
         }
@@ -197,41 +199,59 @@ pub fn write_anding(vector: Vec<ColoredString>) {
         write_text(second_as_last);
     }
 }
+use thousands::Separable;
 pub fn write_timespec(seconds: i64, nanoseconds: i64) {
     if seconds == 0 {
         if nanoseconds == 0 {
             write_text("immediately".custom_color(*OUR_YELLOW));
         } else {
             write_text("after ".custom_color(*OUR_YELLOW));
-            write_text(nanoseconds.to_string().custom_color(*PAGES_COLOR));
+            write_text(
+                nanoseconds
+                    .separate_with_commas()
+                    .custom_color(*PAGES_COLOR),
+            );
             write_text(" nanoseconds".custom_color(*OUR_YELLOW));
         }
     } else {
         write_text("after ".custom_color(*OUR_YELLOW));
-        write_text(seconds.to_string().custom_color(*PAGES_COLOR));
+        write_text(seconds.separate_with_commas().custom_color(*PAGES_COLOR));
         write_text(" seconds".custom_color(*OUR_YELLOW));
         if nanoseconds != 0 {
             write_general_text(", ");
-            write_text(nanoseconds.to_string().custom_color(*PAGES_COLOR));
+            write_text(
+                nanoseconds
+                    .separate_with_commas()
+                    .custom_color(*PAGES_COLOR),
+            );
             write_text(" nanoseconds".custom_color(*OUR_YELLOW));
         }
     }
 }
+
 pub fn write_timespec_non_relative(seconds: i64, nanoseconds: i64) {
     if seconds == 0 {
         if nanoseconds == 0 {
             write_text("0".custom_color(*PAGES_COLOR));
             write_text(" nano-seconds".custom_color(*OUR_YELLOW));
         } else {
-            write_text(nanoseconds.to_string().custom_color(*PAGES_COLOR));
+            write_text(
+                nanoseconds
+                    .separate_with_commas()
+                    .custom_color(*PAGES_COLOR),
+            );
             write_text(" nano-seconds".custom_color(*OUR_YELLOW));
         }
     } else {
-        write_text(seconds.to_string().custom_color(*PAGES_COLOR));
+        write_text(seconds.separate_with_commas().custom_color(*PAGES_COLOR));
         write_text(" seconds".custom_color(*OUR_YELLOW));
         if nanoseconds != 0 {
             write_general_text(" and ");
-            write_text(nanoseconds.to_string().custom_color(*PAGES_COLOR));
+            write_text(
+                nanoseconds
+                    .separate_with_commas()
+                    .custom_color(*PAGES_COLOR),
+            );
             write_text(" nanoseconds".custom_color(*OUR_YELLOW));
         }
     }
@@ -243,21 +263,28 @@ pub fn write_timeval(seconds: i64, microseconds: i64) {
             write_text("immediately".custom_color(*OUR_YELLOW));
         } else {
             write_text("after ".custom_color(*OUR_YELLOW));
-            write_text(microseconds.to_string().custom_color(*PAGES_COLOR));
+            write_text(
+                microseconds
+                    .separate_with_commas()
+                    .custom_color(*PAGES_COLOR),
+            );
             write_text(" microseconds".custom_color(*OUR_YELLOW));
         }
     } else {
         write_text("after ".custom_color(*OUR_YELLOW));
-        write_text(seconds.to_string().custom_color(*PAGES_COLOR));
+        write_text(seconds.separate_with_commas().custom_color(*PAGES_COLOR));
         write_text(" seconds".custom_color(*OUR_YELLOW));
         if microseconds != 0 {
             write_general_text(", ");
-            write_text(microseconds.to_string().custom_color(*PAGES_COLOR));
+            write_text(
+                microseconds
+                    .separate_with_commas()
+                    .custom_color(*PAGES_COLOR),
+            );
             write_text(" microseconds".custom_color(*OUR_YELLOW));
         }
     }
 }
-
 
 pub fn write_futex(futex_address: usize) {
     let mut futexes = FUTEXES.lock().unwrap();

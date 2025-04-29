@@ -1,9 +1,8 @@
-// TODO!
-// start using Anyhow
-
 use core::sync::atomic::AtomicUsize;
 use std::{
     collections::HashMap,
+    hash::{DefaultHasher, Hash, Hasher},
+    io::BufWriter,
     os::fd::RawFd,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -12,7 +11,7 @@ use std::{
     time::Duration,
 };
 
-use colored::{ColoredString, Colorize};
+use colored::{ColoredString, Colorize, CustomColor};
 use nix::{
     errno::Errno,
     libc::{sysconf, _SC_PAGESIZE},
@@ -26,13 +25,14 @@ use uzers::{Groups, Users};
 
 use crate::{
     auxiliary::{constants::general::MAX_KERNEL_ULONG, kernel_errno::KernelErrno},
-    colors::{OUR_YELLOW, PAGES_COLOR},
+    cli::OUTPUT_FILE,
+    colors::{switch_pathlike_color, PARTITION_1_COLOR, PARTITION_2_COLOR, PATHLIKE_ALTERNATOR},
     peeker_poker::{read_bytes_until_null, read_words_until_null},
-    // syscall_annotations_map::initialize_annotations_map,
     syscall_categories::initialize_categories_map,
     syscall_object::{ErrnoVariant, SyscallResult},
     syscall_skeleton_map::initialize_skeletons_map,
     types::{BytesPagesRelevant, Category, Syscall_Shape},
+    writer::{WRITER_FILE, WRITER_STDERR},
 };
 
 pub static PAGE_SIZE: LazyLock<usize> = LazyLock::new(|| unsafe { sysconf(_SC_PAGESIZE) as usize });
@@ -50,12 +50,13 @@ pub static SYSKELETON_MAP: LazyLock<HashMap<Sysno, Syscall_Shape>> =
     LazyLock::new(initialize_skeletons_map);
 pub static SYSCATEGORIES_MAP: LazyLock<HashMap<Sysno, Category>> =
     LazyLock::new(initialize_categories_map);
-
 pub static FUTEXES: LazyLock<Mutex<HashMap<usize, ColoredString>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
-
 pub static UZERS_CACHE: LazyLock<Mutex<uzers::UsersCache>> =
     LazyLock::new(|| Mutex::new(uzers::UsersCache::new()));
+    // TODO!
+    // switch to a string-interner implementation that remembers the last 5 pathlikes
+pub static LAST_PATHLIKE: LazyLock<Mutex<u64>> = LazyLock::new(|| Mutex::new(0));
 
 pub fn lose_relativity_on_path(string: &str) -> &str {
     let mut chars = string.chars().enumerate().peekable();
@@ -67,6 +68,31 @@ pub fn lose_relativity_on_path(string: &str) -> &str {
         return &string[index..];
     }
     ""
+}
+
+pub fn initialize_writer() {
+    // colored crate disables stderr's coloring when stdout is redirected elsewhere, e.g.: /dev/null
+    // this is a workaround for now
+    // https://github.com/colored-rs/colored/issues/125#issuecomment-1691155922
+    use colored;
+    colored::control::set_override(true);
+    if let Some(output) = *OUTPUT_FILE {
+        match std::fs::File::options()
+            .append(true)
+            .create(true)
+            .open(output)
+        {
+            Ok(output) => WRITER_FILE.set(Mutex::new(BufWriter::new(output))).unwrap(),
+            Err(_) => {
+                eprintln!("Could not open or create file: {}", output.display());
+                std::process::exit(100);
+            }
+        };
+    } else {
+        WRITER_STDERR
+            .set(Mutex::new(BufWriter::new(std::io::stderr())))
+            .unwrap();
+    }
 }
 
 pub fn get_mem_difference_from_previous(post_call_brk: usize) -> isize {
@@ -267,6 +293,26 @@ pub fn get_array_of_strings(address: usize, tracee_pid: Pid) -> Vec<String> {
     }
     strings
 }
+fn calculate_hash(t: &str) -> u64 {
+    let mut s = DefaultHasher::new();
+    t.hash(&mut s);
+    s.finish()
+}
+
+pub fn get_colors_consider_repetition(repetition_dependent: &str) -> (CustomColor, CustomColor) {
+    let last_pathlike = *LAST_PATHLIKE.lock().unwrap();
+    if last_pathlike == calculate_hash(repetition_dependent) {
+        // dont switch
+        let alternator = *PATHLIKE_ALTERNATOR.lock().unwrap();
+        (*PARTITION_1_COLOR, PARTITION_2_COLOR[alternator])
+    } else {
+        *LAST_PATHLIKE.lock().unwrap() = calculate_hash(repetition_dependent);
+        // switch
+        switch_pathlike_color();
+        let alternator = *PATHLIKE_ALTERNATOR.lock().unwrap();
+        (*PARTITION_1_COLOR, PARTITION_2_COLOR[alternator])
+    }
+}
 
 pub fn partition_by_final_dentry(graphemes: Graphemes) -> (Vec<&str>, Vec<&str>) {
     let mut graphemes_revved = graphemes.rev();
@@ -302,18 +348,12 @@ pub fn parse_as_file_descriptor(file_descriptor: i32, tracee_pid: Pid) -> String
                     use unicode_segmentation::UnicodeSegmentation;
                     colored_strings.push(format!("{} -> ", file.fd).bright_blue());
                     let graphemes = path.to_str().unwrap().graphemes(true);
-                    let (yellow, blue) = partition_by_final_dentry(graphemes);
-                    colored_strings.push(
-                        yellow
-                            .into_iter()
-                            .collect::<String>()
-                            .custom_color(*OUR_YELLOW),
-                    );
-                    colored_strings.push(
-                        blue.into_iter()
-                            .collect::<String>()
-                            .custom_color(*PAGES_COLOR),
-                    );
+                    let (partition1, partition2) = partition_by_final_dentry(graphemes);
+                    let yellow = partition1.into_iter().collect::<String>();
+                    let repetition_dependent = partition2.into_iter().collect::<String>();
+                    let (color1, color2) = get_colors_consider_repetition(&repetition_dependent);
+                    colored_strings.push(yellow.custom_color(color1));
+                    colored_strings.push(repetition_dependent.custom_color(color2));
                 }
                 procfs::process::FDTarget::Socket(socket_number) => {
                     use procfs::net;

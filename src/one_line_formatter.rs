@@ -21,8 +21,8 @@ use crate::{
         get_mem_difference_from_previous, get_username_from_uid, lower_32_bits, lower_64_bits,
         new_process, new_thread, parse_as_address, parse_as_bytes_pages_ceil,
         parse_as_file_descriptor, parse_as_int, parse_as_long, parse_as_signal,
-        parse_as_signed_bytes, parse_as_ssize_t, parse_as_unsigned_bytes, partition_by_final_dentry,
-        string_from_pointer, REGISTERS, SYSCATEGORIES_MAP,
+        parse_as_signed_bytes, parse_as_ssize_t, parse_as_unsigned_bytes,
+        partition_by_final_dentry, string_from_pointer, REGISTERS, SYSCATEGORIES_MAP,
     },
     write_text,
     writer::{
@@ -120,11 +120,12 @@ impl SyscallObject {
 
                         // Colorized Syscall Name
                         write_text(" ".dimmed());
+                        self.handle_pause_continue();
+                        write_text(" ".dimmed());
                         let category = SYSCATEGORIES_MAP.get(&self.sysno).unwrap();
 
                         write_text(colorize_syscall_name(&self.sysno, category).dimmed());
                         write_text(" - ".dimmed());
-                        self.handle_pause_continue();
                     }
                 }
             }
@@ -151,7 +152,7 @@ impl SyscallObject {
         }
     }
 
-    pub(crate) fn one_line_formatter(&mut self) -> Result<(), ()> {
+    pub(crate) fn one_line_formatter(&mut self) -> anyhow::Result<()> {
         use crate::syscall_object::SyscallState::*;
         self.write_pid_sysname();
 
@@ -346,7 +347,10 @@ impl SyscallObject {
                         let flags = parse_as_int(registers[3]);
                         // ==================================================================
                         write_general_text("get the stats of the file: ");
-                        write_possible_dirfd_anchor(dirfd, filename, self.tracee_pid);
+                        write_possible_dirfd_anchor(dirfd, filename, self.tracee_pid)
+                            .unwrap_or_else(|_| {
+                                write_text("[intentrace: could not get file name]".white());
+                            });
                         let mut flag_directive = vec![];
                         if (flags & AT_SYMLINK_NOFOLLOW) == AT_SYMLINK_NOFOLLOW {
                             flag_directive.push(
@@ -418,7 +422,10 @@ impl SyscallObject {
                                 write_vanilla_path_file(dirfd_parsed);
                             } else {
                                 // A relative pathname, dirfd = CWD, or a normal directory
-                                write_possible_dirfd_anchor(dirfd, pathname, self.tracee_pid);
+                                write_possible_dirfd_anchor(dirfd, pathname, self.tracee_pid)
+                                    .unwrap_or_else(|_| {
+                                        write_text("[intentrace: could not get file name]".white());
+                                    });
                             }
                         }
                         let mut flag_directive = vec![];
@@ -697,7 +704,11 @@ impl SyscallObject {
                             let owner = get_username_from_uid(owner_given)
                                 .unwrap_or("[intentrace: could not get owner]");
                             write_general_text("change the owner of ");
-                            write_possible_dirfd_anchor(dirfd, filename, self.tracee_pid);
+                            write_possible_dirfd_anchor(dirfd, filename, self.tracee_pid)
+                                .unwrap_or_else(|_| {
+                                    write_text("[intentrace: could not get file name]".white());
+                                });
+
                             write_general_text(" to ");
                             write_text(owner.bold().green());
                             if group_given != u32::MAX {
@@ -1509,7 +1520,7 @@ impl SyscallObject {
                             write_general_text(" |=> ");
                             write_text("new offset location: ".bold().green());
                             let offset = parse_as_signed_bytes(syscall_return);
-                            write_text(offset.blue());
+                            write_text(offset.custom_color(*PAGES_COLOR));
                         }
                         SyscallResult::Fail(_errno_variant) => {
                             // TODO! granular
@@ -2635,7 +2646,11 @@ impl SyscallObject {
                         let flag = parse_as_int(registers[2]);
                         // ==================================================================
                         write_general_text("unlink and possibly delete the file: ");
-                        write_possible_dirfd_anchor(dirfd, path, self.tracee_pid);
+                        write_possible_dirfd_anchor(dirfd, path, self.tracee_pid).unwrap_or_else(
+                            |_| {
+                                write_text("[intentrace: could not get file name]".white());
+                            },
+                        );
 
                         if (flag & AT_REMOVEDIR) == AT_REMOVEDIR {
                             write_general_text(" (");
@@ -2718,7 +2733,11 @@ impl SyscallObject {
                         let symlink = string_from_pointer(registers[2] as usize, self.tracee_pid);
                         // ==================================================================
                         write_general_text("create the symlink: ");
-                        write_possible_dirfd_anchor(dirfd, symlink, self.tracee_pid);
+                        write_possible_dirfd_anchor(dirfd, symlink, self.tracee_pid)
+                            .unwrap_or_else(|_| {
+                                write_text("[intentrace: could not get file name]".white());
+                            });
+
                         write_general_text(" and link it with: ");
                         write_vanilla_path_file(target);
                     }
@@ -3145,10 +3164,16 @@ impl SyscallObject {
                             string_from_pointer(registers[3] as usize, self.tracee_pid);
                         // ==================================================================
                         write_general_text("move the file: ");
-                        write_possible_dirfd_anchor(old_dirfd, old_filename, self.tracee_pid);
+                        write_possible_dirfd_anchor(old_dirfd, old_filename, self.tracee_pid)
+                            .unwrap_or_else(|_| {
+                                write_text("[intentrace: could not get file name]".white());
+                            });
 
                         write_general_text(" to: ");
-                        write_possible_dirfd_anchor(new_dirfd, new_filename, self.tracee_pid);
+                        write_possible_dirfd_anchor(new_dirfd, new_filename, self.tracee_pid)
+                            .unwrap_or_else(|_| {
+                                write_text("[intentrace: could not get file name]".white());
+                            });
                     }
                     Exiting => {
                         match &self.result {
@@ -3178,10 +3203,16 @@ impl SyscallObject {
                         let flags = lower_32_bits(registers[4]);
                         // ==================================================================
                         write_general_text("move the file: ");
-                        write_possible_dirfd_anchor(old_dirfd, old_filename, self.tracee_pid);
+                        write_possible_dirfd_anchor(old_dirfd, old_filename, self.tracee_pid)
+                            .unwrap_or_else(|_| {
+                                write_text("[intentrace: could not get file name]".white());
+                            });
 
                         write_general_text(" to: ");
-                        write_possible_dirfd_anchor(new_dirfd, new_filename, self.tracee_pid);
+                        write_possible_dirfd_anchor(new_dirfd, new_filename, self.tracee_pid)
+                            .unwrap_or_else(|_| {
+                                write_text("[intentrace: could not get file name]".white());
+                            });
 
                         let mut directives = vec![];
                         if (flags & RENAME_EXCHANGE) == RENAME_EXCHANGE {
@@ -3230,7 +3261,10 @@ impl SyscallObject {
                         } else {
                             write_general_text("open the file: ");
                         }
-                        write_possible_dirfd_anchor(dirfd, filename, self.tracee_pid);
+                        write_possible_dirfd_anchor(dirfd, filename, self.tracee_pid)
+                            .unwrap_or_else(|_| {
+                                write_text("[intentrace: could not get file name]".white());
+                            });
 
                         let mut directives = vec![];
                         if (flags_num & O_APPEND) == O_APPEND {
@@ -3317,13 +3351,12 @@ impl SyscallObject {
                         if (flags_num & O_SYNC) == O_SYNC {
                             directives.push("ensure writes are completely teransferred to hardware before return".custom_color(*OUR_YELLOW));
                         }
-                        write_directives(directives);
-
                         if (flags_num & O_TRUNC) == O_TRUNC {
-                            write_text(
+                            directives.push(
                                 "truncate the file's length to zero".custom_color(*OUR_YELLOW),
                             );
                         }
+                        write_directives(directives);
                     }
                     Exiting => match &self.result {
                         &SyscallResult::Success(_syscall_return) => {
@@ -3495,7 +3528,11 @@ impl SyscallObject {
                         let flag = parse_as_int(registers[3]);
                         // ==================================================================
                         write_general_text("change the mode of the file: ");
-                        write_possible_dirfd_anchor(dirfd, filename, self.tracee_pid);
+                        write_possible_dirfd_anchor(dirfd, filename, self.tracee_pid)
+                            .unwrap_or_else(|_| {
+                                write_text("[intentrace: could not get file name]".white());
+                            });
+
                         self.mode_matcher(mode);
                         write_general_text(" and ");
                         if flag == AT_SYMLINK_NOFOLLOW {
@@ -3847,7 +3884,7 @@ impl SyscallObject {
                                 if num_fds == 0 {
                                     write_text("timed out before any events".bold().green());
                                 } else {
-                                    write_text(num_fds.to_string().blue());
+                                    write_text(num_fds.to_string().custom_color(*PAGES_COLOR));
                                     write_text(" file descriptors with new events".bold().green());
                                 }
                             }
@@ -9407,9 +9444,7 @@ impl SyscallObject {
                     }
                 }
             }
-            _ => {
-                return Err(());
-            }
+            _ => unreachable!(),
         }
         Ok(())
     }

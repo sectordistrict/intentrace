@@ -1,12 +1,13 @@
 [package]
 name = "intentrace"
-version = "0.9.3"
+version = "0.9.4"
 description = "intentrace is strace with intent, it goes all the way for you instead of half the way."
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/sectordistrict/intentrace"
 
 [dependencies]
+anyhow = "1.0.98"
 clap = { version = "4.5.32", features = ["derive"] }
 colored = "3.0.0"
 ctrlc = { version = "3.4.5", features = ["termination"] }
@@ -16,6 +17,7 @@ procfs = "0.17.0"
 syscalls = "0.6.18"
 tabled = "0.18.0"
 termbg = "0.6.2"
+thousands = "0.2.0"
 unicode-segmentation = "1.12.0"
 uzers = "0.12.1"
 

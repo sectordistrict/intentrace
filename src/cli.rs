@@ -1,5 +1,10 @@
-
-use std::sync::{atomic::{AtomicBool, AtomicUsize}, LazyLock};
+use std::{
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, AtomicUsize},
+        LazyLock,
+    },
+};
 
 // TODO! Time blocks feature
 // pub static TIME_BLOCKS: Cell<bool> = Cell::new(false);
@@ -10,16 +15,19 @@ pub static QUIET: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.mute_stdout)
 pub static ANNOT: AtomicBool = AtomicBool::new(false);
 pub static ATTACH_PID: LazyLock<Option<usize>> = LazyLock::new(|| INTENTRACE_ARGS.pid);
 pub static SUMMARY: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.summary);
+pub static OUTPUT_FILE: LazyLock<Option<&Path>> = LazyLock::new(|| {
+    INTENTRACE_ARGS
+        .output
+        .as_ref()
+        .map(|pathbuf| pathbuf.as_path())
+});
 //
 pub static INTENTRACE_ARGS: LazyLock<IntentraceArgs> = LazyLock::new(IntentraceArgs::parse);
-pub static BINARY_AND_ARGS: LazyLock<&'static [String]> = LazyLock::new(|| {
-    if let Some(Binary::Command(binary_and_args)) = INTENTRACE_ARGS.binary.as_ref() {
-        binary_and_args
-    } else {
-        &[]
-    }
-});
-
+pub static BINARY_AND_ARGS: LazyLock<&'static [String]> =
+    LazyLock::new(|| match INTENTRACE_ARGS.binary {
+        Some(Binary::Command(ref regs)) => regs,
+        None => &[],
+    });
 
 use clap::{Parser, Subcommand};
 
@@ -28,7 +36,6 @@ use clap::{Parser, Subcommand};
     about = "intentrace is a strace for everyone.",
     version,
     allow_external_subcommands = true,
-    subcommand_required = true
 )]
 pub struct IntentraceArgs {
     /// provide a summary table at the end of tracing
@@ -38,6 +45,10 @@ pub struct IntentraceArgs {
     /// attach to an already running proceess
     #[arg(short = 'p', long = "attach")]
     pub pid: Option<usize>,
+
+    /// redirect intentrace's output to a provided file
+    #[arg(short = 'o', long = "output")]
+    pub output: Option<PathBuf>,
 
     /// trace child processes when traced programs create them
     #[arg(

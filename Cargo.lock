@@ -74,6 +74,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.98"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
+
+[[package]]
 name = "autocfg"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -326,8 +332,9 @@ dependencies = [
 
 [[package]]
 name = "intentrace"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
+ "anyhow",
  "clap",
  "colored",
  "ctrlc",
@@ -337,6 +344,7 @@ dependencies = [
  "syscalls",
  "tabled",
  "termbg",
+ "thousands",
  "unicode-segmentation",
  "uzers",
 ]
@@ -897,6 +905,12 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "thousands"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bf63baf9f5039dadc247375c29eb13706706cfde997d0330d05aa63a77d8820"
 
 [[package]]
 name = "time"
