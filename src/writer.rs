@@ -1,8 +1,10 @@
 use crate::{
     cli::OUTPUT_FILE,
-    colors::{EXITED_BACKGROUND_COLOR, OUR_YELLOW, PAGES_COLOR, PID_BACKGROUND_COLOR},
+    colors::{
+        EXITED_BACKGROUND_COLOR, OUR_YELLOW, PAGES_COLOR, PARTITION_1_COLOR, PID_BACKGROUND_COLOR,
+    },
     utilities::{
-        calculate_futex_alias, get_colors_consider_repetition, lose_relativity_on_path,
+        calculate_futex_alias, get_final_dentry_color_consider_repetition, lose_relativity_on_path,
         partition_by_final_dentry, FUTEXES,
     },
 };
@@ -11,8 +13,7 @@ use super::GENERAL_TEXT_COLOR;
 use colored::{ColoredString, Colorize};
 use nix::{libc::AT_FDCWD, unistd::Pid};
 use std::{
-    fs::File,
-    io::{BufWriter, Stderr},
+    io::{BufWriter, Write},
     sync::{LazyLock, Mutex, OnceLock},
 };
 use syscalls::Sysno;
@@ -21,8 +22,39 @@ use syscalls::Sysno;
 //
 //
 pub static BUFFER: LazyLock<Mutex<Vec<ColoredString>>> = LazyLock::new(|| Mutex::new(Vec::new()));
-pub static WRITER_STDERR: OnceLock<Mutex<BufWriter<Stderr>>> = OnceLock::new();
-pub static WRITER_FILE: OnceLock<Mutex<BufWriter<File>>> = OnceLock::new();
+pub static WRITER: OnceLock<Mutex<BufWriter<Box<dyn Write + Send>>>> = OnceLock::new();
+//
+//
+//
+//
+
+pub fn initialize_writer() {
+    // colored crate disables stderr's coloring when stdout is redirected elsewhere, e.g.: /dev/null
+    // this is a workaround for now
+    // https://github.com/colored-rs/colored/issues/125#issuecomment-1691155922
+    use colored;
+    colored::control::set_override(true);
+
+    let sink: Box<dyn Write + Send> = if let Some(output) = *OUTPUT_FILE {
+        match std::fs::File::options()
+            .append(false)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(output)
+        {
+            Ok(file) => Box::new(file),
+            Err(_) => {
+                eprintln!("Could not open or create file: {}", output.display());
+                std::process::exit(100);
+            }
+        }
+    } else {
+        Box::new(std::io::stderr())
+    };
+    let _ = WRITER.set(Mutex::new(BufWriter::new(sink)));
+}
+
 //
 //
 //
@@ -60,19 +92,11 @@ pub fn empty_buffer() {
 pub fn flush_buffer() {
     use std::io::Write;
     let mut buffer = BUFFER.lock().unwrap();
-    if let Some(_) = *OUTPUT_FILE {
-        let mut writer = WRITER_FILE.get().unwrap().lock().unwrap();
-        for colored_text in buffer.iter_mut() {
-            write!(writer, "{}", colored_text).unwrap();
-        }
-        writer.flush().unwrap();
-    } else {
-        let mut writer = WRITER_STDERR.get().unwrap().lock().unwrap();
-        for colored_text in buffer.iter_mut() {
-            write!(writer, "{}", colored_text).unwrap();
-        }
-        writer.flush().unwrap();
+    let mut writer = WRITER.get().unwrap().lock().unwrap();
+    for colored_text in buffer.iter_mut() {
+        write!(writer, "{}", colored_text).unwrap();
     }
+    writer.flush().unwrap();
 }
 
 #[inline(always)]
@@ -108,9 +132,9 @@ pub fn write_colored(filename: String) {
 }
 
 pub fn write_path_consider_repetition(yellow: &str, repetition_dependent: &str) {
-    let (color1, color2) = get_colors_consider_repetition(repetition_dependent);
-    buffered_write(yellow.custom_color(color1));
-    buffered_write(repetition_dependent.custom_color(color2));
+    let partition_2_color = get_final_dentry_color_consider_repetition(repetition_dependent);
+    buffered_write(yellow.custom_color(*PARTITION_1_COLOR));
+    buffered_write(repetition_dependent.custom_color(partition_2_color));
 }
 
 pub fn write_possible_dirfd_anchor(

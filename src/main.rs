@@ -48,10 +48,10 @@ use nix::{
 use pete::{Ptracer, Restart, Stop};
 use syscalls::Sysno;
 use utilities::{
-    initialize_writer, interpret_syscall_result, set_memory_break, syscall_is_blocking,
+     interpret_syscall_result, set_memory_break, syscall_is_blocking,
     HALT_TRACING, REGISTERS, TABLE, TABLE_FOLLOW_FORKS,
 };
-use writer::{empty_buffer, flush_buffer, write_exiting, write_syscall_not_covered, write_text};
+use writer::{initialize_writer,empty_buffer, flush_buffer, write_exiting, write_syscall_not_covered, write_text};
 
 mod syscall_categories;
 mod syscall_object;

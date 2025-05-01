@@ -60,23 +60,24 @@ use nix::{
         MAP_NONBLOCK, MAP_NORESERVE, MAP_POPULATE, MAP_PRIVATE, MAP_SHARED, MAP_SHARED_VALIDATE,
         MAP_STACK, MAP_SYNC, MCL_CURRENT, MCL_FUTURE, MCL_ONFAULT, MREMAP_DONTUNMAP, MREMAP_FIXED,
         MREMAP_MAYMOVE, MS_ASYNC, MS_INVALIDATE, MS_SYNC, O_APPEND, O_ASYNC, O_CLOEXEC, O_CREAT,
-        O_DIRECT, O_DIRECTORY, O_DSYNC, O_EXCL, O_LARGEFILE, O_NDELAY, O_NOATIME, O_NOCTTY,
-        O_NOFOLLOW, O_NONBLOCK, O_PATH, O_SYNC, O_TMPFILE, O_TRUNC, PRIO_PGRP, PRIO_PROCESS,
-        PRIO_USER, PROT_EXEC, PROT_NONE, PROT_READ, PROT_WRITE, PTRACE_ATTACH, PTRACE_CONT,
-        PTRACE_DETACH, PTRACE_GETEVENTMSG, PTRACE_GETFPREGS, PTRACE_GETFPXREGS, PTRACE_GETREGS,
-        PTRACE_GETREGSET, PTRACE_GETSIGINFO, PTRACE_INTERRUPT, PTRACE_KILL, PTRACE_LISTEN,
-        PTRACE_PEEKDATA, PTRACE_PEEKSIGINFO, PTRACE_PEEKTEXT, PTRACE_PEEKUSER, PTRACE_POKEDATA,
-        PTRACE_POKETEXT, PTRACE_POKEUSER, PTRACE_SEIZE, PTRACE_SETFPREGS, PTRACE_SETFPXREGS,
-        PTRACE_SETOPTIONS, PTRACE_SETREGS, PTRACE_SETREGSET, PTRACE_SETSIGINFO, PTRACE_SINGLESTEP,
-        PTRACE_SYSCALL, PTRACE_SYSEMU, PTRACE_SYSEMU_SINGLESTEP, PTRACE_TRACEME, P_ALL, P_PGID,
-        P_PID, P_PIDFD, RENAME_EXCHANGE, RENAME_NOREPLACE, RENAME_WHITEOUT, RLIMIT_AS, RLIMIT_CORE,
-        RLIMIT_CPU, RLIMIT_DATA, RLIMIT_FSIZE, RLIMIT_LOCKS, RLIMIT_MEMLOCK, RLIMIT_MSGQUEUE,
-        RLIMIT_NICE, RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_RSS, RLIMIT_RTPRIO, RLIMIT_RTTIME,
-        RLIMIT_SIGPENDING, RLIMIT_STACK, RUSAGE_CHILDREN, RUSAGE_SELF, RUSAGE_THREAD, R_OK,
-        SEEK_CUR, SEEK_DATA, SEEK_END, SEEK_HOLE, SEEK_SET, SFD_CLOEXEC, SFD_NONBLOCK, SIG_BLOCK,
-        SIG_DFL, SIG_IGN, SIG_SETMASK, SIG_UNBLOCK, S_IRGRP, S_IROTH, S_IRUSR, S_ISGID, S_ISUID,
-        S_ISVTX, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR, WCONTINUED, WEXITED,
-        WNOHANG, WNOWAIT, WSTOPPED, W_OK, X_OK, __WALL, __WCLONE, __WNOTHREAD,
+        O_DIRECT, O_DIRECTORY, O_DSYNC, O_EXCL, O_NDELAY, O_NOATIME, O_NOCTTY, O_NOFOLLOW,
+        O_NONBLOCK, O_PATH, O_RDONLY, O_RDWR, O_SYNC, O_TMPFILE, O_TRUNC, O_WRONLY, PRIO_PGRP,
+        PRIO_PROCESS, PRIO_USER, PROT_EXEC, PROT_NONE, PROT_READ, PROT_WRITE, PTRACE_ATTACH,
+        PTRACE_CONT, PTRACE_DETACH, PTRACE_GETEVENTMSG, PTRACE_GETFPREGS, PTRACE_GETFPXREGS,
+        PTRACE_GETREGS, PTRACE_GETREGSET, PTRACE_GETSIGINFO, PTRACE_INTERRUPT, PTRACE_KILL,
+        PTRACE_LISTEN, PTRACE_PEEKDATA, PTRACE_PEEKSIGINFO, PTRACE_PEEKTEXT, PTRACE_PEEKUSER,
+        PTRACE_POKEDATA, PTRACE_POKETEXT, PTRACE_POKEUSER, PTRACE_SEIZE, PTRACE_SETFPREGS,
+        PTRACE_SETFPXREGS, PTRACE_SETOPTIONS, PTRACE_SETREGS, PTRACE_SETREGSET, PTRACE_SETSIGINFO,
+        PTRACE_SINGLESTEP, PTRACE_SYSCALL, PTRACE_SYSEMU, PTRACE_SYSEMU_SINGLESTEP, PTRACE_TRACEME,
+        P_ALL, P_PGID, P_PID, P_PIDFD, RENAME_EXCHANGE, RENAME_NOREPLACE, RENAME_WHITEOUT,
+        RLIMIT_AS, RLIMIT_CORE, RLIMIT_CPU, RLIMIT_DATA, RLIMIT_FSIZE, RLIMIT_LOCKS,
+        RLIMIT_MEMLOCK, RLIMIT_MSGQUEUE, RLIMIT_NICE, RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_RSS,
+        RLIMIT_RTPRIO, RLIMIT_RTTIME, RLIMIT_SIGPENDING, RLIMIT_STACK, RUSAGE_CHILDREN,
+        RUSAGE_SELF, RUSAGE_THREAD, R_OK, SEEK_CUR, SEEK_DATA, SEEK_END, SEEK_HOLE, SEEK_SET,
+        SFD_CLOEXEC, SFD_NONBLOCK, SIG_BLOCK, SIG_DFL, SIG_IGN, SIG_SETMASK, SIG_UNBLOCK, S_IRGRP,
+        S_IROTH, S_IRUSR, S_ISGID, S_ISUID, S_ISVTX, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH,
+        S_IXUSR, WCONTINUED, WEXITED, WNOHANG, WNOWAIT, WSTOPPED, W_OK, X_OK, __WALL, __WCLONE,
+        __WNOTHREAD,
     },
 };
 use syscalls::Sysno;
@@ -190,13 +191,231 @@ impl SyscallObject {
                     Entering => {
                         let filename =
                             parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
+                        let flags = parse_as_int(registers[1]);
                         // ==================================================================
-                        write_general_text("open the file ");
+                        if (flags & O_TMPFILE) == O_TMPFILE {
+                            write_general_text("create an unnamed temporary file in the path: ");
+                        } else {
+                            write_general_text("open the file: ");
+                        }
                         write_colored(filename);
-                        // TODO!
+                        let read_write_mask = 0b11;
+                        match flags & read_write_mask {
+                            O_RDONLY => write_text("read-only".custom_color(*OUR_YELLOW)),
+                            O_WRONLY => write_text("write-only".custom_color(*OUR_YELLOW)),
+                            O_RDWR => write_text("read and write".custom_color(*OUR_YELLOW)),
+                            _ => unreachable!(),
+                        }
+                        write_general_text(" permissions");
+
+                        let mut directives = vec![];
+                        // FILE CREATION FLAGS
                         //
-                        // open flags granularity
-                        // file mode granularity
+                        //
+                        //
+                        if (flags & O_CLOEXEC) == O_CLOEXEC {
+                            directives.push(
+                                "close the file descriptor on the next exec syscall"
+                                    .custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if (flags & O_CREAT) == O_CREAT {
+                            directives.push(
+                                "create the file if it does not exist".custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if (flags & O_DIRECTORY) == O_DIRECTORY {
+                            directives.push(
+                                "fail if the path is not a directory".custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if (flags & O_EXCL) == O_EXCL {
+                            directives.push("ensure O_CREAT fails if the file already exists or is a symbolic link".custom_color(*OUR_YELLOW));
+                        }
+                        if (flags & O_NOCTTY) == O_NOCTTY {
+                            directives
+                                .push("do not use the file as the process's controlling terminal if its a terminal device".custom_color(*OUR_YELLOW));
+                        }
+                        if (flags & O_NOFOLLOW) == O_NOFOLLOW {
+                            // TODO! change this to have better wording, change `base`
+                            directives.push(
+                                "fail if the base of the file is a symbolic link"
+                                    .custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if (flags & O_TRUNC) == O_TRUNC {
+                            directives.push(
+                                "truncate the file's length to zero".custom_color(*OUR_YELLOW),
+                            );
+                        }
+
+                        // FILE STATUS FLAGS
+                        //
+                        //
+                        //
+                        if (flags & O_APPEND) == O_APPEND {
+                            directives
+                                .push("open the file in append mode".custom_color(*OUR_YELLOW));
+                        }
+                        if (flags & O_ASYNC) == O_ASYNC {
+                            directives.push("enable signal-driven I/O".custom_color(*OUR_YELLOW));
+                        }
+                        if (flags & O_DIRECT) == O_DIRECT {
+                            directives.push("use direct file I/O".custom_color(*OUR_YELLOW));
+                        }
+                        if (flags & O_DSYNC) == O_DSYNC {
+                            directives.push("ensure writes are completely teransferred to hardware before return".custom_color(*OUR_YELLOW));
+                        }
+                        #[cfg(target_pointer_width = "32")]
+                        if flags == O_LARGEFILE {
+                            directives.push("enable LFS".custom_color(*OUR_YELLOW));
+                        }
+                        if (flags & O_NOATIME) == O_NOATIME {
+                            directives.push(
+                                "do not update the file last access time on read"
+                                    .custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if (flags & O_NONBLOCK) == O_NONBLOCK || (flags & O_NDELAY) == O_NDELAY {
+                            // TODO! change this to have better wording, change `base`
+                            directives.push(
+                                "open the file in non-blocking mode".custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if (flags & O_PATH) == O_PATH {
+                            // TODO! change this to have better wording, change `base`
+                            directives.push(
+                                "return a `shallow` file descriptor".custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if (flags & O_SYNC) == O_SYNC {
+                            directives.push("ensure writes are completely teransferred to hardware before return".custom_color(*OUR_YELLOW));
+                        }
+                        write_directives(directives);
+                    }
+                    Exiting => match &self.result {
+                        &SyscallResult::Success(_syscall_return) => {
+                            write_general_text(" |=> ");
+                            write_text("successfully opened file".bold().green());
+                        }
+                        SyscallResult::Fail(_errno_variant) => {
+                            // TODO! granular
+                            self.one_line_error();
+                        }
+                    },
+                }
+            }
+
+            Sysno::openat => {
+                match self.state {
+                    Entering => {
+                        let dirfd = parse_as_int(registers[0]);
+                        let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
+                        let flags = parse_as_int(registers[2]);
+                        // ==================================================================
+                        if (flags & O_TMPFILE) == O_TMPFILE {
+                            write_general_text("create an unnamed temporary file in the path: ");
+                        } else {
+                            write_general_text("open the file: ");
+                        }
+                        write_possible_dirfd_anchor(dirfd, filename, self.tracee_pid)
+                            .unwrap_or_else(|_| {
+                                write_text("[intentrace: could not get file name]".white());
+                            });
+                        write_general_text(" with ");
+                        let read_write_mask = 0b11;
+                        match flags & read_write_mask {
+                            O_RDONLY => write_text("read-only".custom_color(*OUR_YELLOW)),
+                            O_WRONLY => write_text("write-only".custom_color(*OUR_YELLOW)),
+                            O_RDWR => write_text("read and write".custom_color(*OUR_YELLOW)),
+                            _ => unreachable!(),
+                        }
+                        write_general_text(" permissions");
+
+                        let mut directives = vec![];
+                        // FILE CREATION FLAGS
+                        //
+                        //
+                        //
+                        if (flags & O_CLOEXEC) == O_CLOEXEC {
+                            directives.push(
+                                "close the file descriptor on the next exec syscall"
+                                    .custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if (flags & O_CREAT) == O_CREAT {
+                            directives.push(
+                                "create the file if it does not exist".custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if (flags & O_DIRECTORY) == O_DIRECTORY {
+                            directives.push(
+                                "fail if the path is not a directory".custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if (flags & O_EXCL) == O_EXCL {
+                            directives.push("ensure O_CREAT fails if the file already exists or is a symbolic link".custom_color(*OUR_YELLOW));
+                        }
+                        if (flags & O_NOCTTY) == O_NOCTTY {
+                            directives
+                                .push("do not use the file as the process's controlling terminal if its a terminal device".custom_color(*OUR_YELLOW));
+                        }
+                        if (flags & O_NOFOLLOW) == O_NOFOLLOW {
+                            // TODO! change this to have better wording, change `base`
+                            directives.push(
+                                "fail if the base of the file is a symbolic link"
+                                    .custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if (flags & O_TRUNC) == O_TRUNC {
+                            directives.push(
+                                "truncate the file's length to zero".custom_color(*OUR_YELLOW),
+                            );
+                        }
+
+                        // FILE STATUS FLAGS
+                        //
+                        //
+                        //
+                        if (flags & O_APPEND) == O_APPEND {
+                            directives
+                                .push("open the file in append mode".custom_color(*OUR_YELLOW));
+                        }
+                        if (flags & O_ASYNC) == O_ASYNC {
+                            directives.push("enable signal-driven I/O".custom_color(*OUR_YELLOW));
+                        }
+                        if (flags & O_DIRECT) == O_DIRECT {
+                            directives.push("use direct file I/O".custom_color(*OUR_YELLOW));
+                        }
+                        if (flags & O_DSYNC) == O_DSYNC {
+                            directives.push("ensure writes are completely teransferred to hardware before return".custom_color(*OUR_YELLOW));
+                        }
+                        #[cfg(target_pointer_width = "32")]
+                        if flags == O_LARGEFILE {
+                            directives.push("enable LFS".custom_color(*OUR_YELLOW));
+                        }
+                        if (flags & O_NOATIME) == O_NOATIME {
+                            directives.push(
+                                "do not update the file last access time on read"
+                                    .custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if (flags & O_NONBLOCK) == O_NONBLOCK || (flags & O_NDELAY) == O_NDELAY {
+                            // TODO! change this to have better wording, change `base`
+                            directives.push(
+                                "open the file in non-blocking mode".custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if (flags & O_PATH) == O_PATH {
+                            // TODO! change this to have better wording, change `base`
+                            directives.push(
+                                "return a `shallow` file descriptor".custom_color(*OUR_YELLOW),
+                            );
+                        }
+                        if (flags & O_SYNC) == O_SYNC {
+                            directives.push("ensure writes are completely teransferred to hardware before return".custom_color(*OUR_YELLOW));
+                        }
+                        write_directives(directives);
                     }
                     Exiting => match &self.result {
                         &SyscallResult::Success(_syscall_return) => {
@@ -3242,132 +3461,6 @@ impl SyscallObject {
                             }
                         }
                     }
-                }
-            }
-
-            Sysno::openat => {
-                match self.state {
-                    Entering => {
-                        let dirfd = parse_as_int(registers[0]);
-                        let filename = string_from_pointer(registers[1] as usize, self.tracee_pid);
-                        let flags_num = parse_as_int(registers[2]);
-                        // ==================================================================
-                        // TODO!
-                        //
-                        // fix open flags granularity
-                        // also fix file mode granularity
-                        if (flags_num & O_TMPFILE) == O_TMPFILE {
-                            write_general_text("create an unnamed temporary file in the path: ");
-                        } else {
-                            write_general_text("open the file: ");
-                        }
-                        write_possible_dirfd_anchor(dirfd, filename, self.tracee_pid)
-                            .unwrap_or_else(|_| {
-                                write_text("[intentrace: could not get file name]".white());
-                            });
-
-                        let mut directives = vec![];
-                        if (flags_num & O_APPEND) == O_APPEND {
-                            directives
-                                .push("open the file in append mode".custom_color(*OUR_YELLOW));
-                        }
-                        if (flags_num & O_ASYNC) == O_ASYNC {
-                            directives.push("enable signal-driven I/O".custom_color(*OUR_YELLOW));
-                        }
-                        if (flags_num & O_CLOEXEC) == O_CLOEXEC {
-                            directives.push(
-                                "close the file descriptor on the next exec syscall"
-                                    .custom_color(*OUR_YELLOW),
-                            );
-                        }
-                        if (flags_num & O_CREAT) == O_CREAT {
-                            directives.push(
-                                "create the file if it does not exist".custom_color(*OUR_YELLOW),
-                            );
-                        }
-                        if (flags_num & O_DIRECT) == O_DIRECT {
-                            directives.push("use direct file I/O".custom_color(*OUR_YELLOW));
-                        }
-                        if (flags_num & O_DIRECTORY) == O_DIRECTORY {
-                            directives.push(
-                                "fail if the path is not a directory".custom_color(*OUR_YELLOW),
-                            );
-                        }
-                        if (flags_num & O_DSYNC) == O_DSYNC {
-                            directives.push("ensure writes are completely teransferred to hardware before return".custom_color(*OUR_YELLOW));
-                        }
-                        if (flags_num & O_EXCL) == O_EXCL {
-                            directives.push("ensure O_CREAT fails if the file already exists or is a symbolic link".custom_color(*OUR_YELLOW));
-                        }
-                        if flags_num == O_LARGEFILE {
-                            directives.push(
-                                "enable LFS".custom_color(*OUR_YELLOW),
-                                // simplify hacky code
-                                // String::from_iter(
-                                //     [
-                                //         "allow files larger than "
-                                //             .custom_color(*OUR_YELLOW)
-                                //             .to_string(),
-                                //         "off_t".custom_color(*PAGES_COLOR).to_string(),
-                                //         " and up to ".custom_color(*OUR_YELLOW).to_string(),
-                                //         "off64_t".custom_color(*PAGES_COLOR).to_string(),
-                                //     ]
-                                //     .into_iter(),
-                                // )
-                                // .custom_color(*OUR_YELLOW),
-                            );
-                        }
-                        if (flags_num & O_NOATIME) == O_NOATIME {
-                            directives.push(
-                                "do not update the file last access time on read"
-                                    .custom_color(*OUR_YELLOW),
-                            );
-                        }
-                        if (flags_num & O_NOCTTY) == O_NOCTTY {
-                            directives
-                                .push("do not use the file as the process's controlling terminal if its a terminal device".custom_color(*OUR_YELLOW));
-                        }
-                        if (flags_num & O_NOFOLLOW) == O_NOFOLLOW {
-                            // TODO! change this to have better wording, change `base`
-                            directives.push(
-                                "fail if the base of the file is a symbolic link"
-                                    .custom_color(*OUR_YELLOW),
-                            );
-                        }
-                        if (flags_num & O_NONBLOCK) == O_NONBLOCK
-                            || (flags_num & O_NDELAY) == O_NDELAY
-                        {
-                            // TODO! change this to have better wording, change `base`
-                            directives.push(
-                                "open the file in non-blocking mode".custom_color(*OUR_YELLOW),
-                            );
-                        }
-                        if (flags_num & O_PATH) == O_PATH {
-                            // TODO! change this to have better wording, change `base`
-                            directives.push(
-                                "return a `shallow` file descriptor".custom_color(*OUR_YELLOW),
-                            );
-                        }
-                        if (flags_num & O_SYNC) == O_SYNC {
-                            directives.push("ensure writes are completely teransferred to hardware before return".custom_color(*OUR_YELLOW));
-                        }
-                        if (flags_num & O_TRUNC) == O_TRUNC {
-                            directives.push(
-                                "truncate the file's length to zero".custom_color(*OUR_YELLOW),
-                            );
-                        }
-                        write_directives(directives);
-                    }
-                    Exiting => match &self.result {
-                        &SyscallResult::Success(_syscall_return) => {
-                            write_general_text(" |=> ");
-                            write_text("successfully opened file".bold().green());
-                        }
-                        SyscallResult::Fail(_errno_variant) => {
-                            // TODO! granular
-                            self.one_line_error();
-                        }
-                    },
                 }
             }
 

@@ -17,7 +17,7 @@ pub static ATTACH_PID: LazyLock<Option<usize>> = LazyLock::new(|| INTENTRACE_ARG
 pub static SUMMARY: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.summary);
 pub static OUTPUT_FILE: LazyLock<Option<&Path>> = LazyLock::new(|| {
     INTENTRACE_ARGS
-        .output
+        .file
         .as_ref()
         .map(|pathbuf| pathbuf.as_path())
 });
@@ -48,7 +48,7 @@ pub struct IntentraceArgs {
 
     /// redirect intentrace's output to a provided file
     #[arg(short = 'o', long = "output")]
-    pub output: Option<PathBuf>,
+    pub file: Option<PathBuf>,
 
     /// trace child processes when traced programs create them
     #[arg(

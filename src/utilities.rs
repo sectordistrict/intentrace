@@ -2,7 +2,6 @@ use core::sync::atomic::AtomicUsize;
 use std::{
     collections::HashMap,
     hash::{DefaultHasher, Hash, Hasher},
-    io::BufWriter,
     os::fd::RawFd,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -25,14 +24,12 @@ use uzers::{Groups, Users};
 
 use crate::{
     auxiliary::{constants::general::MAX_KERNEL_ULONG, kernel_errno::KernelErrno},
-    cli::OUTPUT_FILE,
     colors::{switch_pathlike_color, PARTITION_1_COLOR, PARTITION_2_COLOR, PATHLIKE_ALTERNATOR},
     peeker_poker::{read_bytes_until_null, read_words_until_null},
     syscall_categories::initialize_categories_map,
     syscall_object::{ErrnoVariant, SyscallResult},
     syscall_skeleton_map::initialize_skeletons_map,
     types::{BytesPagesRelevant, Category, Syscall_Shape},
-    writer::{WRITER_FILE, WRITER_STDERR},
 };
 
 pub static PAGE_SIZE: LazyLock<usize> = LazyLock::new(|| unsafe { sysconf(_SC_PAGESIZE) as usize });
@@ -54,8 +51,8 @@ pub static FUTEXES: LazyLock<Mutex<HashMap<usize, ColoredString>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 pub static UZERS_CACHE: LazyLock<Mutex<uzers::UsersCache>> =
     LazyLock::new(|| Mutex::new(uzers::UsersCache::new()));
-    // TODO!
-    // switch to a string-interner implementation that remembers the last 5 pathlikes
+// TODO!
+// switch to a string-interner implementation that remembers the last 5 pathlikes
 pub static LAST_PATHLIKE: LazyLock<Mutex<u64>> = LazyLock::new(|| Mutex::new(0));
 
 pub fn lose_relativity_on_path(string: &str) -> &str {
@@ -68,31 +65,6 @@ pub fn lose_relativity_on_path(string: &str) -> &str {
         return &string[index..];
     }
     ""
-}
-
-pub fn initialize_writer() {
-    // colored crate disables stderr's coloring when stdout is redirected elsewhere, e.g.: /dev/null
-    // this is a workaround for now
-    // https://github.com/colored-rs/colored/issues/125#issuecomment-1691155922
-    use colored;
-    colored::control::set_override(true);
-    if let Some(output) = *OUTPUT_FILE {
-        match std::fs::File::options()
-            .append(true)
-            .create(true)
-            .open(output)
-        {
-            Ok(output) => WRITER_FILE.set(Mutex::new(BufWriter::new(output))).unwrap(),
-            Err(_) => {
-                eprintln!("Could not open or create file: {}", output.display());
-                std::process::exit(100);
-            }
-        };
-    } else {
-        WRITER_STDERR
-            .set(Mutex::new(BufWriter::new(std::io::stderr())))
-            .unwrap();
-    }
 }
 
 pub fn get_mem_difference_from_previous(post_call_brk: usize) -> isize {
@@ -299,18 +271,18 @@ fn calculate_hash(t: &str) -> u64 {
     s.finish()
 }
 
-pub fn get_colors_consider_repetition(repetition_dependent: &str) -> (CustomColor, CustomColor) {
+pub fn get_final_dentry_color_consider_repetition(repetition_dependent: &str) -> CustomColor {
     let last_pathlike = *LAST_PATHLIKE.lock().unwrap();
     if last_pathlike == calculate_hash(repetition_dependent) {
         // dont switch
         let alternator = *PATHLIKE_ALTERNATOR.lock().unwrap();
-        (*PARTITION_1_COLOR, PARTITION_2_COLOR[alternator])
+        PARTITION_2_COLOR[alternator]
     } else {
         *LAST_PATHLIKE.lock().unwrap() = calculate_hash(repetition_dependent);
         // switch
         switch_pathlike_color();
         let alternator = *PATHLIKE_ALTERNATOR.lock().unwrap();
-        (*PARTITION_1_COLOR, PARTITION_2_COLOR[alternator])
+        PARTITION_2_COLOR[alternator]
     }
 }
 
@@ -351,9 +323,10 @@ pub fn parse_as_file_descriptor(file_descriptor: i32, tracee_pid: Pid) -> String
                     let (partition1, partition2) = partition_by_final_dentry(graphemes);
                     let yellow = partition1.into_iter().collect::<String>();
                     let repetition_dependent = partition2.into_iter().collect::<String>();
-                    let (color1, color2) = get_colors_consider_repetition(&repetition_dependent);
-                    colored_strings.push(yellow.custom_color(color1));
-                    colored_strings.push(repetition_dependent.custom_color(color2));
+                    let partition_2_color =
+                        get_final_dentry_color_consider_repetition(&repetition_dependent);
+                    colored_strings.push(yellow.custom_color(*PARTITION_1_COLOR));
+                    colored_strings.push(repetition_dependent.custom_color(partition_2_color));
                 }
                 procfs::process::FDTarget::Socket(socket_number) => {
                     use procfs::net;
@@ -510,7 +483,8 @@ pub fn syscall_is_blocking() -> ColoredString {
     .cyan()
 }
 
-// TODO! check how strace does this, maybe its better
+// TODO!
+// check how strace does this, maybe its better
 pub fn colorize_syscall_name(sysno: &Sysno, category: &Category) -> ColoredString {
     match category {
         // green
