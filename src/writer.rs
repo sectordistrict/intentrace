@@ -1,11 +1,12 @@
 use crate::{
     cli::OUTPUT_FILE,
     colors::{
-        EXITED_BACKGROUND_COLOR, OUR_YELLOW, PAGES_COLOR, PARTITION_1_COLOR, PID_BACKGROUND_COLOR,
+        EXITED_BACKGROUND_COLOR, OUR_YELLOW, PAGES_COLOR, PARTITION_1_COLOR, PARTITION_2_COLOR,
+        PATHLIKE_ALTERNATOR, PID_BACKGROUND_COLOR,
     },
     utilities::{
         calculate_futex_alias, get_final_dentry_color_consider_repetition, lose_relativity_on_path,
-        partition_by_final_dentry, FUTEXES,
+        partition_by_final_dentry, FUTEXES, TRACEES,
     },
 };
 
@@ -132,7 +133,12 @@ pub fn write_colored(filename: String) {
 }
 
 pub fn write_path_consider_repetition(yellow: &str, repetition_dependent: &str) {
-    let partition_2_color = get_final_dentry_color_consider_repetition(repetition_dependent);
+    // don't alternate if we're operating on a directory
+    let partition_2_color = if repetition_dependent.len() != 0 {
+        get_final_dentry_color_consider_repetition(repetition_dependent)
+    } else {
+        PARTITION_2_COLOR[*PATHLIKE_ALTERNATOR.lock().unwrap()]
+    };
     buffered_write(yellow.custom_color(*PARTITION_1_COLOR));
     buffered_write(repetition_dependent.custom_color(partition_2_color));
 }
@@ -143,14 +149,18 @@ pub fn write_possible_dirfd_anchor(
     tracee_pid: Pid,
 ) -> anyhow::Result<()> {
     if filename.starts_with('.') {
+        let mut tracees = TRACEES.lock().unwrap();
+        let process = tracees
+            .entry(tracee_pid)
+            .or_insert_with(|| procfs::process::Process::new(i32::from(tracee_pid)).unwrap());
+
         if dirfd == AT_FDCWD {
-            let current_working_directory =
-                procfs::process::Process::new(tracee_pid.into())?.cwd()?;
+            let current_working_directory = process.cwd()?;
             let yellow = current_working_directory.to_str().unwrap();
             let repetition_dependent = lose_relativity_on_path(filename.as_ref());
             write_path_consider_repetition(yellow, repetition_dependent);
         } else {
-            let file_info = procfs::process::FDInfo::from_raw_fd(tracee_pid.into(), dirfd)?;
+            let file_info = process.fd_from_fd(dirfd)?;
             match file_info.target {
                 procfs::process::FDTarget::Path(path) => {
                     let yellow = path.to_str().unwrap();
@@ -166,14 +176,13 @@ pub fn write_possible_dirfd_anchor(
     Ok(())
 }
 
-pub fn write_directives(vector: Vec<ColoredString>) {
-    let mut vector_iter = vector.into_iter().peekable();
-    // first element
-    if vector_iter.peek().is_some() {
+pub fn write_directives(mut vector: Vec<ColoredString>) {
+    if !vector.is_empty() {
+        // first element
         write_general_text(" (");
-        write_text(vector_iter.next().unwrap());
+        write_text(vector.pop().unwrap());
         // remaining elements
-        for entry in vector_iter {
+        for entry in vector {
             write_general_text(", ");
             write_text(entry);
         }
@@ -193,16 +202,15 @@ pub fn write_commas(mut vector: Vec<ColoredString>) {
     }
 }
 
-pub fn write_oring(vector: Vec<ColoredString>) {
-    let mut vector_iter = vector.into_iter();
-    // first element
-    if let Some(entry) = vector_iter.next() {
-        write_text(entry);
-    }
-    // second and remaining elements
-    for more in vector_iter {
-        write_general_text(", or ");
-        write_text(more);
+pub fn write_oring(mut vector: Vec<ColoredString>) {
+    if !vector.is_empty() {
+        // first element
+        write_text(vector.pop().unwrap());
+        // remaining elements
+        for entry in vector {
+            write_general_text(", or ");
+            write_text(entry);
+        }
     }
 }
 

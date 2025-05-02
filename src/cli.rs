@@ -1,5 +1,6 @@
 use std::{
     path::{Path, PathBuf},
+    str::FromStr,
     sync::{
         atomic::{AtomicBool, AtomicUsize},
         LazyLock,
@@ -15,6 +16,25 @@ pub static QUIET: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.mute_stdout)
 pub static ANNOT: AtomicBool = AtomicBool::new(false);
 pub static ATTACH_PID: LazyLock<Option<usize>> = LazyLock::new(|| INTENTRACE_ARGS.pid);
 pub static SUMMARY: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.summary);
+pub static SYSCALLS_TO_TRACE: LazyLock<SysnoSet> = LazyLock::new(|| {
+    if INTENTRACE_ARGS.trace.is_empty() {
+        SysnoSet::all()
+    } else {
+        let mut sysno_set = SysnoSet::empty();
+        for syscall in INTENTRACE_ARGS.trace.iter() {
+            match Sysno::from_str(syscall) {
+                Ok(sysno) => {
+                    sysno_set.insert(sysno);
+                }
+                Err(_) => {
+                    eprintln!("Invalid syscall: {}", syscall);
+                    std::process::exit(100);
+                }
+            }
+        }
+        sysno_set
+    }
+});
 pub static OUTPUT_FILE: LazyLock<Option<&Path>> = LazyLock::new(|| {
     INTENTRACE_ARGS
         .file
@@ -30,12 +50,13 @@ pub static BINARY_AND_ARGS: LazyLock<&'static [String]> =
     });
 
 use clap::{Parser, Subcommand};
+use syscalls::{Sysno, SysnoSet};
 
 #[derive(Parser)]
 #[command(
     about = "intentrace is a strace for everyone.",
     version,
-    allow_external_subcommands = true,
+    allow_external_subcommands = true
 )]
 pub struct IntentraceArgs {
     /// provide a summary table at the end of tracing
@@ -49,6 +70,10 @@ pub struct IntentraceArgs {
     /// redirect intentrace's output to a provided file
     #[arg(short = 'o', long = "output")]
     pub file: Option<PathBuf>,
+
+    /// trace a specific syscall or a group of syscalls delimited by ','
+    #[arg(long, value_delimiter = ',')]
+    pub trace: Vec<String>,
 
     /// trace child processes when traced programs create them
     #[arg(

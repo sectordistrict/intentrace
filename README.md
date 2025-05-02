@@ -34,9 +34,10 @@ Intentrace follows a similar working methodology to the one employed by the [Uni
 | Parameter      | Description                       | Default value |
 |----------------|-----------------------------------|---------------|
 | -c<br/>--summary | provide a summary table at the end of tracing | `false`       |
-| -p `pid`<br/>--attach `pid` | attach to an already running proceess | `not enabled`       |
+| -p `pid`<br/>--attach `pid` | attach to an already running proceess | `not used`       |
+| -o `file`<br/>--output `file` | redirect intentrace's output to a provided file | `not used`       |
+| --trace=`syscall/syscalls` | trace a specific syscall or a group of syscalls delimited by ',' | `not used`       |
 | -f<br/>--follow-forks   | trace child process when traced programs create them | `false`       |
-| -o `file`<br/>--output `file` | redirect intentrace's output to a provided file | `false`       |
 | -Z<br/>--failed-only   | only print failed syscalls | `false`       |
 | -q<br/>--mute-stdout   | mute traced program's std output | `false`       |
 

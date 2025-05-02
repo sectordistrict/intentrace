@@ -595,18 +595,7 @@ impl SyscallObject {
                                     .custom_color(*OUR_YELLOW),
                             );
                         }
-                        if flag_directive.len() > 0 {
-                            write_general_text(" (");
-                            let mut flag_directive_iter = flag_directive.into_iter().peekable();
-                            if flag_directive_iter.peek().is_some() {
-                                write_text(flag_directive_iter.next().unwrap());
-                            }
-                            for entry in flag_directive_iter {
-                                write_general_text(", ");
-                                write_text(entry);
-                            }
-                            write_general_text(")");
-                        }
+                        write_directives(flag_directive);
                     }
                     Exiting => match &self.result {
                         &SyscallResult::Success(_syscall_return) => {

@@ -2,7 +2,6 @@ use core::sync::atomic::AtomicUsize;
 use std::{
     collections::HashMap,
     hash::{DefaultHasher, Hash, Hasher},
-    os::fd::RawFd,
     sync::{
         atomic::{AtomicBool, Ordering},
         LazyLock, Mutex,
@@ -17,13 +16,14 @@ use nix::{
     sys::signal::Signal,
     unistd::Pid,
 };
-use procfs::process::{MMapPath, MemoryMap};
+use procfs::process::{MMapPath, MemoryMap, Process};
 use syscalls::Sysno;
 use unicode_segmentation::Graphemes;
 use uzers::{Groups, Users};
 
 use crate::{
     auxiliary::{constants::general::MAX_KERNEL_ULONG, kernel_errno::KernelErrno},
+    cli::SYSCALLS_TO_TRACE,
     colors::{switch_pathlike_color, PARTITION_1_COLOR, PARTITION_2_COLOR, PATHLIKE_ALTERNATOR},
     peeker_poker::{read_bytes_until_null, read_words_until_null},
     syscall_categories::initialize_categories_map,
@@ -51,15 +51,16 @@ pub static FUTEXES: LazyLock<Mutex<HashMap<usize, ColoredString>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 pub static UZERS_CACHE: LazyLock<Mutex<uzers::UsersCache>> =
     LazyLock::new(|| Mutex::new(uzers::UsersCache::new()));
+pub static TRACEES: LazyLock<Mutex<HashMap<Pid, Process>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 // TODO!
 // switch to a string-interner implementation that remembers the last 5 pathlikes
 pub static LAST_PATHLIKE: LazyLock<Mutex<u64>> = LazyLock::new(|| Mutex::new(0));
 
 pub fn lose_relativity_on_path(string: &str) -> &str {
-    let mut chars = string.chars().enumerate().peekable();
-    while let Some(&(index, chara)) = chars.peek() {
+    let mut chars = string.chars().enumerate();
+    while let Some((index, chara)) = chars.next() {
         if chara == '.' {
-            let _ = chars.next().unwrap();
             continue;
         }
         return &string[index..];
@@ -72,23 +73,31 @@ pub fn get_mem_difference_from_previous(post_call_brk: usize) -> isize {
 }
 
 pub fn set_memory_break(tracee_pid: Pid) {
-    let ptraced_process = procfs::process::Process::new(i32::from(tracee_pid)).unwrap();
-    let stat = ptraced_process.stat().unwrap();
+    let mut tracees = TRACEES.lock().unwrap();
+    let process = tracees
+        .entry(tracee_pid)
+        .or_insert_with(|| procfs::process::Process::new(i32::from(tracee_pid)).unwrap());
+    let stat = process.stat().unwrap();
     let pre_call_brk = stat.start_brk.unwrap() as usize;
-
     PRE_CALL_PROGRAM_BREAK_POINT.store(pre_call_brk, Ordering::SeqCst);
 }
 
 pub fn where_in_tracee_memory(tracee_pid: Pid, address: u64) -> Option<MemoryMap> {
-    let ptraced_process = procfs::process::Process::new(i32::from(tracee_pid)).ok()?;
-    let maps = ptraced_process.maps().ok()?.0;
+    let mut tracees = TRACEES.lock().unwrap();
+    let process = tracees
+        .entry(tracee_pid)
+        .or_insert_with(|| procfs::process::Process::new(i32::from(tracee_pid)).unwrap());
+    let maps = process.maps().ok()?.0;
     maps.into_iter()
         .find(|map| (address >= map.address.0) && (address <= map.address.1))
 }
 
 pub fn get_tracee_memory_break(tracee_pid: Pid) -> Option<(usize, (u64, u64))> {
-    let ptraced_process = procfs::process::Process::new(i32::from(tracee_pid)).ok()?;
-    let maps = ptraced_process.maps().ok()?.0;
+    let mut tracees = TRACEES.lock().unwrap();
+    let process = tracees
+        .entry(tracee_pid)
+        .or_insert_with(|| procfs::process::Process::new(i32::from(tracee_pid)).unwrap());
+    let maps = process.maps().ok()?.0;
     let address_range = maps
         .into_iter()
         .find(|map| map.pathname == MMapPath::Stack)
@@ -124,6 +133,10 @@ pub fn interpret_syscall_result(return_register: u64) -> SyscallResult {
     } else {
         Success(return_register)
     }
+}
+
+pub fn syscall_filtered(sysno: Sysno) -> bool {
+    SYSCALLS_TO_TRACE.contains(sysno)
 }
 
 pub fn display_unsupported() {
@@ -312,8 +325,11 @@ pub fn parse_as_file_descriptor(file_descriptor: i32, tracee_pid: Pid) -> String
     } else if file_descriptor == 2 {
         return "2 -> StdErr".bright_blue().to_string();
     } else {
-        let file_info =
-            procfs::process::FDInfo::from_raw_fd(tracee_pid.into(), file_descriptor as RawFd);
+        let mut tracees = TRACEES.lock().unwrap();
+        let process = tracees
+            .entry(tracee_pid)
+            .or_insert_with(|| procfs::process::Process::new(i32::from(tracee_pid)).unwrap());
+        let file_info = process.fd_from_fd(file_descriptor);
         match file_info {
             Ok(file) => match file.target {
                 procfs::process::FDTarget::Path(path) => {
@@ -418,10 +434,11 @@ pub fn parse_as_file_descriptor(file_descriptor: i32, tracee_pid: Pid) -> String
 }
 
 pub fn find_fd_for_tracee(file_descriptor: i32, tracee_pid: Pid) -> Option<String> {
-    let mut fds = procfs::process::Process::new(tracee_pid.as_raw())
-        .ok()?
-        .fd()
-        .ok()?;
+    let mut tracees = TRACEES.lock().unwrap();
+    let process = tracees
+        .entry(tracee_pid)
+        .or_insert_with(|| procfs::process::Process::new(i32::from(tracee_pid)).unwrap());
+    let mut fds = process.fd().ok()?;
     let descriptor_found = fds.find(|fd_iter| fd_iter.as_ref().unwrap().fd == file_descriptor)?;
     let descriptor_unwrapped = descriptor_found.ok()?;
     if let procfs::process::FDTarget::Path(path_buf) = descriptor_unwrapped.target {
