@@ -43,10 +43,10 @@ pub static OUTPUT_FILE: LazyLock<Option<&Path>> = LazyLock::new(|| {
 });
 //
 pub static INTENTRACE_ARGS: LazyLock<IntentraceArgs> = LazyLock::new(IntentraceArgs::parse);
-pub static BINARY_AND_ARGS: LazyLock<&'static [String]> =
+pub static BINARY_AND_ARGS: LazyLock<Option<&'static [String]>> =
     LazyLock::new(|| match INTENTRACE_ARGS.binary {
-        Some(Binary::Command(ref regs)) => regs,
-        None => &[],
+        Some(Binary::Command(ref regs)) if !regs.is_empty() => Some(regs),
+        _ => None,
     });
 
 use clap::{Parser, Subcommand};

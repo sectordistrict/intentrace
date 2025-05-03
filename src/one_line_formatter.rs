@@ -19,9 +19,9 @@ use crate::{
     utilities::{
         colorize_syscall_name, find_fd_for_tracee, get_array_of_strings, get_groupname_from_uid,
         get_mem_difference_from_previous, get_username_from_uid, lower_32_bits, lower_64_bits,
-        new_process, new_thread, parse_as_address, parse_as_bytes_pages_ceil,
-        parse_as_file_descriptor, parse_as_int, parse_as_long, parse_as_signal,
-        parse_as_signed_bytes, parse_as_ssize_t, parse_as_unsigned_bytes,
+        new_process, new_thread, parse_as_address, parse_as_bytes_no_pages_ceil,
+        parse_as_bytes_pages_ceil, parse_as_file_descriptor, parse_as_int, parse_as_long,
+        parse_as_signal, parse_as_signed_bytes, parse_as_ssize_t, parse_as_unsigned_bytes,
         partition_by_final_dentry, string_from_pointer, REGISTERS, SYSCATEGORIES_MAP,
     },
     write_text,
@@ -126,7 +126,6 @@ impl SyscallObject {
                         let category = SYSCATEGORIES_MAP.get(&self.sysno).unwrap();
 
                         write_text(colorize_syscall_name(&self.sysno, category).dimmed());
-                        write_text(" - ".dimmed());
                     }
                 }
             }
@@ -278,9 +277,7 @@ impl SyscallObject {
                         }
                         if (flags & O_NONBLOCK) == O_NONBLOCK || (flags & O_NDELAY) == O_NDELAY {
                             // TODO! change this to have better wording, change `base`
-                            directives.push(
-                                "open the file in non-blocking mode".custom_color(*OUR_YELLOW),
-                            );
+                            directives.push("open in non-blocking mode".custom_color(*OUR_YELLOW));
                         }
                         if (flags & O_PATH) == O_PATH {
                             // TODO! change this to have better wording, change `base`
@@ -339,8 +336,7 @@ impl SyscallObject {
                         //
                         if (flags & O_CLOEXEC) == O_CLOEXEC {
                             directives.push(
-                                "close the file descriptor on the next exec syscall"
-                                    .custom_color(*OUR_YELLOW),
+                                "close the fd on the next exec call".custom_color(*OUR_YELLOW),
                             );
                         }
                         if (flags & O_CREAT) == O_CREAT {
@@ -402,9 +398,7 @@ impl SyscallObject {
                         }
                         if (flags & O_NONBLOCK) == O_NONBLOCK || (flags & O_NDELAY) == O_NDELAY {
                             // TODO! change this to have better wording, change `base`
-                            directives.push(
-                                "open the file in non-blocking mode".custom_color(*OUR_YELLOW),
-                            );
+                            directives.push("open in non-blocking mode".custom_color(*OUR_YELLOW));
                         }
                         if (flags & O_PATH) == O_PATH {
                             // TODO! change this to have better wording, change `base`
@@ -1075,8 +1069,12 @@ impl SyscallObject {
                             );
                             write_colored(filename);
                             if offset_num > 0 {
-                                write_general_text(" at an offset of ");
-                                write_text(offset.to_string().custom_color(*OUR_YELLOW));
+                                write_general_text(" at an offset: ");
+
+                                write_text(
+                                    parse_as_bytes_no_pages_ceil(offset_num as usize)
+                                        .custom_color(*OUR_YELLOW),
+                                );
                             }
                         }
                         write_general_text(" as ");
@@ -1091,7 +1089,7 @@ impl SyscallObject {
                         // its the last option at this point
                         // and mmap will fail if its not provided
                         } else if private {
-                            write_text("private copy-on-write memory".custom_color(*OUR_YELLOW));
+                            write_text("private C-O-W memory".custom_color(*OUR_YELLOW));
                         }
                         // HUGE PAGES
                         //
@@ -1166,9 +1164,7 @@ impl SyscallObject {
                         //
                         if addr.is_null() {
                             write_general_text(" at ");
-                            write_text(
-                                "an appropiate kernel chosen address".custom_color(*OUR_YELLOW),
-                            );
+                            write_text("a kernel chosen address".custom_color(*OUR_YELLOW));
                         } else if fixed {
                             write_general_text(" starting ");
                             write_text("exactly at ".custom_color(*OUR_YELLOW));
@@ -1220,7 +1216,7 @@ impl SyscallObject {
                         match &self.result {
                             &SyscallResult::Success(syscall_return) => {
                                 write_general_text(" |=> ");
-                                write_text("new mapping address: ".bold().green());
+                                write_text("mapping address: ".bold().green());
                                 let address = parse_as_address(syscall_return as usize);
 
                                 write_text(address.custom_color(*OUR_YELLOW));
@@ -9505,12 +9501,13 @@ impl SyscallObject {
                         let count = lower_32_bits(registers[2]);
                         // ==================================================================
                         write_general_text("retrieve the entries");
-                        write_general_text(" (");
-                        write_general_text("maximum: ");
-                        write_text(count.to_string().custom_color(*PAGES_COLOR));
-                        write_general_text(")");
                         write_general_text(" inside the directory: ");
                         write_colored(directory);
+                        write_general_text(" (");
+                        write_text("retrieve a maximum of ".custom_color(*OUR_YELLOW));
+                        write_text(count.to_string().custom_color(*PAGES_COLOR));
+                        write_text(" entries".custom_color(*OUR_YELLOW));
+                        write_general_text(")");
                     }
                     Exiting => {
                         match &self.result {

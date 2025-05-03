@@ -84,10 +84,7 @@ fn main() -> anyhow::Result<()> {
         std::process::exit(0);
     })?;
     if *FOLLOW_FORKS {
-        match *ATTACH_PID {
-            Some(_) => follow_forks(None),
-            None => follow_forks(Some(*BINARY_AND_ARGS)),
-        }
+        follow_forks(*BINARY_AND_ARGS)
     } else {
         match *ATTACH_PID {
             Some(pid) => {
@@ -95,12 +92,16 @@ fn main() -> anyhow::Result<()> {
                 ptrace::attach(child)?;
                 parent(child);
             }
-            None => match unsafe { fork() }? {
-                Parent { child } => {
-                    parent(child);
-                }
-                Child => {
-                    child_trace_me(*BINARY_AND_ARGS);
+            None => match *BINARY_AND_ARGS {
+                Some(binary_and_args) => match unsafe { fork() }? {
+                    Parent { child } => {
+                        parent(child);
+                    }
+                    Child => child_trace_me(binary_and_args),
+                },
+                None => {
+                    eprintln!("Usage: must provide a command to run or attach to a PID\n");
+                    exit(100);
                 }
             },
         }
@@ -122,19 +123,16 @@ fn child_trace_me(comm: &[String]) {
         command.stdout(Stdio::null());
     }
 
-    // TRACE ME
     ptrace::traceme().unwrap();
-    // EXECUTE
     let res = command.exec();
 
-    // This won't be reached unless exec fails
-    eprintln!("Error: could not execute program");
+    // unreachable unless exec fails
+    eprintln!("Could not execute program");
     std::process::exit(res.raw_os_error().unwrap())
 }
 
 fn follow_forks(command_to_run: Option<&[String]>) {
     match command_to_run {
-        // COMMANDLINE PROGRAM
         Some(comm) => {
             let mut command = Command::new(&comm[0]);
             command.args(&comm[1..]);
@@ -148,18 +146,9 @@ fn follow_forks(command_to_run: Option<&[String]>) {
             ptracer.spawn(command).unwrap();
             ptrace_ptracer(ptracer);
         }
-        // ATTACHING TO PID
         None => {
-            if let Some(attach_pid) = *ATTACH_PID {
-                let mut ptracer = Ptracer::new();
-                *ptracer.poll_delay_mut() = Duration::from_nanos(1);
-                ptracer
-                    .attach(pete::Pid::from_raw(attach_pid as i32))
-                    .unwrap();
-                ptrace_ptracer(ptracer);
-            } else {
-                eprintln!("Usage: invalid arguments\n");
-            }
+            eprintln!("Usage: must provide a command to run\n");
+            exit(100);
         }
     }
 }
@@ -212,7 +201,9 @@ fn parent(child: Pid) {
                             }
                         }
                         syscall_entering = false;
-                        start = Some(std::time::Instant::now());
+                        if *SUMMARY {
+                            start = Some(std::time::Instant::now());
+                        }
                         continue 'main_loop;
                     }
                     false => {
@@ -221,21 +212,23 @@ fn parent(child: Pid) {
                         match nix::sys::ptrace::getregs(child) {
                             Ok(registers) => {
                                 if supported && !filtered {
-                                    let mut table = TABLE.lock().unwrap();
-                                    table
-                                        .entry(syscall.sysno)
-                                        .and_modify(|value| {
-                                            value.0 += 1;
-                                            value.1 = value.1.saturating_add(
+                                    if *SUMMARY {
+                                        let mut table = TABLE.lock().unwrap();
+                                        table
+                                            .entry(syscall.sysno)
+                                            .and_modify(|value| {
+                                                value.0 += 1;
+                                                value.1 = value.1.saturating_add(
+                                                    end.unwrap().duration_since(start.unwrap()),
+                                                );
+                                            })
+                                            .or_insert((
+                                                1,
                                                 end.unwrap().duration_since(start.unwrap()),
-                                            );
-                                        })
-                                        .or_insert((
-                                            1,
-                                            end.unwrap().duration_since(start.unwrap()),
-                                        ));
-                                    start = None;
-                                    end = None;
+                                            ));
+                                        start = None;
+                                        end = None;
+                                    }
                                     *REGISTERS.lock().unwrap() = [
                                         registers.rdi,
                                         registers.rsi,
@@ -261,10 +254,11 @@ fn parent(child: Pid) {
                 }
             }
             Err(errno) => {
-                println!(
-                    "\n\n ptrace-syscall Error: {errno}, last syscall: {} \n\n",
-                    syscall.sysno
-                );
+                if errno == Errno::ESRCH {
+                    eprintln!("\n\nTracee died\nlast syscall: {}", syscall.sysno);
+                } else {
+                    eprintln!("\n\nError: {errno}\nlast syscall: {}", syscall.sysno);
+                }
                 break 'main_loop;
             }
         }
@@ -292,8 +286,8 @@ fn ptrace_ptracer(mut ptracer: Ptracer) {
                             let syscall_built = SyscallObject::build(syscall_pid, sysno);
                             if let Some(mut syscall) = syscall_built {
                                 if *SUMMARY {
-                                    let mut output = TABLE_FOLLOW_FORKS.lock().unwrap();
-                                    output
+                                    let mut table = TABLE_FOLLOW_FORKS.lock().unwrap();
+                                    table
                                         .entry(syscall.sysno)
                                         .and_modify(|value| {
                                             *value += 1;

@@ -1,16 +1,14 @@
 use crate::{
     cli::OUTPUT_FILE,
     colors::{
-        EXITED_BACKGROUND_COLOR, OUR_YELLOW, PAGES_COLOR, PARTITION_1_COLOR, PARTITION_2_COLOR,
-        PATHLIKE_ALTERNATOR, PID_BACKGROUND_COLOR,
+        EXITED_BACKGROUND_COLOR, GENERAL_TEXT_COLOR, OUR_YELLOW, PAGES_COLOR, PARTITION_1_COLOR,
+        PARTITION_2_COLOR, PATHLIKE_ALTERNATOR, PID_BACKGROUND_COLOR,
     },
     utilities::{
         calculate_futex_alias, get_final_dentry_color_consider_repetition, lose_relativity_on_path,
         partition_by_final_dentry, FUTEXES, TRACEES,
     },
 };
-
-use super::GENERAL_TEXT_COLOR;
 use colored::{ColoredString, Colorize};
 use nix::{libc::AT_FDCWD, unistd::Pid};
 use std::{
@@ -18,16 +16,9 @@ use std::{
     sync::{LazyLock, Mutex, OnceLock},
 };
 use syscalls::Sysno;
-//
-//
-//
-//
+
 pub static BUFFER: LazyLock<Mutex<Vec<ColoredString>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 pub static WRITER: OnceLock<Mutex<BufWriter<Box<dyn Write + Send>>>> = OnceLock::new();
-//
-//
-//
-//
 
 pub fn initialize_writer() {
     // colored crate disables stderr's coloring when stdout is redirected elsewhere, e.g.: /dev/null
@@ -56,14 +47,9 @@ pub fn initialize_writer() {
     let _ = WRITER.set(Mutex::new(BufWriter::new(sink)));
 }
 
-//
-//
-//
-//
 #[inline(always)]
 pub(crate) fn write_general_text(arg: &str) {
-    let text = arg.custom_color(*GENERAL_TEXT_COLOR);
-    buffered_write(text);
+    buffered_write(arg.custom_color(*GENERAL_TEXT_COLOR));
 }
 
 #[inline(always)]
@@ -73,14 +59,12 @@ pub(crate) fn write_text(text: ColoredString) {
 
 #[inline(always)]
 pub fn buffered_write(data: ColoredString) {
-    let mut buffer = BUFFER.lock().unwrap();
-    buffer.push(data);
+    BUFFER.lock().unwrap().push(data);
 }
 
 #[inline(always)]
 pub(crate) fn errorize_pid_color(text: ColoredString) {
-    let mut buffer = BUFFER.lock().unwrap();
-    buffer[0] = text;
+    BUFFER.lock().unwrap()[0] = text;
 }
 
 #[inline(always)]
@@ -320,18 +304,12 @@ pub fn write_timeval(seconds: i64, microseconds: i64) {
 
 pub fn write_futex(futex_address: usize) {
     let mut futexes = FUTEXES.lock().unwrap();
-    match futexes.get(&futex_address) {
-        Some(futex_alias) => {
-            write_text(futex_alias.clone());
-            write_text(format!(" {:p}", futex_address as *const ()).custom_color(*OUR_YELLOW));
-        }
-        None => {
-            let futex_alias = calculate_futex_alias(futexes.len() as _).custom_color(*PAGES_COLOR);
-            write_text(futex_alias.clone());
-            write_text(format!(" {:p}", futex_address as *const ()).custom_color(*OUR_YELLOW));
-            futexes.insert(futex_address, futex_alias);
-        }
-    }
+    let number_of_futexes = futexes.len();
+    let futex_alias = futexes.entry(futex_address).or_insert_with(|| {
+        calculate_futex_alias(number_of_futexes as _).custom_color(*PAGES_COLOR)
+    });
+    write_text(futex_alias.clone());
+    write_text(format!(" {:p}", futex_address as *const ()).custom_color(*OUR_YELLOW));
 }
 
 pub fn write_exiting(process_pid: Pid) {

@@ -29,7 +29,7 @@ use crate::{
     syscall_categories::initialize_categories_map,
     syscall_object::{ErrnoVariant, SyscallResult},
     syscall_skeleton_map::initialize_skeletons_map,
-    types::{BytesPagesRelevant, Category, Syscall_Shape},
+    types::{Bytes, BytesPagesRelevant, Category, Syscall_Shape},
 };
 
 pub static PAGE_SIZE: LazyLock<usize> = LazyLock::new(|| unsafe { sysconf(_SC_PAGESIZE) as usize });
@@ -244,6 +244,11 @@ pub fn parse_as_signed_bytes(register_value: u64) -> String {
 // memory and file indexers and seekers where negative is expected
 pub fn parse_as_unsigned_bytes(register_value: u64) -> String {
     format!("{register_value} Bytes")
+}
+
+pub fn parse_as_bytes_no_pages_ceil(register_value: usize) -> String {
+    let bytes_pages = Bytes::from(register_value);
+    bytes_pages.to_string()
 }
 
 // usually a size_t in mem syscalls
