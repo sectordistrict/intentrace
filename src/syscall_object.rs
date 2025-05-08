@@ -1,9 +1,7 @@
 #![allow(unused_variables)]
 use crate::auxiliary::kernel_errno::{self};
-use crate::{
-    types::Bytes,
-    utilities::{SYSCATEGORIES_MAP, SYSKELETON_MAP},
-};
+use crate::cli::{SUMMARY_ONLY, SYSCALLS_TO_TRACE};
+use crate::{types::Bytes, utilities::SYSKELETON_MAP};
 use nix::unistd::Pid;
 use std::{
     fmt::Display,
@@ -104,13 +102,16 @@ impl SyscallObject {
     }
 
     pub(crate) fn build(tracee_pid: Pid, sysno: Sysno) -> Option<Self> {
-        let syscall = SYSKELETON_MAP.get(&sysno)?;
-        let category = *SYSCATEGORIES_MAP.get(&sysno)?;
+        let _ = SYSKELETON_MAP.get(&sysno)?;
         Some(SyscallObject {
             sysno,
             tracee_pid,
             ..Default::default()
         })
+    }
+
+    pub(crate) fn should_skip_building(sysno: Sysno) -> bool {
+        !SYSCALLS_TO_TRACE.contains(sysno) || *SUMMARY_ONLY
     }
 
     fn style_bytes(register_value: u64) -> String {

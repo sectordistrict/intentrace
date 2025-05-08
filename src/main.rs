@@ -34,7 +34,10 @@ use std::{
 };
 
 use clap::Parser;
-use cli::{IntentraceArgs, ATTACH_PID, BINARY_AND_ARGS, FAILED_ONLY, FOLLOW_FORKS, QUIET, SUMMARY};
+use cli::{
+    IntentraceArgs, ATTACH_PID, BINARY_AND_ARGS, FAILED_ONLY, FOLLOW_FORKS, QUIET, SUMMARY,
+    SUMMARY_ONLY,
+};
 use colored::Colorize;
 use colors::{GENERAL_TEXT_COLOR, STOPPED_COLOR};
 use nix::{
@@ -48,8 +51,8 @@ use nix::{
 use pete::{Ptracer, Restart, Stop};
 use syscalls::Sysno;
 use utilities::{
-    interpret_syscall_result, set_memory_break, syscall_filtered, syscall_is_blocking,
-    HALT_TRACING, REGISTERS, TABLE, TABLE_FOLLOW_FORKS,
+    interpret_syscall_result, set_memory_break, syscall_is_blocking, HALT_TRACING, REGISTERS,
+    TABLE, TABLE_FOLLOW_FORKS,
 };
 use writer::{
     empty_buffer, flush_buffer, initialize_writer, write_exiting, write_syscall_not_covered,
@@ -62,7 +65,7 @@ mod syscall_object;
 // mod syscall_object_annotations;
 mod syscall_skeleton_map;
 mod types;
-use syscall_object::{SyscallObject, SyscallState};
+use syscall_object::{SyscallObject, SyscallResult, SyscallState};
 mod auxiliary;
 mod cli;
 mod colors;
@@ -78,7 +81,7 @@ fn main() -> anyhow::Result<()> {
     ctrlc::set_handler(|| {
         flush_buffer();
         HALT_TRACING.store(true, Ordering::SeqCst);
-        if *SUMMARY {
+        if *SUMMARY_ONLY || *SUMMARY {
             print_table();
         }
         std::process::exit(0);
@@ -109,7 +112,7 @@ fn main() -> anyhow::Result<()> {
     if !*FAILED_ONLY {
         // flush_buffer();
     }
-    if *SUMMARY {
+    if *SUMMARY_ONLY || *SUMMARY {
         print_table();
     }
     Ok(())
@@ -153,55 +156,51 @@ fn follow_forks(command_to_run: Option<&[String]>) {
     }
 }
 
-fn parent(child: Pid) {
+fn parent(tracee_pid: Pid) {
     // skip first execve
-    let _res = waitpid(child, None).unwrap();
+    let _res = waitpid(tracee_pid, None).unwrap();
     let mut syscall_entering = true;
     let (mut start, mut end) = (None, None);
     let mut syscall = SyscallObject::default();
-    let mut supported = true;
-    let mut filtered = false;
+    let (mut supported, mut skip) = (true, false);
     'main_loop: loop {
-        match ptrace::syscall(child, None) {
+        match ptrace::syscall(tracee_pid, None) {
             Ok(_void) => {
-                let _res = waitpid(child, None).expect("Failed waiting for child.");
+                let _res = waitpid(tracee_pid, None).expect("Failed waiting for child.");
                 match syscall_entering {
                     true => {
                         empty_buffer();
                         // SYSCALL ABOUT TO RUN
-                        match nix::sys::ptrace::getregs(child) {
-                            Ok(registers) => {
-                                let sysno = Sysno::from(registers.orig_rax as i32);
-                                if syscall_filtered(sysno) {
-                                    if let Some(syscall_built) = SyscallObject::build(child, sysno)
-                                    {
-                                        syscall = syscall_built;
-                                        *REGISTERS.lock().unwrap() = [
-                                            registers.rdi,
-                                            registers.rsi,
-                                            registers.rdx,
-                                            registers.r10,
-                                            registers.r8,
-                                            registers.r9,
-                                        ];
-                                        syscall_will_run(&mut syscall);
-                                    } else {
-                                        write_syscall_not_covered(sysno, child);
-                                        supported = false;
-                                    }
-                                } else {
-                                    filtered = true
+                        let ptrace_regs = nix::sys::ptrace::getregs(tracee_pid);
+                        if let Err(Errno::ESRCH) = ptrace_regs {
+                            write_exiting(tracee_pid);
+                            break 'main_loop;
+                        }
+                        let registers = ptrace_regs.unwrap();
+                        let sysno = Sysno::from(registers.orig_rax as i32);
+                        skip = SyscallObject::should_skip_building(sysno);
+                        if !skip {
+                            if let Some(syscall_built) = SyscallObject::build(tracee_pid, sysno) {
+                                syscall = syscall_built;
+                                *REGISTERS.lock().unwrap() = [
+                                    registers.rdi,
+                                    registers.rsi,
+                                    registers.rdx,
+                                    registers.r10,
+                                    registers.r8,
+                                    registers.r9,
+                                ];
+                                syscall_will_run(&mut syscall);
+                                if *SUMMARY {
+                                    start = Some(std::time::Instant::now());
                                 }
-                            }
-                            Err(errno) => {
-                                if errno == Errno::ESRCH {
-                                    write_exiting(child);
-                                    break 'main_loop;
-                                }
+                            } else {
+                                write_syscall_not_covered(sysno, tracee_pid);
+                                supported = false;
                             }
                         }
                         syscall_entering = false;
-                        if *SUMMARY {
+                        if *SUMMARY_ONLY {
                             start = Some(std::time::Instant::now());
                         }
                         continue 'main_loop;
@@ -209,46 +208,66 @@ fn parent(child: Pid) {
                     false => {
                         // SYSCALL RETURNED
                         end = Some(std::time::Instant::now());
-                        match nix::sys::ptrace::getregs(child) {
-                            Ok(registers) => {
-                                if supported && !filtered {
-                                    if *SUMMARY {
-                                        let mut table = TABLE.lock().unwrap();
-                                        table
-                                            .entry(syscall.sysno)
-                                            .and_modify(|value| {
-                                                value.0 += 1;
-                                                value.1 = value.1.saturating_add(
-                                                    end.unwrap().duration_since(start.unwrap()),
-                                                );
-                                            })
-                                            .or_insert((
-                                                1,
-                                                end.unwrap().duration_since(start.unwrap()),
-                                            ));
-                                        start = None;
-                                        end = None;
-                                    }
-                                    *REGISTERS.lock().unwrap() = [
-                                        registers.rdi,
-                                        registers.rsi,
-                                        registers.rdx,
-                                        registers.r10,
-                                        registers.r8,
-                                        registers.r9,
-                                    ];
-                                    syscall_returned(&mut syscall, registers.rax)
-                                }
-                                supported = true;
-                                filtered = false;
-                            }
-                            Err(errno) => {
-                                if errno == Errno::ESRCH {
-                                    write_exiting(child);
-                                    break 'main_loop;
-                                }
+                        let ptrace_regs = nix::sys::ptrace::getregs(tracee_pid);
+                        if let Err(Errno::ESRCH) = ptrace_regs {
+                            write_exiting(tracee_pid);
+                            break 'main_loop;
+                        }
+                        let registers = ptrace_regs.unwrap();
+                        let sysno = Sysno::from(registers.orig_rax as i32);
+                        if supported && !skip {
+                            *REGISTERS.lock().unwrap() = [
+                                registers.rdi,
+                                registers.rsi,
+                                registers.rdx,
+                                registers.r10,
+                                registers.r8,
+                                registers.r9,
+                            ];
+                            syscall_returned(&mut syscall, registers.rax);
+                            if *SUMMARY {
+                                let mut table = TABLE.lock().unwrap();
+                                table
+                                    .entry(sysno)
+                                    .and_modify(|(count, duration, errors)| {
+                                        *count += 1;
+                                        *duration = duration.saturating_add(
+                                            end.unwrap().duration_since(start.unwrap()),
+                                        );
+                                        *errors += syscall.has_errored() as usize;
+                                    })
+                                    .or_insert((
+                                        1,
+                                        end.unwrap().duration_since(start.unwrap()),
+                                        syscall.has_errored() as usize,
+                                    ));
+                                start = None;
+                                end = None;
                             }
                         }
+                        if *SUMMARY_ONLY {
+                            let mut table = TABLE.lock().unwrap();
+                            let syscall_result = interpret_syscall_result(registers.rax);
+                            let errored = matches!(syscall_result, SyscallResult::Fail(_));
+                            table
+                                .entry(sysno)
+                                .and_modify(|(count, duration, errors)| {
+                                    *count += 1;
+                                    *duration = duration.saturating_add(
+                                        end.unwrap().duration_since(start.unwrap()),
+                                    );
+                                    *errors += errored as usize;
+                                })
+                                .or_insert((
+                                    1,
+                                    end.unwrap().duration_since(start.unwrap()),
+                                    errored as usize,
+                                ));
+                            start = None;
+                            end = None;
+                        }
+                        supported = true;
+                        skip = false;
                         syscall_entering = true;
                     }
                 }
@@ -274,50 +293,21 @@ fn ptrace_ptracer(mut ptracer: Ptracer) {
         if HALT_TRACING.load(Ordering::SeqCst) {
             break;
         }
-        let syscall_pid = Pid::from_raw(tracee.pid.as_raw());
+        let tracee_pid = Pid::from_raw(tracee.pid.as_raw());
         match tracee.stop {
             Stop::SyscallEnter => {
-                match nix::sys::ptrace::getregs(syscall_pid) {
-                    Ok(registers) => {
-                        check_syscall_switch(last_pid, syscall_pid, &mut pid_syscall_map);
-                        let sysno = Sysno::from(registers.orig_rax as i32);
-                        last_sysno = sysno;
-                        if syscall_filtered(sysno) {
-                            let syscall_built = SyscallObject::build(syscall_pid, sysno);
-                            if let Some(mut syscall) = syscall_built {
-                                if *SUMMARY {
-                                    let mut table = TABLE_FOLLOW_FORKS.lock().unwrap();
-                                    table
-                                        .entry(syscall.sysno)
-                                        .and_modify(|value| {
-                                            *value += 1;
-                                        })
-                                        .or_insert(1);
-                                }
-                                *REGISTERS.lock().unwrap() = [
-                                    registers.rdi,
-                                    registers.rsi,
-                                    registers.rdx,
-                                    registers.r10,
-                                    registers.r8,
-                                    registers.r9,
-                                ];
-                                syscall_will_run(&mut syscall);
-                                syscall.state = SyscallState::Exiting;
-                                pid_syscall_map.insert(syscall_pid, syscall);
-                            } else {
-                                write_syscall_not_covered(sysno, syscall_pid);
-                            }
-                        }
-                    }
-                    Err(errno) => handle_getting_registers_error(errno, "enter", last_sysno),
+                let ptrace_regs = nix::sys::ptrace::getregs(tracee_pid);
+                if let Err(errno) = ptrace_regs {
+                    handle_getting_registers_error(errno, "enter", last_sysno)
                 }
-                last_pid = syscall_pid;
-            }
-            Stop::SyscallExit => {
-                check_syscall_switch(last_pid, syscall_pid, &mut pid_syscall_map);
-                match nix::sys::ptrace::getregs(syscall_pid) {
-                    Ok(registers) => {
+                let registers = ptrace_regs.unwrap();
+
+                check_syscall_switch(last_pid, tracee_pid, &mut pid_syscall_map);
+                let sysno = Sysno::from(registers.orig_rax as i32);
+                last_sysno = sysno;
+                if !SyscallObject::should_skip_building(sysno) {
+                    let syscall_built = SyscallObject::build(tracee_pid, sysno);
+                    if let Some(mut syscall) = syscall_built {
                         *REGISTERS.lock().unwrap() = [
                             registers.rdi,
                             registers.rsi,
@@ -326,14 +316,53 @@ fn ptrace_ptracer(mut ptracer: Ptracer) {
                             registers.r8,
                             registers.r9,
                         ];
-                        if let Some(syscall) = pid_syscall_map.get_mut(&syscall_pid) {
-                            syscall_returned(syscall, registers.rax);
-                            pid_syscall_map.remove(&syscall_pid).unwrap();
+                        syscall_will_run(&mut syscall);
+                        syscall.state = SyscallState::Exiting;
+                        pid_syscall_map.insert(tracee_pid, syscall);
+                        if *SUMMARY {
+                            let mut table = TABLE_FOLLOW_FORKS.lock().unwrap();
+                            table
+                                .entry(sysno)
+                                .and_modify(|value| {
+                                    *value += 1;
+                                })
+                                .or_insert(1);
                         }
+                    } else {
+                        write_syscall_not_covered(sysno, tracee_pid);
                     }
-                    Err(errno) => handle_getting_registers_error(errno, "exit", last_sysno),
                 }
-                last_pid = syscall_pid;
+                if *SUMMARY_ONLY {
+                    let mut table = TABLE_FOLLOW_FORKS.lock().unwrap();
+                    table
+                        .entry(sysno)
+                        .and_modify(|value| {
+                            *value += 1;
+                        })
+                        .or_insert(1);
+                }
+                last_pid = tracee_pid;
+            }
+            Stop::SyscallExit => {
+                check_syscall_switch(last_pid, tracee_pid, &mut pid_syscall_map);
+                let ptrace_regs = nix::sys::ptrace::getregs(tracee_pid);
+                if let Err(errno) = ptrace_regs {
+                    handle_getting_registers_error(errno, "enter", last_sysno)
+                }
+                let registers = ptrace_regs.unwrap();
+                *REGISTERS.lock().unwrap() = [
+                    registers.rdi,
+                    registers.rsi,
+                    registers.rdx,
+                    registers.r10,
+                    registers.r8,
+                    registers.r9,
+                ];
+                if let Some(syscall) = pid_syscall_map.get_mut(&tracee_pid) {
+                    syscall_returned(syscall, registers.rax);
+                    pid_syscall_map.remove(&tracee_pid).unwrap();
+                }
+                last_pid = tracee_pid;
             }
             _ => {}
         }
@@ -454,29 +483,41 @@ fn print_table() {
     } else {
         let output = TABLE.lock().unwrap();
         let mut vec = Vec::from_iter(output.iter());
-        vec.sort_by(
-            |(_sysno, (_count, duration)), (_sysno2, (_count2, duration2))| duration2.cmp(duration),
-        );
+        vec.sort_by(|(_, (_, duration, _)), (_, (_, duration2, _))| duration2.cmp(duration));
 
         use tabled::{builder::Builder, settings::Style};
         let mut builder = Builder::new();
 
-        builder.push_record(["% time", "seconds", "usecs/call", "calls", "syscall"]);
+        builder.push_record([
+            "% time",
+            "seconds",
+            "usecs/call",
+            "calls",
+            "errors",
+            "syscall",
+        ]);
         builder.push_record([""]);
         let total_time = vec
             .iter()
-            .map(|(_, (_, time))| time.as_micros())
+            .map(|(_, (_, time, _))| time.as_micros())
             .sum::<u128>();
-        for (sys, (count, time)) in vec {
+        let empty_string = "".to_owned();
+        for (sys, (count, time, errors)) in vec {
             let time_MICROS = time.as_micros() as f64;
             let time = time_MICROS / 1_000_000.0;
             let usecs_call = (time_MICROS / *count as f64) as i64;
             let time_percent = time_MICROS / total_time as f64;
+            let errors = if *errors == 0 {
+                &empty_string
+            } else {
+                &errors.to_string()
+            };
             builder.push_record([
                 &format!("{:.2}", time_percent * 100.0),
                 &format!("{:.6}", time),
                 &format!("{}", usecs_call),
                 &count.to_string(),
+                errors,
                 sys.name(),
             ]);
         }

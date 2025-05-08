@@ -23,7 +23,6 @@ use uzers::{Groups, Users};
 
 use crate::{
     auxiliary::{constants::general::MAX_KERNEL_ULONG, kernel_errno::KernelErrno},
-    cli::SYSCALLS_TO_TRACE,
     colors::{switch_pathlike_color, PARTITION_1_COLOR, PARTITION_2_COLOR, PATHLIKE_ALTERNATOR},
     peeker_poker::{read_bytes_until_null, read_words_until_null},
     syscall_categories::initialize_categories_map,
@@ -37,7 +36,7 @@ pub static PRE_CALL_PROGRAM_BREAK_POINT: AtomicUsize = AtomicUsize::new(0);
 pub static REGISTERS: Mutex<[u64; 6]> = Mutex::new([0; 6]);
 pub static HALT_TRACING: AtomicBool = AtomicBool::new(false);
 
-pub static TABLE: LazyLock<Mutex<HashMap<Sysno, (usize, Duration)>>> =
+pub static TABLE: LazyLock<Mutex<HashMap<Sysno, (usize, Duration, usize)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 pub static TABLE_FOLLOW_FORKS: LazyLock<Mutex<HashMap<Sysno, usize>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -133,10 +132,6 @@ pub fn interpret_syscall_result(return_register: u64) -> SyscallResult {
     } else {
         Success(return_register)
     }
-}
-
-pub fn syscall_filtered(sysno: Sysno) -> bool {
-    SYSCALLS_TO_TRACE.contains(sysno)
 }
 
 pub fn display_unsupported() {

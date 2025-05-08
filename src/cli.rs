@@ -15,6 +15,7 @@ pub static FAILED_ONLY: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.failed
 pub static QUIET: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.mute_stdout);
 pub static ANNOT: AtomicBool = AtomicBool::new(false);
 pub static ATTACH_PID: LazyLock<Option<usize>> = LazyLock::new(|| INTENTRACE_ARGS.pid);
+pub static SUMMARY_ONLY: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.summary_only);
 pub static SUMMARY: LazyLock<bool> = LazyLock::new(|| INTENTRACE_ARGS.summary);
 pub static SYSCALLS_TO_TRACE: LazyLock<SysnoSet> = LazyLock::new(|| {
     if INTENTRACE_ARGS.trace.is_empty() {
@@ -59,8 +60,12 @@ use syscalls::{Sysno, SysnoSet};
     allow_external_subcommands = true
 )]
 pub struct IntentraceArgs {
-    /// provide a summary table at the end of tracing
-    #[arg(short = 'c', long)]
+    /// print a summary table
+    #[arg(short = 'c', long, conflicts_with = "summary")]
+    pub summary_only: bool,
+
+    /// print a summary table in addition to the normal output
+    #[arg(short = 'C', long)]
     pub summary: bool,
 
     /// attach to an already running proceess

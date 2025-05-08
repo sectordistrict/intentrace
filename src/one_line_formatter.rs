@@ -17,12 +17,13 @@ use crate::{
     syscall_object::{ErrnoVariant, SyscallObject, SyscallResult},
     types::{Bytes, BytesPagesRelevant},
     utilities::{
-        colorize_syscall_name, find_fd_for_tracee, get_array_of_strings, get_groupname_from_uid,
-        get_mem_difference_from_previous, get_username_from_uid, lower_32_bits, lower_64_bits,
-        new_process, new_thread, parse_as_address, parse_as_bytes_no_pages_ceil,
-        parse_as_bytes_pages_ceil, parse_as_file_descriptor, parse_as_int, parse_as_long,
-        parse_as_signal, parse_as_signed_bytes, parse_as_ssize_t, parse_as_unsigned_bytes,
-        partition_by_final_dentry, string_from_pointer, REGISTERS, SYSCATEGORIES_MAP,
+        REGISTERS, SYSCATEGORIES_MAP, colorize_syscall_name, find_fd_for_tracee,
+        get_array_of_strings, get_groupname_from_uid, get_mem_difference_from_previous,
+        get_username_from_uid, lower_32_bits, lower_64_bits, new_process, new_thread,
+        parse_as_address, parse_as_bytes_no_pages_ceil, parse_as_bytes_pages_ceil,
+        parse_as_file_descriptor, parse_as_int, parse_as_long, parse_as_signal,
+        parse_as_signed_bytes, parse_as_ssize_t, parse_as_unsigned_bytes,
+        partition_by_final_dentry, string_from_pointer,
     },
     write_text,
     writer::{
@@ -36,48 +37,48 @@ use colored::Colorize;
 use nix::{
     errno::Errno,
     libc::{
-        clone_args, rlimit, sigaction, timespec, timeval, AT_EACCESS, AT_EMPTY_PATH, AT_FDCWD,
-        AT_NO_AUTOMOUNT, AT_REMOVEDIR, AT_STATX_DONT_SYNC, AT_STATX_FORCE_SYNC,
-        AT_STATX_SYNC_AS_STAT, AT_SYMLINK_FOLLOW, AT_SYMLINK_NOFOLLOW, CLONE_CHILD_CLEARTID,
-        CLONE_CHILD_SETTID, CLONE_CLEAR_SIGHAND, CLONE_FILES, CLONE_FS, CLONE_IO, CLONE_NEWCGROUP,
-        CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS, CLONE_NEWPID, CLONE_NEWUSER, CLONE_NEWUTS,
-        CLONE_PARENT, CLONE_PARENT_SETTID, CLONE_PIDFD, CLONE_PTRACE, CLONE_SETTLS, CLONE_SIGHAND,
-        CLONE_SYSVSEM, CLONE_THREAD, CLONE_UNTRACED, CLONE_VFORK, CLONE_VM, EFD_CLOEXEC,
-        EFD_NONBLOCK, EFD_SEMAPHORE, EPOLL_CLOEXEC, EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD,
+        __WALL, __WCLONE, __WNOTHREAD, AT_EACCESS, AT_EMPTY_PATH, AT_FDCWD, AT_NO_AUTOMOUNT,
+        AT_REMOVEDIR, AT_STATX_DONT_SYNC, AT_STATX_FORCE_SYNC, AT_STATX_SYNC_AS_STAT,
+        AT_SYMLINK_FOLLOW, AT_SYMLINK_NOFOLLOW, CLONE_CHILD_CLEARTID, CLONE_CHILD_SETTID,
+        CLONE_CLEAR_SIGHAND, CLONE_FILES, CLONE_FS, CLONE_IO, CLONE_NEWCGROUP, CLONE_NEWIPC,
+        CLONE_NEWNET, CLONE_NEWNS, CLONE_NEWPID, CLONE_NEWUSER, CLONE_NEWUTS, CLONE_PARENT,
+        CLONE_PARENT_SETTID, CLONE_PIDFD, CLONE_PTRACE, CLONE_SETTLS, CLONE_SIGHAND, CLONE_SYSVSEM,
+        CLONE_THREAD, CLONE_UNTRACED, CLONE_VFORK, CLONE_VM, EFD_CLOEXEC, EFD_NONBLOCK,
+        EFD_SEMAPHORE, EPOLL_CLOEXEC, EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD, F_OK,
         FALLOC_FL_COLLAPSE_RANGE, FALLOC_FL_INSERT_RANGE, FALLOC_FL_KEEP_SIZE,
         FALLOC_FL_PUNCH_HOLE, FALLOC_FL_UNSHARE_RANGE, FALLOC_FL_ZERO_RANGE, FUTEX_CLOCK_REALTIME,
         FUTEX_CMP_REQUEUE, FUTEX_CMP_REQUEUE_PI, FUTEX_FD, FUTEX_LOCK_PI, FUTEX_LOCK_PI2,
         FUTEX_PRIVATE_FLAG, FUTEX_REQUEUE, FUTEX_TRYLOCK_PI, FUTEX_UNLOCK_PI, FUTEX_WAIT,
         FUTEX_WAIT_BITSET, FUTEX_WAIT_REQUEUE_PI, FUTEX_WAKE, FUTEX_WAKE_BITSET, FUTEX_WAKE_OP,
-        F_OK, GRND_NONBLOCK, GRND_RANDOM, MADV_COLD, MADV_COLLAPSE, MADV_DODUMP, MADV_DOFORK,
+        GRND_NONBLOCK, GRND_RANDOM, MADV_COLD, MADV_COLLAPSE, MADV_DODUMP, MADV_DOFORK,
         MADV_DONTDUMP, MADV_DONTFORK, MADV_DONTNEED, MADV_FREE, MADV_HUGEPAGE, MADV_HWPOISON,
         MADV_KEEPONFORK, MADV_MERGEABLE, MADV_NOHUGEPAGE, MADV_NORMAL, MADV_PAGEOUT,
         MADV_POPULATE_READ, MADV_POPULATE_WRITE, MADV_RANDOM, MADV_REMOVE, MADV_SEQUENTIAL,
         MADV_SOFT_OFFLINE, MADV_UNMERGEABLE, MADV_WILLNEED, MADV_WIPEONFORK, MAP_ANON,
-        MAP_ANONYMOUS, MAP_FIXED, MAP_FIXED_NOREPLACE, MAP_GROWSDOWN, MAP_HUGETLB, MAP_HUGE_16GB,
-        MAP_HUGE_16MB, MAP_HUGE_1GB, MAP_HUGE_1MB, MAP_HUGE_256MB, MAP_HUGE_2GB, MAP_HUGE_2MB,
-        MAP_HUGE_32MB, MAP_HUGE_512KB, MAP_HUGE_512MB, MAP_HUGE_64KB, MAP_HUGE_8MB, MAP_LOCKED,
+        MAP_ANONYMOUS, MAP_FIXED, MAP_FIXED_NOREPLACE, MAP_GROWSDOWN, MAP_HUGE_1GB, MAP_HUGE_1MB,
+        MAP_HUGE_2GB, MAP_HUGE_2MB, MAP_HUGE_8MB, MAP_HUGE_16GB, MAP_HUGE_16MB, MAP_HUGE_32MB,
+        MAP_HUGE_64KB, MAP_HUGE_256MB, MAP_HUGE_512KB, MAP_HUGE_512MB, MAP_HUGETLB, MAP_LOCKED,
         MAP_NONBLOCK, MAP_NORESERVE, MAP_POPULATE, MAP_PRIVATE, MAP_SHARED, MAP_SHARED_VALIDATE,
         MAP_STACK, MAP_SYNC, MCL_CURRENT, MCL_FUTURE, MCL_ONFAULT, MREMAP_DONTUNMAP, MREMAP_FIXED,
         MREMAP_MAYMOVE, MS_ASYNC, MS_INVALIDATE, MS_SYNC, O_APPEND, O_ASYNC, O_CLOEXEC, O_CREAT,
         O_DIRECT, O_DIRECTORY, O_DSYNC, O_EXCL, O_NDELAY, O_NOATIME, O_NOCTTY, O_NOFOLLOW,
-        O_NONBLOCK, O_PATH, O_RDONLY, O_RDWR, O_SYNC, O_TMPFILE, O_TRUNC, O_WRONLY, PRIO_PGRP,
-        PRIO_PROCESS, PRIO_USER, PROT_EXEC, PROT_NONE, PROT_READ, PROT_WRITE, PTRACE_ATTACH,
-        PTRACE_CONT, PTRACE_DETACH, PTRACE_GETEVENTMSG, PTRACE_GETFPREGS, PTRACE_GETFPXREGS,
-        PTRACE_GETREGS, PTRACE_GETREGSET, PTRACE_GETSIGINFO, PTRACE_INTERRUPT, PTRACE_KILL,
-        PTRACE_LISTEN, PTRACE_PEEKDATA, PTRACE_PEEKSIGINFO, PTRACE_PEEKTEXT, PTRACE_PEEKUSER,
-        PTRACE_POKEDATA, PTRACE_POKETEXT, PTRACE_POKEUSER, PTRACE_SEIZE, PTRACE_SETFPREGS,
-        PTRACE_SETFPXREGS, PTRACE_SETOPTIONS, PTRACE_SETREGS, PTRACE_SETREGSET, PTRACE_SETSIGINFO,
-        PTRACE_SINGLESTEP, PTRACE_SYSCALL, PTRACE_SYSEMU, PTRACE_SYSEMU_SINGLESTEP, PTRACE_TRACEME,
-        P_ALL, P_PGID, P_PID, P_PIDFD, RENAME_EXCHANGE, RENAME_NOREPLACE, RENAME_WHITEOUT,
-        RLIMIT_AS, RLIMIT_CORE, RLIMIT_CPU, RLIMIT_DATA, RLIMIT_FSIZE, RLIMIT_LOCKS,
-        RLIMIT_MEMLOCK, RLIMIT_MSGQUEUE, RLIMIT_NICE, RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_RSS,
-        RLIMIT_RTPRIO, RLIMIT_RTTIME, RLIMIT_SIGPENDING, RLIMIT_STACK, RUSAGE_CHILDREN,
-        RUSAGE_SELF, RUSAGE_THREAD, R_OK, SEEK_CUR, SEEK_DATA, SEEK_END, SEEK_HOLE, SEEK_SET,
-        SFD_CLOEXEC, SFD_NONBLOCK, SIG_BLOCK, SIG_DFL, SIG_IGN, SIG_SETMASK, SIG_UNBLOCK, S_IRGRP,
-        S_IROTH, S_IRUSR, S_ISGID, S_ISUID, S_ISVTX, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH,
-        S_IXUSR, WCONTINUED, WEXITED, WNOHANG, WNOWAIT, WSTOPPED, W_OK, X_OK, __WALL, __WCLONE,
-        __WNOTHREAD,
+        O_NONBLOCK, O_PATH, O_RDONLY, O_RDWR, O_SYNC, O_TMPFILE, O_TRUNC, O_WRONLY, P_ALL, P_PGID,
+        P_PID, P_PIDFD, PRIO_PGRP, PRIO_PROCESS, PRIO_USER, PROT_EXEC, PROT_NONE, PROT_READ,
+        PROT_WRITE, PTRACE_ATTACH, PTRACE_CONT, PTRACE_DETACH, PTRACE_GETEVENTMSG,
+        PTRACE_GETFPREGS, PTRACE_GETFPXREGS, PTRACE_GETREGS, PTRACE_GETREGSET, PTRACE_GETSIGINFO,
+        PTRACE_INTERRUPT, PTRACE_KILL, PTRACE_LISTEN, PTRACE_PEEKDATA, PTRACE_PEEKSIGINFO,
+        PTRACE_PEEKTEXT, PTRACE_PEEKUSER, PTRACE_POKEDATA, PTRACE_POKETEXT, PTRACE_POKEUSER,
+        PTRACE_SEIZE, PTRACE_SETFPREGS, PTRACE_SETFPXREGS, PTRACE_SETOPTIONS, PTRACE_SETREGS,
+        PTRACE_SETREGSET, PTRACE_SETSIGINFO, PTRACE_SINGLESTEP, PTRACE_SYSCALL, PTRACE_SYSEMU,
+        PTRACE_SYSEMU_SINGLESTEP, PTRACE_TRACEME, R_OK, RENAME_EXCHANGE, RENAME_NOREPLACE,
+        RENAME_WHITEOUT, RLIMIT_AS, RLIMIT_CORE, RLIMIT_CPU, RLIMIT_DATA, RLIMIT_FSIZE,
+        RLIMIT_LOCKS, RLIMIT_MEMLOCK, RLIMIT_MSGQUEUE, RLIMIT_NICE, RLIMIT_NOFILE, RLIMIT_NPROC,
+        RLIMIT_RSS, RLIMIT_RTPRIO, RLIMIT_RTTIME, RLIMIT_SIGPENDING, RLIMIT_STACK, RUSAGE_CHILDREN,
+        RUSAGE_SELF, RUSAGE_THREAD, S_IRGRP, S_IROTH, S_IRUSR, S_ISGID, S_ISUID, S_ISVTX, S_IWGRP,
+        S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR, SEEK_CUR, SEEK_DATA, SEEK_END, SEEK_HOLE,
+        SEEK_SET, SFD_CLOEXEC, SFD_NONBLOCK, SIG_BLOCK, SIG_DFL, SIG_IGN, SIG_SETMASK, SIG_UNBLOCK,
+        W_OK, WCONTINUED, WEXITED, WNOHANG, WNOWAIT, WSTOPPED, X_OK, clone_args, rlimit, sigaction,
+        timespec, timeval,
     },
 };
 use syscalls::Sysno;
@@ -1960,21 +1961,27 @@ impl SyscallObject {
                                 );
                                 if (flags_num & MCL_ONFAULT) == MCL_ONFAULT {
                                     // this allow non-resident pages to get locked later when they are faulted
-                                    write_general_text(" (only lock resident-pages for current and future mappings, lock non-resident pages whenever they're faulted)");
+                                    write_general_text(
+                                        " (only lock resident-pages for current and future mappings, lock non-resident pages whenever they're faulted)",
+                                    );
                                 }
                             }
                             (true, false) => {
                                 write_text("all currently mapped pages".custom_color(*OUR_YELLOW));
                                 if (flags_num & MCL_ONFAULT) == MCL_ONFAULT {
                                     // this allow non-resident pages to get locked later when they are faulted
-                                    write_general_text(" (only lock currently resident-pages, only lock non-resident pages once they're faulted)");
+                                    write_general_text(
+                                        " (only lock currently resident-pages, only lock non-resident pages once they're faulted)",
+                                    );
                                 }
                             }
                             (false, true) => {
                                 write_text("all future mapped pages ".custom_color(*OUR_YELLOW));
                                 if (flags_num & MCL_ONFAULT) == MCL_ONFAULT {
                                     // this allow non-resident pages to get locked later when they are faulted
-                                    write_general_text(" (do not lock future pages the moment they're mapped, only lock whenever they're faulted)");
+                                    write_general_text(
+                                        " (do not lock future pages the moment they're mapped, only lock whenever they're faulted)",
+                                    );
                                 }
                             }
                             (false, false) => {
@@ -3660,7 +3667,9 @@ impl SyscallObject {
                         let filename =
                             parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
                         // ==================================================================
-                        write_general_text("flush all pending filesystem data and metadata writes for the filesystem that contains the file: ");
+                        write_general_text(
+                            "flush all pending filesystem data and metadata writes for the filesystem that contains the file: ",
+                        );
                         write_colored(filename);
                     }
                     Exiting => {
@@ -3710,7 +3719,9 @@ impl SyscallObject {
                         let filename =
                             parse_as_file_descriptor(parse_as_int(registers[0]), self.tracee_pid);
                         // ==================================================================
-                        write_general_text("flush all pending data and critical metadata writes (ignore non-critical metadata) for the file: ");
+                        write_general_text(
+                            "flush all pending data and critical metadata writes (ignore non-critical metadata) for the file: ",
+                        );
                         write_colored(filename);
                     }
                     Exiting => {
@@ -4627,13 +4638,19 @@ impl SyscallObject {
                         } else {
                             match how {
                                 SIG_BLOCK => {
-                                    write_general_text("add the provided signals to the proccess's list of blocked signals");
+                                    write_general_text(
+                                        "add the provided signals to the proccess's list of blocked signals",
+                                    );
                                 }
                                 SIG_UNBLOCK => {
-                                    write_general_text("remove the provided signals from the proccess's list of blocked signals");
+                                    write_general_text(
+                                        "remove the provided signals from the proccess's list of blocked signals",
+                                    );
                                 }
                                 SIG_SETMASK => {
-                                    write_general_text("replace the proccess's list of blocked signals with the signals provided");
+                                    write_general_text(
+                                        "replace the proccess's list of blocked signals with the signals provided",
+                                    );
                                 }
                                 _ => {}
                             }
@@ -4721,8 +4738,9 @@ impl SyscallObject {
                             write_general_text("retrieve the current signal stack");
                         }
                         (false, false) => {
-                            write_general_text("retrieve the current signal stack and then replace it with a new one,",
-                        );
+                            write_general_text(
+                                "retrieve the current signal stack and then replace it with a new one,",
+                            );
                         }
                     },
                     Exiting => match &self.result {
@@ -4793,7 +4811,9 @@ impl SyscallObject {
                             self.tracee_pid as _,
                         )
                         .unwrap();
-                        write_general_text("stop the calling process until one of the provided signals is pending, or ");
+                        write_general_text(
+                            "stop the calling process until one of the provided signals is pending, or ",
+                        );
                         write_timespec_non_relative(duration.tv_sec, duration.tv_nsec);
                         write_general_text(" passes");
                     }
@@ -4903,7 +4923,9 @@ impl SyscallObject {
                         let fd = parse_as_int(registers[0]);
                         // ==================================================================
                         if fd == -1 {
-                            write_general_text("create a new file descriptor for receiving signals using the provided signal mask");
+                            write_general_text(
+                                "create a new file descriptor for receiving signals using the provided signal mask",
+                            );
                         } else {
                             write_general_text("use file descriptor: ");
                             write_text(fd.to_string().custom_color(*PAGES_COLOR));
@@ -4936,7 +4958,9 @@ impl SyscallObject {
                         let flags = parse_as_int(registers[2]);
                         // ==================================================================
                         if fd == -1 {
-                            write_general_text("create a new file descriptor for receiving signals using the provided signal mask");
+                            write_general_text(
+                                "create a new file descriptor for receiving signals using the provided signal mask",
+                            );
                         } else {
                             write_general_text("use file descriptor: ");
                             write_text(fd.to_string().custom_color(*PAGES_COLOR));
@@ -5001,7 +5025,9 @@ impl SyscallObject {
                             } else if pid == 0 {
                                 write_general_text(" to all processes in this process group");
                             } else if pid == -1 {
-                                write_general_text(" to all processes that the calling process has permissions to send to");
+                                write_general_text(
+                                    " to all processes that the calling process has permissions to send to",
+                                );
                             } else if pid < -1 {
                                 write_general_text(" to process group: ");
                                 write_text((pid * -1).to_string().custom_color(*PAGES_COLOR));
@@ -5086,7 +5112,9 @@ impl SyscallObject {
             Sysno::pause => {
                 match self.state {
                     Entering => {
-                        write_general_text("pause execution until a signal terminates the process or triggers a handler");
+                        write_general_text(
+                            "pause execution until a signal terminates the process or triggers a handler",
+                        );
                         self.currently_blocking = true;
                     }
                     Exiting => {
@@ -7715,11 +7743,13 @@ impl SyscallObject {
                 match self.state {
                     Entering => {
                         if registering {
-                            write_general_text("register a per-thread shared data structure between kernel and user-space",
-                    );
+                            write_general_text(
+                                "register a per-thread shared data structure between kernel and user-space",
+                            );
                         } else {
-                            write_general_text("unregister a previously registered per-thread shared data structure",
-                    );
+                            write_general_text(
+                                "unregister a previously registered per-thread shared data structure",
+                            );
                         }
                     }
                     Exiting => {
@@ -7873,7 +7903,9 @@ impl SyscallObject {
                             write_colored(socket);
                         } else if shutdown_how_num == 2 {
                             // SHUT_RDWR = 2
-                            write_general_text("terminate incoming and outgoing data communication with the socket: ");
+                            write_general_text(
+                                "terminate incoming and outgoing data communication with the socket: ",
+                            );
                             write_colored(socket);
                         }
                     }
@@ -7894,10 +7926,11 @@ impl SyscallObject {
             }
 
             Sysno::futex => {
+                let operations_only_mask = 0b01111111;
+                let futex_op = parse_as_int(registers[1]);
                 match self.state {
                     Entering => {
                         let uaddr_address = registers[0] as usize;
-                        let futex_op = parse_as_int(registers[1]);
                         let val = lower_32_bits(registers[2]);
                         // timespec_or_val2
                         let timespec_or_val2 = registers[3];
@@ -7914,38 +7947,59 @@ impl SyscallObject {
                         // futex flags have an operation part and an options part
                         //
                         // this mask gets rid of the options
-                        let operations_only_mask = 0b01111111;
                         match futex_op & operations_only_mask {
+                            // If the thread sleeps after this, then its waiting on the futex
                             FUTEX_WAIT => {
-                                write_text(
-                                    "if comparison succeeds block and wait for "
-                                        .custom_color(*OUR_YELLOW),
-                                );
+                                write_general_text("if futex: ");
+                                write_futex(uaddr_address);
+                                write_general_text(" still contains ");
+                                write_text(val.to_string().custom_color(*PAGES_COLOR));
+                                write_text(", then block and wait for ".custom_color(*OUR_YELLOW));
                                 write_text("FUTEX_WAKE".custom_color(*PAGES_COLOR));
                             }
-                            FUTEX_WAKE => {
-                                write_general_text("wake a maximum of ");
-                                write_text(val.to_string().custom_color(*PAGES_COLOR));
-                                write_general_text(" waiters waiting on futex: ");
-                                write_futex(uaddr_address);
-                            }
+                            FUTEX_WAKE => match val {
+                                1 => {
+                                    write_general_text("wake ");
+                                    write_text("1".custom_color(*PAGES_COLOR));
+                                    write_general_text(" waiter on futex: ");
+                                    write_futex(uaddr_address);
+                                }
+                                n => {
+                                    write_general_text("wake a maximum of ");
+                                    write_text(val.to_string().custom_color(*PAGES_COLOR));
+                                    write_general_text(" waiters waiting on futex: ");
+                                    write_futex(uaddr_address);
+                                }
+                            },
                             FUTEX_FD => {
                                 write_general_text("create a file descriptor for the futex at ");
                                 write_futex(uaddr_address);
                                 write_general_text(" to use with asynchronous syscalls");
                             }
                             FUTEX_CMP_REQUEUE => {
-                                write_general_text("if comparison succeeds wake a maximum of ");
-                                write_text(val.to_string().custom_color(*PAGES_COLOR));
-                                write_general_text(" waiters waiting on futex: ");
+                                write_general_text("if futex: ");
                                 write_futex(uaddr_address);
-                                write_general_text(" and requeue a maximum of ");
+                                write_general_text(" still contains ");
+                                write_text(val3.to_string().custom_color(*PAGES_COLOR));
+                                match val {
+                                    1 => {
+                                        write_general_text(", then wake ");
+                                        write_text("1".custom_color(*PAGES_COLOR));
+                                        write_general_text(" waiter on it");
+                                    }
+                                    n => {
+                                        write_general_text(", then wake a maximum of ");
+                                        write_text(val.to_string().custom_color(*PAGES_COLOR));
+                                        write_general_text(" waiters on it");
+                                    }
+                                };
+                                write_general_text(", and requeue a maximum of ");
                                 write_text(
                                     lower_32_bits(timespec_or_val2)
                                         .to_string()
                                         .custom_color(*PAGES_COLOR),
                                 );
-                                write_general_text(" from the remaining waiters to the futex at ");
+                                write_general_text(" from the remaining waiters to the futex at: ");
                                 write_futex(uaddr2_address);
                             }
                             FUTEX_REQUEUE => {
@@ -8013,7 +8067,8 @@ impl SyscallObject {
                         let mut directives = vec![];
                         if (futex_op & FUTEX_PRIVATE_FLAG) == FUTEX_PRIVATE_FLAG {
                             directives.push(
-                                "only use futex between threads of the same process"
+                                "don't share futex with outside processes"
+                                    // "only use futex between threads of the same process"
                                     .custom_color(*OUR_YELLOW),
                             );
                         }
@@ -8036,9 +8091,23 @@ impl SyscallObject {
                                 write_general_text(" |=> ");
                                 write_text("successful".bold().green());
                             }
-                            SyscallResult::Fail(_errno_variant) => {
+                            SyscallResult::Fail(errno_variant) => {
                                 // TODO! granular
-                                self.one_line_error();
+                                match futex_op & operations_only_mask {
+                                    FUTEX_WAIT | FUTEX_CMP_REQUEUE => {
+                                        if let ErrnoVariant::Userland(nix::errno::Errno::EAGAIN) =
+                                            errno_variant
+                                        {
+                                            write_general_text(" |=> ");
+                                            write_text(
+                                                "futex didn't contain the value".bold().red(),
+                                            );
+                                        } else {
+                                            self.one_line_error();
+                                        }
+                                    }
+                                    _ => self.one_line_error(),
+                                };
                             }
                         }
                     }
@@ -8360,7 +8429,8 @@ impl SyscallObject {
                             } else if pid == -1 {
                                 write_general_text("wait for state change in any child");
                             } else if pid == 0 {
-                                write_general_text("wait for state change in any child with a similar process group ID",
+                                write_general_text(
+                                    "wait for state change in any child with a similar process group ID",
                                 );
                             } else {
                                 write_general_text("wait for state change in child process ");
@@ -9009,7 +9079,9 @@ impl SyscallObject {
             Sysno::vfork => {
                 match self.state {
                     Entering => {
-                        write_general_text("create a new child process with copy-on-write memory, (suspend execution until child terminates or calls an exec* syscall)");
+                        write_general_text(
+                            "create a new child process with copy-on-write memory, (suspend execution until child terminates or calls an exec* syscall)",
+                        );
                     }
                     Exiting => {
                         match &self.result {
@@ -9233,7 +9305,9 @@ impl SyscallObject {
                             {
                                 // this improves performance when appeding (makes appending later faster)
                                 write_general_text(" (");
-                                write_general_text("do not increase the file size if the range is larger, simply zeroize the out of bound bytes)");
+                                write_general_text(
+                                    "do not increase the file size if the range is larger, simply zeroize the out of bound bytes)",
+                                );
                                 write_general_text(")");
                             } else if (mode & FALLOC_FL_UNSHARE_RANGE) == FALLOC_FL_UNSHARE_RANGE {
                                 // this improves performance when appeding (makes appending later faster)
