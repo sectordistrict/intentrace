@@ -8994,16 +8994,24 @@ impl SyscallObject {
 
                                 // TODO!
                                 // separate the signal parsing from the to_str() result
-                                match parse_as_signal(exit_signal as i32) {
-                                    "SIGCHLD" => {}
-                                    anything_else => directives.push(
-                                        format!(
-                                            "{}{}",
-                                            "set the exit signal as: ".custom_color(*OUR_YELLOW),
-                                            anything_else.custom_color(*PAGES_COLOR)
-                                        )
-                                        .normal(),
-                                    ),
+                                if exit_signal == 0 {
+                                    directives.push(
+                                        "set the child to not signal the parent when it exits"
+                                            .custom_color(*OUR_YELLOW),
+                                    );
+                                } else {
+                                    match parse_as_signal(exit_signal as i32) {
+                                        "SIGCHLD" => {}
+                                        anything_else => directives.push(
+                                            format!(
+                                                "{}{}",
+                                                "set the exit signal as: "
+                                                    .custom_color(*OUR_YELLOW),
+                                                anything_else.custom_color(*PAGES_COLOR)
+                                            )
+                                            .normal(),
+                                        ),
+                                    }
                                 };
                                 write_directives(directives);
                             }
@@ -9240,16 +9248,23 @@ impl SyscallObject {
                         }
                         // TODO!
                         // separate the signal parsing from the to_str() result
-                        match parse_as_signal(exit_signal) {
-                            "SIGCHLD" => {}
-                            anything_else => directives.push(
-                                format!(
-                                    "{}{}",
-                                    "set the exit signal as: ".custom_color(*OUR_YELLOW),
-                                    anything_else.custom_color(*PAGES_COLOR)
-                                )
-                                .normal(),
-                            ),
+                        if exit_signal == 0 {
+                            directives.push(
+                                "set the child to not signal the parent when it exits"
+                                    .custom_color(*OUR_YELLOW),
+                            );
+                        } else {
+                            match parse_as_signal(exit_signal) {
+                                "SIGCHLD" => {}
+                                anything_else => directives.push(
+                                    format!(
+                                        "{}{}",
+                                        "set the exit signal as: ".custom_color(*OUR_YELLOW),
+                                        anything_else.custom_color(*PAGES_COLOR)
+                                    )
+                                    .normal(),
+                                ),
+                            }
                         };
                         write_directives(directives)
                     }
