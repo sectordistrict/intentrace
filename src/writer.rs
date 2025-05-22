@@ -5,13 +5,15 @@ use crate::{
         PARTITION_2_COLOR, PATHLIKE_ALTERNATOR, PID_BACKGROUND_COLOR,
     },
     utilities::{
-        calculate_futex_alias, get_final_dentry_color_consider_repetition, lose_relativity_on_path,
-        partition_by_final_dentry, FUTEXES, TRACEES,
+        calculate_futex_alias, get_final_dentry_color_consider_repetition,
+        get_strings_from_dirfd_anchored_file, partition_by_final_dentry, FUTEXES, PAGE_SIZE,
     },
 };
-use colored::{ColoredString, Colorize};
-use nix::{libc::AT_FDCWD, unistd::Pid};
+use colored::{ColoredString, Colorize, CustomColor};
+use nix::unistd::Pid;
+use num_traits::{PrimInt, Signed, Unsigned};
 use std::{
+    borrow::Cow,
     io::{BufWriter, Write},
     sync::{LazyLock, Mutex, OnceLock},
 };
@@ -102,12 +104,10 @@ pub fn write_syscall_not_covered(sysno: Sysno, tracee_pid: Pid) {
     flush_buffer();
 }
 
-pub fn write_vanilla_path_file(filename: String) {
+pub fn write_vanilla_path_file(filename: &str) {
     use unicode_segmentation::UnicodeSegmentation;
     let graphemes = filename.graphemes(true);
-    let (partition1, partition2) = partition_by_final_dentry(graphemes);
-    let yellow = partition1.into_iter().collect::<String>();
-    let repetition_dependent = partition2.into_iter().collect::<String>();
+    let (yellow, repetition_dependent) = partition_by_final_dentry(graphemes);
 
     write_path_consider_repetition(&yellow, &repetition_dependent);
 }
@@ -117,14 +117,26 @@ pub fn write_colored(filename: String) {
 }
 
 pub fn write_path_consider_repetition(yellow: &str, repetition_dependent: &str) {
+    write_partition_1_consider_repetition(yellow);
+    write_partition_2_consider_repetition(repetition_dependent);
+}
+
+// repetition isnt relevant for the first partition of the path
+// but the name is kept for consistency
+#[inline(always)]
+pub fn write_partition_1_consider_repetition(partition1: &str) {
+    buffered_write(partition1.custom_color(*PARTITION_1_COLOR));
+}
+
+#[inline(always)]
+pub fn write_partition_2_consider_repetition(partition2: &str) {
     // don't alternate if we're operating on a directory
-    let partition_2_color = if repetition_dependent.len() != 0 {
-        get_final_dentry_color_consider_repetition(repetition_dependent)
+    let partition_2_color = if partition2.len() != 0 {
+        get_final_dentry_color_consider_repetition(partition2)
     } else {
         PARTITION_2_COLOR[*PATHLIKE_ALTERNATOR.lock().unwrap()]
     };
-    buffered_write(yellow.custom_color(*PARTITION_1_COLOR));
-    buffered_write(repetition_dependent.custom_color(partition_2_color));
+    buffered_write(partition2.custom_color(partition_2_color));
 }
 
 pub fn write_possible_dirfd_anchor(
@@ -132,30 +144,15 @@ pub fn write_possible_dirfd_anchor(
     filename: String,
     tracee_pid: Pid,
 ) -> anyhow::Result<()> {
-    if filename.starts_with('.') {
-        let mut tracees = TRACEES.lock().unwrap();
-        let process = tracees
-            .entry(tracee_pid)
-            .or_insert_with(|| procfs::process::Process::new(i32::from(tracee_pid)).unwrap());
-
-        if dirfd == AT_FDCWD {
-            let current_working_directory = process.cwd()?;
-            let yellow = current_working_directory.to_str().unwrap();
-            let repetition_dependent = lose_relativity_on_path(filename.as_ref());
-            write_path_consider_repetition(yellow, repetition_dependent);
-        } else {
-            let file_info = process.fd_from_fd(dirfd)?;
-            match file_info.target {
-                procfs::process::FDTarget::Path(path) => {
-                    let yellow = path.to_str().unwrap();
-                    let repetition_dependent = lose_relativity_on_path(filename.as_ref());
-                    write_path_consider_repetition(yellow, repetition_dependent);
-                }
-                _ => unreachable!(),
-            }
+    let (first_partition, second_partition) =
+        get_strings_from_dirfd_anchored_file(dirfd, filename.as_ref(), tracee_pid)?;
+    match first_partition {
+        Cow::Owned(string) => {
+            write_path_consider_repetition(string.as_ref(), second_partition);
         }
-    } else {
-        write_vanilla_path_file(filename);
+        Cow::Borrowed(_empty) => {
+            write_vanilla_path_file(second_partition);
+        }
     }
     Ok(())
 }
@@ -298,6 +295,111 @@ pub fn write_timeval(seconds: i64, microseconds: i64) {
                     .custom_color(*PAGES_COLOR),
             );
             write_text(" microseconds".custom_color(*OUR_YELLOW));
+        }
+    }
+}
+
+// TODO!
+// perf
+pub fn write_signed_numeric(signed_numeric: impl PrimInt + Signed) {
+    match signed_numeric.to_isize().unwrap() {
+        -32767 => write_text("i16::MIN + 1".custom_color(CustomColor::new(0, 169, 233))),
+        -32768 => write_text("i16::MIN".custom_color(CustomColor::new(0, 169, 233))),
+        -32769 => write_text("i16::MIN - 1".custom_color(CustomColor::new(0, 169, 233))),
+        -2147483647 => write_text("i32::MIN + 1".custom_color(CustomColor::new(0, 169, 233))),
+        -2147483648 => write_text("i32::MIN".custom_color(CustomColor::new(0, 169, 233))),
+        -2147483649 => write_text("i32::MIN - 1".custom_color(CustomColor::new(0, 169, 233))),
+        -9223372036854775807 => {
+            write_text("i64::MIN + 1".custom_color(CustomColor::new(0, 169, 233)))
+        }
+        -9223372036854775808 => write_text("i64::MIN".custom_color(CustomColor::new(0, 169, 233))),
+        n => write_text(n.to_string().custom_color(CustomColor::new(0, 169, 233))),
+    };
+}
+
+// TODO!
+// perf
+pub fn write_unsigned_numeric(unsigned_numeric: impl PrimInt + Unsigned) {
+    match unsigned_numeric.to_usize().unwrap() {
+        32766 => write_text("i16::MAX - 1".custom_color(CustomColor::new(0, 169, 233))),
+        32767 => write_text("i16::MAX".custom_color(CustomColor::new(0, 169, 233))),
+        32768 => write_text("i16::MAX + 1".custom_color(CustomColor::new(0, 169, 233))),
+        65534 => write_text("u16::MAX - 1".custom_color(CustomColor::new(0, 169, 233))),
+        65535 => write_text("u16::MAX".custom_color(CustomColor::new(0, 169, 233))),
+        65536 => write_text("u16::MAX + 1".custom_color(CustomColor::new(0, 169, 233))),
+        2147483646 => write_text("i32::MAX - 1".custom_color(CustomColor::new(0, 169, 233))),
+        2147483647 => write_text("i32::MAX".custom_color(CustomColor::new(0, 169, 233))),
+        2147483648 => write_text("i32::MAX + 1".custom_color(CustomColor::new(0, 169, 233))),
+        4294967294 => write_text("u32::MAX - 1".custom_color(CustomColor::new(0, 169, 233))),
+        4294967295 => write_text("u32::MAX".custom_color(CustomColor::new(0, 169, 233))),
+        4294967296 => write_text("u32::MAX + 1".custom_color(CustomColor::new(0, 169, 233))),
+        9223372036854775806 => {
+            write_text("i64::MAX - 1".custom_color(CustomColor::new(0, 169, 233)))
+        }
+        9223372036854775807 => write_text("i64::MAX".custom_color(CustomColor::new(0, 169, 233))),
+        9223372036854775808 => {
+            write_text("i64::MAX + 1".custom_color(CustomColor::new(0, 169, 233)))
+        }
+        18446744073709551614 => {
+            write_text("u64::MAX - 1".custom_color(CustomColor::new(0, 169, 233)))
+        }
+        18446744073709551615 => write_text("u64::MAX".custom_color(CustomColor::new(0, 169, 233))),
+        n => write_text(n.to_string().custom_color(CustomColor::new(0, 169, 233))),
+    }
+}
+
+// CONVERSION OUTSIDE
+pub fn write_address(register_value: usize) {
+    let pointer = register_value as *const ();
+    if pointer.is_null() {
+        write_text("NULL".custom_color(*OUR_YELLOW))
+    } else {
+        write_text(format!("{pointer:p}").custom_color(*OUR_YELLOW))
+    }
+}
+
+// CONVERSION OUTSIDE
+pub fn write_page_aligned_address(register_value: usize) {
+    let pointer = register_value as *const ();
+    if pointer.is_null() {
+        write_text("NULL".custom_color(*OUR_YELLOW))
+    } else {
+        // the pipe notation can only be used for 4KiB & 64KiB page sizes
+        // 16KiB is a common page size but its equivalent to 250 in decimal
+        let pointer_formatted = format!("{pointer:p}");
+        match *PAGE_SIZE {
+            4096 => {
+                write_text(pointer_formatted[..11].custom_color(*OUR_YELLOW));
+                if register_value % 4096 == 0 {
+                    write_text("|".custom_color(*PAGES_COLOR));
+                } else {
+                    write_text("|".red());
+                }
+                write_text(pointer_formatted[11..].custom_color(*OUR_YELLOW));
+            }
+            65536 => {
+                write_text(pointer_formatted[..10].custom_color(*OUR_YELLOW));
+                if register_value % 65536 == 0 {
+                    write_text("|".custom_color(*PAGES_COLOR));
+                } else {
+                    write_text("|".red());
+                }
+                write_text(pointer_formatted[10..].custom_color(*OUR_YELLOW));
+            }
+            16384 => {
+                write_text(pointer_formatted[..9].custom_color(*OUR_YELLOW));
+                if register_value % 16384 == 0 {
+                    write_text(
+                        pointer_formatted[10..11]
+                            .custom_color(*PAGES_COLOR)
+                            .underline(),
+                    );
+                } else {
+                    write_text(pointer_formatted[10..11].red().underline());
+                }
+                write_text(pointer_formatted[11..].custom_color(*OUR_YELLOW));
+            }
+            _ => write_text(pointer_formatted.custom_color(*OUR_YELLOW)),
         }
     }
 }

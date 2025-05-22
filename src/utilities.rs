@@ -1,26 +1,3 @@
-use core::sync::atomic::AtomicUsize;
-use std::{
-    collections::HashMap,
-    hash::{DefaultHasher, Hash, Hasher},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        LazyLock, Mutex,
-    },
-    time::Duration,
-};
-
-use colored::{ColoredString, Colorize, CustomColor};
-use nix::{
-    errno::Errno,
-    libc::{sysconf, _SC_PAGESIZE},
-    sys::signal::Signal,
-    unistd::Pid,
-};
-use procfs::process::{MMapPath, MemoryMap, Process};
-use syscalls::Sysno;
-use unicode_segmentation::Graphemes;
-use uzers::{Groups, Users};
-
 use crate::{
     auxiliary::{constants::general::MAX_KERNEL_ULONG, kernel_errno::KernelErrno},
     colors::{switch_pathlike_color, PARTITION_1_COLOR, PARTITION_2_COLOR, PATHLIKE_ALTERNATOR},
@@ -30,6 +7,30 @@ use crate::{
     syscall_skeleton_map::initialize_skeletons_map,
     types::{Bytes, BytesPagesRelevant, Category, Syscall_Shape},
 };
+
+use colored::{ColoredString, Colorize, CustomColor};
+use core::sync::atomic::AtomicUsize;
+use if_chain::if_chain;
+use nix::{
+    errno::Errno,
+    libc::{sysconf, AT_FDCWD, _SC_PAGESIZE},
+    sys::signal::Signal,
+    unistd::Pid,
+};
+use procfs::process::{MemoryMap, Process};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    hash::{DefaultHasher, Hash, Hasher},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        LazyLock, Mutex,
+    },
+    time::Duration,
+};
+use syscalls::Sysno;
+use unicode_segmentation::Graphemes;
+use uzers::{Groups, Users};
 
 pub static PAGE_SIZE: LazyLock<usize> = LazyLock::new(|| unsafe { sysconf(_SC_PAGESIZE) as usize });
 pub static PRE_CALL_PROGRAM_BREAK_POINT: AtomicUsize = AtomicUsize::new(0);
@@ -57,21 +58,23 @@ pub static TRACEES: LazyLock<Mutex<HashMap<Pid, Process>>> =
 pub static LAST_PATHLIKE: LazyLock<Mutex<u64>> = LazyLock::new(|| Mutex::new(0));
 
 pub fn lose_relativity_on_path(string: &str) -> &str {
-    let mut chars = string.chars().enumerate();
-    while let Some((index, chara)) = chars.next() {
-        if chara == '.' {
-            continue;
-        }
-        return &string[index..];
+    match string
+        .chars()
+        .enumerate()
+        .skip_while(|&(_index, chara)| chara == '.' || chara == '/')
+        .take(1)
+        .next()
+    {
+        Some((index, _chara)) => &string[index..],
+        None => "",
     }
-    ""
 }
 
 pub fn get_mem_difference_from_previous(post_call_brk: usize) -> isize {
     post_call_brk as isize - PRE_CALL_PROGRAM_BREAK_POINT.load(Ordering::SeqCst) as isize
 }
 
-pub fn set_memory_break(tracee_pid: Pid) {
+pub fn set_memory_break_pre_call(tracee_pid: Pid) {
     let mut tracees = TRACEES.lock().unwrap();
     let process = tracees
         .entry(tracee_pid)
@@ -89,23 +92,6 @@ pub fn where_in_tracee_memory(tracee_pid: Pid, address: u64) -> Option<MemoryMap
     let maps = process.maps().ok()?.0;
     maps.into_iter()
         .find(|map| (address >= map.address.0) && (address <= map.address.1))
-}
-
-pub fn get_tracee_memory_break(tracee_pid: Pid) -> Option<(usize, (u64, u64))> {
-    let mut tracees = TRACEES.lock().unwrap();
-    let process = tracees
-        .entry(tracee_pid)
-        .or_insert_with(|| procfs::process::Process::new(i32::from(tracee_pid)).unwrap());
-    let maps = process.maps().ok()?.0;
-    let address_range = maps
-        .into_iter()
-        .find(|map| map.pathname == MMapPath::Stack)
-        .map(|map| map.address)
-        .unwrap_or((0, 0));
-    Some((
-        PRE_CALL_PROGRAM_BREAK_POINT.load(Ordering::SeqCst),
-        address_range,
-    ))
 }
 
 pub fn interpret_syscall_result(return_register: u64) -> SyscallResult {
@@ -216,16 +202,6 @@ pub fn lower_64_bits(value: usize) -> u64 {
     (value & 0xFFFFFFFFFFFFFFFF) as u64
 }
 
-// CONVERSION OUTSIDE
-pub fn parse_as_address(register_value: usize) -> String {
-    let pointer = register_value as *const ();
-    if pointer.is_null() {
-        "0xNull".to_string()
-    } else {
-        format!("{:p}", pointer)
-    }
-}
-
 // Length_Of_Bytes_Specific
 // memory and file indexers and seekers where negative is expected
 pub fn parse_as_signed_bytes(register_value: u64) -> String {
@@ -299,24 +275,74 @@ pub fn get_final_dentry_color_consider_repetition(repetition_dependent: &str) ->
     }
 }
 
-pub fn partition_by_final_dentry(graphemes: Graphemes) -> (Vec<&str>, Vec<&str>) {
+pub fn partition_by_final_dentry(graphemes: Graphemes) -> (String, String) {
     let mut graphemes_revved = graphemes.rev();
-    let mut in_final_dentry = true;
-    let blue = graphemes_revved
+    let second_partition = graphemes_revved
         .by_ref()
-        .take_while(|chara| {
-            if *chara == "/" {
-                in_final_dentry = false
-            }
-            in_final_dentry
-        })
+        .take_while(|chara| *chara != "/")
         .collect::<Vec<&str>>();
-    let mut yellow = graphemes_revved.rev().collect::<Vec<&str>>();
-    yellow.push("/");
-    (yellow, blue.into_iter().rev().collect::<_>())
+    let mut first_partition = graphemes_revved.rev().collect::<String>();
+    first_partition.push('/');
+    (
+        first_partition,
+        second_partition.into_iter().rev().collect::<String>(),
+    )
+}
+// TODO!
+// lose_relativity_on_path requires book keeping
+// for now just print the path
+//
+pub fn get_strings_from_dirfd_anchored_file<'previous_function>(
+    dirfd: i32,
+    filename: &'previous_function str,
+    tracee_pid: Pid,
+) -> anyhow::Result<(Cow<'static, str>, &'previous_function str)> {
+    if !filename.starts_with('/') {
+        let mut tracees = TRACEES.lock().unwrap();
+        let tracee_process = tracees
+            .entry(tracee_pid)
+            .or_insert_with(|| procfs::process::Process::new(i32::from(tracee_pid)).unwrap());
+
+        if dirfd == AT_FDCWD {
+            let current_working_directory = tracee_process.cwd()?;
+
+            // remove this check when lose_relativity_on_path starts accounting for path math
+            let repetition_dependent = if filename.starts_with("./") {
+                &filename[2..]
+            } else {
+                filename.as_ref()
+            };
+            // let repetition_dependent = lose_relativity_on_path(filename.as_ref());
+            Ok((
+                Cow::Owned(current_working_directory.to_string_lossy().into_owned()),
+                repetition_dependent,
+            ))
+        } else {
+            let file_info = tracee_process.fd_from_fd(dirfd)?;
+            match file_info.target {
+                procfs::process::FDTarget::Path(first_partition) => {
+                    // remove this check when lose_relativity_on_path starts accounting for path math
+                    let repetition_dependent = if filename.starts_with("./") {
+                        &filename[2..]
+                    } else {
+                        filename.as_ref()
+                    };
+                    // let repetition_dependent = lose_relativity_on_path(filename.as_ref());
+                    Ok((
+                        Cow::Owned(first_partition.to_string_lossy().into_owned()),
+                        repetition_dependent,
+                    ))
+                }
+                _ => unreachable!(),
+            }
+        }
+    } else {
+        Ok((Cow::Borrowed(""), filename))
+    }
 }
 
 pub fn parse_as_file_descriptor(file_descriptor: i32, tracee_pid: Pid) -> String {
+    use procfs::process::FDTarget;
     let mut colored_strings = Vec::new();
     if file_descriptor == 0 {
         return "0 -> StdIn".bright_blue().to_string();
@@ -332,76 +358,109 @@ pub fn parse_as_file_descriptor(file_descriptor: i32, tracee_pid: Pid) -> String
         let file_info = process.fd_from_fd(file_descriptor);
         match file_info {
             Ok(file) => match file.target {
-                procfs::process::FDTarget::Path(path) => {
+                FDTarget::Path(path) => {
                     use unicode_segmentation::UnicodeSegmentation;
                     colored_strings.push(format!("{} -> ", file.fd).bright_blue());
                     let graphemes = path.to_str().unwrap().graphemes(true);
-                    let (partition1, partition2) = partition_by_final_dentry(graphemes);
-                    let yellow = partition1.into_iter().collect::<String>();
-                    let repetition_dependent = partition2.into_iter().collect::<String>();
+                    let (yellow, repetition_dependent) = partition_by_final_dentry(graphemes);
                     let partition_2_color =
                         get_final_dentry_color_consider_repetition(&repetition_dependent);
                     colored_strings.push(yellow.custom_color(*PARTITION_1_COLOR));
                     colored_strings.push(repetition_dependent.custom_color(partition_2_color));
                 }
-                procfs::process::FDTarget::Socket(socket_number) => {
+                FDTarget::Socket(socket_number) => {
                     use procfs::net;
-                    let mut tcp = net::tcp().unwrap();
-                    tcp.extend(net::tcp6().unwrap());
-                    let mut udp = net::udp().unwrap();
-                    udp.extend(net::udp6().unwrap());
-                    let unix = net::unix().unwrap();
+                    let mut tcp = net::tcp().unwrap_or(vec![]);
+                    tcp.extend(net::tcp6().unwrap_or(vec![]));
                     'lookup: {
-                        for entry in &tcp {
-                            if entry.inode == socket_number {
-                                if entry.remote_address.ip().is_loopback() {
-                                    colored_strings.push(
+                        if let Some(matching_socket) =
+                            tcp.into_iter().find(|entry| entry.inode == socket_number)
+                        {
+                            match matching_socket.remote_address.ip().is_loopback() {
+                                true => colored_strings.push(
+                                    format!(
+                                        "{} -> localhost:{}",
+                                        file.fd,
+                                        matching_socket.remote_address.port()
+                                    )
+                                    .bright_blue(),
+                                ),
+                                false => colored_strings.push(
+                                    format!(
+                                        "{} -> {}:{}",
+                                        file.fd,
+                                        matching_socket.remote_address.ip().to_string(),
+                                        matching_socket.remote_address.port()
+                                    )
+                                    .bright_blue(),
+                                ),
+                            };
+                            break 'lookup;
+                        }
+                        if_chain! {
+                            if let Ok(entries) = net::tcp6();
+                            if let Some(matching_socket) = entries.into_iter().find(|entry| entry.inode == socket_number);
+                            then {
+                                match matching_socket.remote_address.ip().is_loopback() {
+                                    true => colored_strings.push(
                                         format!(
                                             "{} -> localhost:{}",
                                             file.fd,
-                                            entry.remote_address.port()
+                                            matching_socket.remote_address.port()
                                         )
                                         .bright_blue(),
-                                    );
-                                } else {
-                                    colored_strings.push(
+                                    ),
+                                    false => colored_strings.push(
                                         format!(
-                                            "{} -> {:?}:{}",
+                                            "{} -> {}:{}",
                                             file.fd,
-                                            entry.remote_address.ip(),
-                                            entry.remote_address.port()
+                                            matching_socket.remote_address.ip().to_string(),
+                                            matching_socket.remote_address.port()
                                         )
                                         .bright_blue(),
-                                    );
-                                }
+                                    ),
+                                };
                                 break 'lookup;
                             }
                         }
-                        for entry in &udp {
-                            if entry.inode == socket_number {
-                                // println!("UDP {:?}", entry);
+                        if_chain! {
+                            if let Ok(entries) = net::udp();
+                            if let Some(_) = entries.into_iter().find(|entry| entry.inode == socket_number);
+                            then {
+                                colored_strings
+                                    .push(format!("{} -> UDP Socket", file.fd).bright_blue());
                                 break 'lookup;
                             }
                         }
-                        for entry in &unix {
-                            if entry.inode == socket_number {
-                                colored_strings.push(
-                                    format!("{} -> Unix Domain Socket", file.fd).bright_blue(),
-                                );
+                        if_chain! {
+                            if let Ok(entries) = net::udp6();
+                            if let Some(_) = entries.into_iter().find(|entry| entry.inode == socket_number);
+                            then {
+                                colored_strings
+                                    .push(format!("{} -> UDP Socket", file.fd).bright_blue());
+                                break 'lookup;
+                            }
+                        }
+                        if_chain! {
+                            if let Ok(entries) = net::unix();
+                            if let Some(_) = entries.into_iter().find(|entry| entry.inode == socket_number);
+                            then {
+                                colored_strings
+                                    .push(format!("{} -> Unix Domain Socket", file.fd).bright_blue());
                                 break 'lookup;
                             }
                         }
                     }
                 }
-                procfs::process::FDTarget::Net(_net) => {
+                FDTarget::Net(_net) => {
                     return format!("{} -> NET", file.fd).bright_blue().to_string()
                 }
-                procfs::process::FDTarget::Pipe(_pipe) => {
+                FDTarget::Pipe(_pipe) => {
                     return format!("{} -> Unix Pipe", file.fd)
                         .bright_blue()
                         .to_string()
                 }
-                procfs::process::FDTarget::AnonInode(anon_inode) => {
+                FDTarget::AnonInode(anon_inode) => {
                     // anon_inode is basically a file that has no inode on disk
                     // anon_inode could've been something that was a file that is no longer on the disk
                     // Some syscalls create file descriptors that have no inode
@@ -416,10 +475,10 @@ pub fn parse_as_file_descriptor(file_descriptor: i32, tracee_pid: Pid) -> String
                         .bright_blue()
                         .to_string();
                 }
-                procfs::process::FDTarget::MemFD(mem_fd) => {
+                FDTarget::MemFD(mem_fd) => {
                     return format!("{} -> {mem_fd}", file.fd).bright_blue().to_string()
                 }
-                procfs::process::FDTarget::Other(target, _inode_number) => {
+                FDTarget::Other(target, _inode_number) => {
                     return format!("{} -> {target}", file.fd).bright_blue().to_string()
                 }
             },

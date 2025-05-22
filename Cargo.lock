@@ -331,14 +331,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "if_chain"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb56e1aa765b4b4f3aadfab769793b7087bb03a4ea4920644a6d238e2df5b9ed"
+
+[[package]]
 name = "intentrace"
-version = "0.9.8"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "clap",
  "colored",
  "ctrlc",
+ "if_chain",
  "nix 0.29.0",
+ "num-traits",
  "pete",
  "procfs",
  "syscalls",
@@ -556,8 +564,6 @@ dependencies = [
 [[package]]
 name = "pete"
 version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f09c1c1ad40df294ff8643fe88a3dc64fff3293b6bc0ed9f71aff71f7086cbd"
 dependencies = [
  "libc",
  "memoffset 0.8.0",

@@ -51,7 +51,7 @@ use nix::{
 use pete::{Ptracer, Restart, Stop};
 use syscalls::Sysno;
 use utilities::{
-    interpret_syscall_result, set_memory_break, syscall_is_blocking, HALT_TRACING, REGISTERS,
+    interpret_syscall_result, set_memory_break_pre_call, syscall_is_blocking, HALT_TRACING, REGISTERS,
     TABLE, TABLE_FOLLOW_FORKS,
 };
 use writer::{
@@ -384,7 +384,7 @@ fn ptrace_ptracer(mut ptracer: Ptracer) {
 fn syscall_will_run(syscall: &mut SyscallObject) {
     // handle program break point
     if syscall.is_mem_alloc_dealloc() {
-        set_memory_break(syscall.tracee_pid);
+        set_memory_break_pre_call(syscall.tracee_pid);
     }
     match *FOLLOW_FORKS {
         true => {
@@ -479,7 +479,7 @@ fn print_table() {
         }
         let table = builder.build().with(Style::ascii_rounded()).to_string();
 
-        println!("\n{}", table);
+        eprintln!("\n{}", table);
     } else {
         let output = TABLE.lock().unwrap();
         let mut vec = Vec::from_iter(output.iter());
@@ -523,6 +523,6 @@ fn print_table() {
         }
         let table = builder.build().with(Style::ascii_rounded()).to_string();
 
-        println!("\n{}", table);
+        eprintln!("\n{}", table);
     }
 }

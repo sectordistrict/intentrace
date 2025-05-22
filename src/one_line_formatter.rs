@@ -1,5 +1,7 @@
 #![allow(unused_variables)]
 
+use std::borrow::Cow;
+
 use crate::{
     auxiliary::constants::{
         general::{
@@ -17,68 +19,72 @@ use crate::{
     syscall_object::{ErrnoVariant, SyscallObject, SyscallResult},
     types::{Bytes, BytesPagesRelevant},
     utilities::{
-        REGISTERS, SYSCATEGORIES_MAP, colorize_syscall_name, find_fd_for_tracee,
-        get_array_of_strings, get_groupname_from_uid, get_mem_difference_from_previous,
+        colorize_syscall_name, find_fd_for_tracee, get_array_of_strings, get_groupname_from_uid,
+        get_mem_difference_from_previous, get_strings_from_dirfd_anchored_file,
         get_username_from_uid, lower_32_bits, lower_64_bits, new_process, new_thread,
-        parse_as_address, parse_as_bytes_no_pages_ceil, parse_as_bytes_pages_ceil,
-        parse_as_file_descriptor, parse_as_int, parse_as_long, parse_as_signal,
-        parse_as_signed_bytes, parse_as_ssize_t, parse_as_unsigned_bytes,
-        partition_by_final_dentry, string_from_pointer,
+        parse_as_bytes_no_pages_ceil, parse_as_bytes_pages_ceil, parse_as_file_descriptor,
+        parse_as_int, parse_as_long, parse_as_signal, parse_as_signed_bytes, parse_as_ssize_t,
+        parse_as_unsigned_bytes, partition_by_final_dentry, string_from_pointer, REGISTERS,
+        SYSCATEGORIES_MAP,
     },
     write_text,
     writer::{
-        empty_buffer, errorize_pid_color, flush_buffer, write_anding, write_colored, write_commas,
-        write_directives, write_exiting, write_futex, write_general_text, write_oring,
-        write_parenthesis, write_possible_dirfd_anchor, write_timespec,
-        write_timespec_non_relative, write_timeval, write_vanilla_path_file,
+        empty_buffer, errorize_pid_color, flush_buffer, write_address, write_anding, write_colored,
+        write_commas, write_directives, write_exiting, write_futex, write_general_text,
+        write_oring, write_page_aligned_address, write_parenthesis,
+        write_partition_1_consider_repetition, write_partition_2_consider_repetition,
+        write_path_consider_repetition, write_possible_dirfd_anchor, write_timespec,
+        write_timespec_non_relative, write_timeval, write_unsigned_numeric,
+        write_vanilla_path_file,
     },
 };
 use colored::Colorize;
+use if_chain::if_chain;
 use nix::{
     errno::Errno,
     libc::{
-        __WALL, __WCLONE, __WNOTHREAD, AT_EACCESS, AT_EMPTY_PATH, AT_FDCWD, AT_NO_AUTOMOUNT,
-        AT_REMOVEDIR, AT_STATX_DONT_SYNC, AT_STATX_FORCE_SYNC, AT_STATX_SYNC_AS_STAT,
-        AT_SYMLINK_FOLLOW, AT_SYMLINK_NOFOLLOW, CLONE_CHILD_CLEARTID, CLONE_CHILD_SETTID,
-        CLONE_CLEAR_SIGHAND, CLONE_FILES, CLONE_FS, CLONE_IO, CLONE_NEWCGROUP, CLONE_NEWIPC,
-        CLONE_NEWNET, CLONE_NEWNS, CLONE_NEWPID, CLONE_NEWUSER, CLONE_NEWUTS, CLONE_PARENT,
-        CLONE_PARENT_SETTID, CLONE_PIDFD, CLONE_PTRACE, CLONE_SETTLS, CLONE_SIGHAND, CLONE_SYSVSEM,
-        CLONE_THREAD, CLONE_UNTRACED, CLONE_VFORK, CLONE_VM, EFD_CLOEXEC, EFD_NONBLOCK,
-        EFD_SEMAPHORE, EPOLL_CLOEXEC, EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD, F_OK,
+        clone_args, rlimit, sigaction, timespec, timeval, AT_EACCESS, AT_EMPTY_PATH, AT_FDCWD,
+        AT_NO_AUTOMOUNT, AT_REMOVEDIR, AT_STATX_DONT_SYNC, AT_STATX_FORCE_SYNC,
+        AT_STATX_SYNC_AS_STAT, AT_SYMLINK_FOLLOW, AT_SYMLINK_NOFOLLOW, CLONE_CHILD_CLEARTID,
+        CLONE_CHILD_SETTID, CLONE_CLEAR_SIGHAND, CLONE_FILES, CLONE_FS, CLONE_IO, CLONE_NEWCGROUP,
+        CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS, CLONE_NEWPID, CLONE_NEWUSER, CLONE_NEWUTS,
+        CLONE_PARENT, CLONE_PARENT_SETTID, CLONE_PIDFD, CLONE_PTRACE, CLONE_SETTLS, CLONE_SIGHAND,
+        CLONE_SYSVSEM, CLONE_THREAD, CLONE_UNTRACED, CLONE_VFORK, CLONE_VM, EFD_CLOEXEC,
+        EFD_NONBLOCK, EFD_SEMAPHORE, EPOLL_CLOEXEC, EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD,
         FALLOC_FL_COLLAPSE_RANGE, FALLOC_FL_INSERT_RANGE, FALLOC_FL_KEEP_SIZE,
         FALLOC_FL_PUNCH_HOLE, FALLOC_FL_UNSHARE_RANGE, FALLOC_FL_ZERO_RANGE, FUTEX_CLOCK_REALTIME,
         FUTEX_CMP_REQUEUE, FUTEX_CMP_REQUEUE_PI, FUTEX_FD, FUTEX_LOCK_PI, FUTEX_LOCK_PI2,
         FUTEX_PRIVATE_FLAG, FUTEX_REQUEUE, FUTEX_TRYLOCK_PI, FUTEX_UNLOCK_PI, FUTEX_WAIT,
         FUTEX_WAIT_BITSET, FUTEX_WAIT_REQUEUE_PI, FUTEX_WAKE, FUTEX_WAKE_BITSET, FUTEX_WAKE_OP,
-        GRND_NONBLOCK, GRND_RANDOM, MADV_COLD, MADV_COLLAPSE, MADV_DODUMP, MADV_DOFORK,
+        F_OK, GRND_NONBLOCK, GRND_RANDOM, MADV_COLD, MADV_COLLAPSE, MADV_DODUMP, MADV_DOFORK,
         MADV_DONTDUMP, MADV_DONTFORK, MADV_DONTNEED, MADV_FREE, MADV_HUGEPAGE, MADV_HWPOISON,
         MADV_KEEPONFORK, MADV_MERGEABLE, MADV_NOHUGEPAGE, MADV_NORMAL, MADV_PAGEOUT,
         MADV_POPULATE_READ, MADV_POPULATE_WRITE, MADV_RANDOM, MADV_REMOVE, MADV_SEQUENTIAL,
         MADV_SOFT_OFFLINE, MADV_UNMERGEABLE, MADV_WILLNEED, MADV_WIPEONFORK, MAP_ANON,
-        MAP_ANONYMOUS, MAP_FIXED, MAP_FIXED_NOREPLACE, MAP_GROWSDOWN, MAP_HUGE_1GB, MAP_HUGE_1MB,
-        MAP_HUGE_2GB, MAP_HUGE_2MB, MAP_HUGE_8MB, MAP_HUGE_16GB, MAP_HUGE_16MB, MAP_HUGE_32MB,
-        MAP_HUGE_64KB, MAP_HUGE_256MB, MAP_HUGE_512KB, MAP_HUGE_512MB, MAP_HUGETLB, MAP_LOCKED,
+        MAP_ANONYMOUS, MAP_FIXED, MAP_FIXED_NOREPLACE, MAP_GROWSDOWN, MAP_HUGETLB, MAP_HUGE_16GB,
+        MAP_HUGE_16MB, MAP_HUGE_1GB, MAP_HUGE_1MB, MAP_HUGE_256MB, MAP_HUGE_2GB, MAP_HUGE_2MB,
+        MAP_HUGE_32MB, MAP_HUGE_512KB, MAP_HUGE_512MB, MAP_HUGE_64KB, MAP_HUGE_8MB, MAP_LOCKED,
         MAP_NONBLOCK, MAP_NORESERVE, MAP_POPULATE, MAP_PRIVATE, MAP_SHARED, MAP_SHARED_VALIDATE,
         MAP_STACK, MAP_SYNC, MCL_CURRENT, MCL_FUTURE, MCL_ONFAULT, MREMAP_DONTUNMAP, MREMAP_FIXED,
         MREMAP_MAYMOVE, MS_ASYNC, MS_INVALIDATE, MS_SYNC, O_APPEND, O_ASYNC, O_CLOEXEC, O_CREAT,
         O_DIRECT, O_DIRECTORY, O_DSYNC, O_EXCL, O_NDELAY, O_NOATIME, O_NOCTTY, O_NOFOLLOW,
-        O_NONBLOCK, O_PATH, O_RDONLY, O_RDWR, O_SYNC, O_TMPFILE, O_TRUNC, O_WRONLY, P_ALL, P_PGID,
-        P_PID, P_PIDFD, PRIO_PGRP, PRIO_PROCESS, PRIO_USER, PROT_EXEC, PROT_NONE, PROT_READ,
-        PROT_WRITE, PTRACE_ATTACH, PTRACE_CONT, PTRACE_DETACH, PTRACE_GETEVENTMSG,
-        PTRACE_GETFPREGS, PTRACE_GETFPXREGS, PTRACE_GETREGS, PTRACE_GETREGSET, PTRACE_GETSIGINFO,
-        PTRACE_INTERRUPT, PTRACE_KILL, PTRACE_LISTEN, PTRACE_PEEKDATA, PTRACE_PEEKSIGINFO,
-        PTRACE_PEEKTEXT, PTRACE_PEEKUSER, PTRACE_POKEDATA, PTRACE_POKETEXT, PTRACE_POKEUSER,
-        PTRACE_SEIZE, PTRACE_SETFPREGS, PTRACE_SETFPXREGS, PTRACE_SETOPTIONS, PTRACE_SETREGS,
-        PTRACE_SETREGSET, PTRACE_SETSIGINFO, PTRACE_SINGLESTEP, PTRACE_SYSCALL, PTRACE_SYSEMU,
-        PTRACE_SYSEMU_SINGLESTEP, PTRACE_TRACEME, R_OK, RENAME_EXCHANGE, RENAME_NOREPLACE,
-        RENAME_WHITEOUT, RLIMIT_AS, RLIMIT_CORE, RLIMIT_CPU, RLIMIT_DATA, RLIMIT_FSIZE,
-        RLIMIT_LOCKS, RLIMIT_MEMLOCK, RLIMIT_MSGQUEUE, RLIMIT_NICE, RLIMIT_NOFILE, RLIMIT_NPROC,
-        RLIMIT_RSS, RLIMIT_RTPRIO, RLIMIT_RTTIME, RLIMIT_SIGPENDING, RLIMIT_STACK, RUSAGE_CHILDREN,
-        RUSAGE_SELF, RUSAGE_THREAD, S_IRGRP, S_IROTH, S_IRUSR, S_ISGID, S_ISUID, S_ISVTX, S_IWGRP,
-        S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR, SEEK_CUR, SEEK_DATA, SEEK_END, SEEK_HOLE,
-        SEEK_SET, SFD_CLOEXEC, SFD_NONBLOCK, SIG_BLOCK, SIG_DFL, SIG_IGN, SIG_SETMASK, SIG_UNBLOCK,
-        W_OK, WCONTINUED, WEXITED, WNOHANG, WNOWAIT, WSTOPPED, X_OK, clone_args, rlimit, sigaction,
-        timespec, timeval,
+        O_NONBLOCK, O_PATH, O_RDONLY, O_RDWR, O_SYNC, O_TMPFILE, O_TRUNC, O_WRONLY, PRIO_PGRP,
+        PRIO_PROCESS, PRIO_USER, PROT_EXEC, PROT_NONE, PROT_READ, PROT_WRITE, PTRACE_ATTACH,
+        PTRACE_CONT, PTRACE_DETACH, PTRACE_GETEVENTMSG, PTRACE_GETFPREGS, PTRACE_GETFPXREGS,
+        PTRACE_GETREGS, PTRACE_GETREGSET, PTRACE_GETSIGINFO, PTRACE_INTERRUPT, PTRACE_KILL,
+        PTRACE_LISTEN, PTRACE_PEEKDATA, PTRACE_PEEKSIGINFO, PTRACE_PEEKTEXT, PTRACE_PEEKUSER,
+        PTRACE_POKEDATA, PTRACE_POKETEXT, PTRACE_POKEUSER, PTRACE_SEIZE, PTRACE_SETFPREGS,
+        PTRACE_SETFPXREGS, PTRACE_SETOPTIONS, PTRACE_SETREGS, PTRACE_SETREGSET, PTRACE_SETSIGINFO,
+        PTRACE_SINGLESTEP, PTRACE_SYSCALL, PTRACE_SYSEMU, PTRACE_SYSEMU_SINGLESTEP, PTRACE_TRACEME,
+        P_ALL, P_PGID, P_PID, P_PIDFD, RENAME_EXCHANGE, RENAME_NOREPLACE, RENAME_WHITEOUT,
+        RLIMIT_AS, RLIMIT_CORE, RLIMIT_CPU, RLIMIT_DATA, RLIMIT_FSIZE, RLIMIT_LOCKS,
+        RLIMIT_MEMLOCK, RLIMIT_MSGQUEUE, RLIMIT_NICE, RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_RSS,
+        RLIMIT_RTPRIO, RLIMIT_RTTIME, RLIMIT_SIGPENDING, RLIMIT_STACK, RUSAGE_CHILDREN,
+        RUSAGE_SELF, RUSAGE_THREAD, R_OK, SEEK_CUR, SEEK_DATA, SEEK_END, SEEK_HOLE, SEEK_SET,
+        SFD_CLOEXEC, SFD_NONBLOCK, SIG_BLOCK, SIG_DFL, SIG_IGN, SIG_SETMASK, SIG_UNBLOCK, S_IRGRP,
+        S_IROTH, S_IRUSR, S_ISGID, S_ISUID, S_ISVTX, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH,
+        S_IXUSR, WCONTINUED, WEXITED, WNOHANG, WNOWAIT, WSTOPPED, W_OK, X_OK, __WALL, __WCLONE,
+        __WNOTHREAD,
     },
 };
 use syscalls::Sysno;
@@ -451,7 +457,7 @@ impl SyscallObject {
                         let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
                         // ==================================================================
                         write_general_text("get the stats of the file: ");
-                        write_vanilla_path_file(filename);
+                        write_vanilla_path_file(&filename);
                     }
                     Exiting => match &self.result {
                         &SyscallResult::Success(_syscall_return) => {
@@ -494,7 +500,7 @@ impl SyscallObject {
                         let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
                         // ==================================================================
                         write_general_text("get the stats of the file: ");
-                        write_vanilla_path_file(filename);
+                        write_vanilla_path_file(&filename);
                         write_general_text(" and do not recurse symbolic links");
                     }
                     Exiting => match &self.result {
@@ -516,7 +522,7 @@ impl SyscallObject {
                         let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
                         // ==================================================================
                         write_general_text("get stats for the filesystem mounted in: ");
-                        write_vanilla_path_file(filename);
+                        write_vanilla_path_file(&filename);
                     }
                     Exiting => match &self.result {
                         &SyscallResult::Success(_syscall_return) => {
@@ -616,13 +622,13 @@ impl SyscallObject {
                         if pathname.starts_with('/') {
                             // absolute pathname
                             // dirfd is ignored
-                            write_vanilla_path_file(pathname);
+                            write_vanilla_path_file(&pathname);
                         } else {
                             // relative pathname
                             if pathname.is_empty() && ((flags & AT_EMPTY_PATH) == AT_EMPTY_PATH) {
                                 // if pathname is empty and AT_EMPTY_PATH is given, operate on the dirfd
                                 let dirfd_parsed = parse_as_file_descriptor(dirfd, self.tracee_pid);
-                                write_vanilla_path_file(dirfd_parsed);
+                                write_vanilla_path_file(&dirfd_parsed);
                             } else {
                                 // A relative pathname, dirfd = CWD, or a normal directory
                                 write_possible_dirfd_anchor(dirfd, pathname, self.tracee_pid)
@@ -692,7 +698,7 @@ impl SyscallObject {
                             let owner = get_username_from_uid(owner_given)
                                 .unwrap_or("[intentrace: could not get owner]");
                             write_general_text("change the owner of ");
-                            write_vanilla_path_file(filename);
+                            write_vanilla_path_file(&filename);
                             write_general_text(" to ");
                             write_text(owner.bold().green());
                             if group_given != u32::MAX {
@@ -706,7 +712,7 @@ impl SyscallObject {
                                 let group = get_groupname_from_uid(group_given)
                                     .unwrap_or("[intentrace: could not get group]");
                                 write_general_text("change the group of the file: ");
-                                write_vanilla_path_file(filename);
+                                write_vanilla_path_file(&filename);
                                 write_general_text("to ");
                                 write_text(group.bold().green());
                             } else {
@@ -819,7 +825,7 @@ impl SyscallObject {
                             let owner = get_username_from_uid(owner_given)
                                 .unwrap_or("[intentrace: could not get owner]");
                             write_general_text("change the owner of ");
-                            write_vanilla_path_file(filename);
+                            write_vanilla_path_file(&filename);
                             write_general_text(" to ");
                             write_text(owner.bold().green());
                             if group_given != u32::MAX {
@@ -836,7 +842,7 @@ impl SyscallObject {
                                 let group = get_groupname_from_uid(group_given)
                                     .unwrap_or("[intentrace: could not get group]");
                                 write_general_text("change the group of the file: ");
-                                write_vanilla_path_file(filename);
+                                write_vanilla_path_file(&filename);
                                 write_general_text("to ");
                                 write_text(group.bold().green());
                                 write_general_text(" (");
@@ -926,7 +932,7 @@ impl SyscallObject {
                                 let group = get_groupname_from_uid(group_given)
                                     .unwrap_or("[intentrace: could not get group]");
                                 write_general_text("change the group of the file: ");
-                                write_vanilla_path_file(filename);
+                                write_vanilla_path_file(&filename);
                                 write_general_text("to ");
                                 write_text(group.bold().green());
                                 flags_check();
@@ -972,8 +978,9 @@ impl SyscallObject {
                             write_general_text("get the current program break");
                         } else {
                             write_general_text("change program break to ");
-                            let syscall_brk = parse_as_address(registers[0] as usize);
-                            write_text(syscall_brk.custom_color(*OUR_YELLOW));
+                            // brk syscall is ok with user space providing non page aligned addresses
+                            let syscall_brk = registers[0] as usize;
+                            write_address(syscall_brk);
                         }
                     }
                     Exiting => match &self.result {
@@ -981,8 +988,10 @@ impl SyscallObject {
                             write_general_text(" |=> ");
                             if brk_address == 0 {
                                 write_text("current program break: ".bold().green());
-                                let address = parse_as_address(syscall_return as usize);
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                // doesnt return the page aligned address
+                                // it returns the non-page aligned address it was provided
+                                let address = syscall_return as usize;
+                                write_address(address);
                             } else {
                                 let new_brk = syscall_return;
                                 let mem_difference = get_mem_difference_from_previous(new_brk as _);
@@ -1011,11 +1020,7 @@ impl SyscallObject {
                                 }
 
                                 write_text(", new program break: ".bold().green());
-                                write_text(
-                                    parse_as_address(new_brk as usize)
-                                        .to_string()
-                                        .custom_color(*PAGES_COLOR),
-                                );
+                                write_address(new_brk as usize)
                             }
                         }
                         SyscallResult::Fail(_errno_variant) => {
@@ -1048,7 +1053,11 @@ impl SyscallObject {
                         let prot_flags = parse_as_int(registers[2]);
                         let bytes = parse_as_bytes_pages_ceil(registers[1] as usize);
                         let addr = registers[0] as *const ();
-                        let address = parse_as_address(registers[0] as usize);
+
+                        // address is a hint to the kernel, there is no requirement for page alignment
+                        // however, it must be page aligned if MAP_FIXED is used (syscall errors otherwise)
+                        let address = registers[0] as usize;
+                        // offset must be a multiple of the page size
                         let offset_num = parse_as_long(registers[5]);
                         let offset = parse_as_signed_bytes(registers[5]);
                         // ==================================================================
@@ -1169,18 +1178,18 @@ impl SyscallObject {
                         } else if fixed {
                             write_general_text(" starting ");
                             write_text("exactly at ".custom_color(*OUR_YELLOW));
-                            write_text(address.custom_color(*OUR_YELLOW));
+                            write_page_aligned_address(address);
                         } else if (flags_num & MAP_FIXED_NOREPLACE) == MAP_FIXED_NOREPLACE {
                             write_general_text(" starting ");
                             write_text("exactly at ".custom_color(*OUR_YELLOW));
-                            write_text(address.custom_color(*OUR_YELLOW));
+                            write_address(address);
                             write_text(
                                 " and fail if a mapping already exists ".custom_color(*OUR_YELLOW),
                             );
                         } else {
                             write_general_text(" starting ");
                             write_text("around ".custom_color(*OUR_YELLOW));
-                            write_text(address.custom_color(*OUR_YELLOW));
+                            write_address(address);
                         }
                         // MEMORY DIRECTION
                         //
@@ -1218,9 +1227,10 @@ impl SyscallObject {
                             &SyscallResult::Success(syscall_return) => {
                                 write_general_text(" |=> ");
                                 write_text("mapping address: ".bold().green());
-                                let address = parse_as_address(syscall_return as usize);
+                                // mmap always returns a page aligned address
+                                let address = syscall_return as usize;
 
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                                 // if anonymous {
                                 //     let k = get_child_memory_break(self.child);
                                 //     let res = self.result.0.unwrap();
@@ -1264,13 +1274,14 @@ impl SyscallObject {
             Sysno::munmap => {
                 match self.state {
                     Entering => {
-                        let address = parse_as_address(registers[0] as usize);
+                        // syscall errors if not page aligned
+                        let address = registers[0] as usize;
                         let len = parse_as_bytes_pages_ceil(registers[1] as usize);
                         // ==================================================================
                         write_general_text("unmap ");
                         write_text(len.custom_color(*OUR_YELLOW));
                         write_general_text(" from memory starting at ");
-                        write_text(address.custom_color(*OUR_YELLOW));
+                        write_page_aligned_address(address);
                     }
                     Exiting => match &self.result {
                         &SyscallResult::Success(_syscall_return) => {
@@ -1288,8 +1299,8 @@ impl SyscallObject {
             Sysno::madvise => {
                 match self.state {
                     Entering => {
-                        // addr, len, adv
-                        let address = parse_as_address(registers[0] as usize);
+                        // syscall errors if not page aligned
+                        let address = registers[0] as usize;
                         let len = parse_as_bytes_pages_ceil(registers[1] as usize);
                         let advice = parse_as_int(registers[2]);
                         // ==================================================================
@@ -1298,35 +1309,35 @@ impl SyscallObject {
                                 write_general_text("provide default treatment for ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                             }
 
                             MADV_RANDOM => {
                                 write_general_text("expect ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                                 write_general_text(" to be referenced in random order");
                             }
                             MADV_SEQUENTIAL => {
                                 write_general_text("expect ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                                 write_general_text(" to be referenced in sequential order");
                             }
                             MADV_WILLNEED => {
                                 write_general_text("expect ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                                 write_general_text(" to be accessed in the future");
                             }
                             MADV_DONTNEED => {
                                 write_general_text("expect ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                                 write_general_text(" to ");
                                 // not having "near" implies "never again"
                                 write_text(
@@ -1338,13 +1349,13 @@ impl SyscallObject {
                                 write_general_text("free");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                             }
                             MADV_DONTFORK => {
                                 write_general_text("do not allow ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                                 write_general_text(" to be available to children from ");
                                 write_text("fork()".blue());
                             }
@@ -1352,7 +1363,7 @@ impl SyscallObject {
                                 write_general_text("allow ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                                 write_general_text(" to be available to children from ");
                                 write_text("fork()".blue());
                                 write_general_text(" ");
@@ -1363,14 +1374,14 @@ impl SyscallObject {
                                 write_general_text("poison ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                             }
                             MADV_MERGEABLE => {
                                 // KSM merges only private anonymous pages
                                 write_general_text("enable KSM (Kernel Samepage Merging) for ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                             }
                             MADV_UNMERGEABLE => {
                                 write_general_text(
@@ -1378,13 +1389,13 @@ impl SyscallObject {
                                 );
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                             }
                             MADV_SOFT_OFFLINE => {
                                 write_text("migrate".custom_color(*OUR_YELLOW));
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                                 write_general_text(
                                     " to new healthy pages (soft-offline the memory)",
                                 );
@@ -1394,14 +1405,14 @@ impl SyscallObject {
                                 write_general_text(" transparent huge pages (THP) on ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                             }
                             MADV_NOHUGEPAGE => {
                                 write_text("disable".custom_color(*OUR_YELLOW));
                                 write_general_text(" transparent huge pages (THP) on ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                             }
                             MADV_COLLAPSE => {
                                 // TODO!
@@ -1409,7 +1420,7 @@ impl SyscallObject {
                                 write_general_text("perform a synchronous collapse of ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                                 write_general_text(
                                     " that's mapped into transparent huge pages (THP)",
                                 );
@@ -1418,14 +1429,14 @@ impl SyscallObject {
                                 write_general_text("exclude ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                                 write_general_text(" from core dumps");
                             }
                             MADV_DODUMP => {
                                 write_general_text("include ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                                 write_general_text(" in core dumps ");
                                 write_text("(Undo MADV_DONTDUMP)".custom_color(*OUR_YELLOW));
                             }
@@ -1433,14 +1444,14 @@ impl SyscallObject {
                                 write_general_text("mark ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                                 write_general_text(" as no longer required and ok to free");
                             }
                             MADV_WIPEONFORK => {
                                 write_general_text("zero-fill the range of ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                                 write_general_text(" to any child from ");
                                 write_text("fork()".blue());
                             }
@@ -1448,7 +1459,7 @@ impl SyscallObject {
                                 write_general_text("keep the range of ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                                 write_general_text(" to any child from ");
                                 write_text("fork()".blue());
                                 write_general_text(" ");
@@ -1459,7 +1470,7 @@ impl SyscallObject {
                                 write_general_text("deactivate ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                                 write_general_text("  (make more probable to reclaim)");
                             }
                             MADV_PAGEOUT => {
@@ -1470,13 +1481,13 @@ impl SyscallObject {
                                 // "page out" is more intuitive, "reclaim"sleading
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                             }
                             MADV_POPULATE_READ => {
                                 write_general_text("prefault ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                                 write_general_text(" while avoiding memory access ");
                                 write_text("(simulate reading)".custom_color(*OUR_YELLOW));
                             }
@@ -1484,7 +1495,7 @@ impl SyscallObject {
                                 write_general_text("prefault ");
                                 write_text(len.custom_color(*OUR_YELLOW));
                                 write_general_text(" of memory starting from ");
-                                write_text(address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(address);
                                 write_general_text(" while avoiding memory access ");
                                 write_text("(simulate writing)".custom_color(*OUR_YELLOW));
                             }
@@ -1494,6 +1505,8 @@ impl SyscallObject {
                     Exiting => match &self.result {
                         &SyscallResult::Success(_syscall_return) => {
                             write_general_text(" |=> ");
+                            // TODO
+                            // rephrase
                             write_text("memory advice registered".bold().green());
                         }
                         SyscallResult::Fail(_errno_variant) => {
@@ -1507,14 +1520,15 @@ impl SyscallObject {
             Sysno::msync => {
                 match self.state {
                     Entering => {
-                        let address = parse_as_address(registers[0] as usize);
+                        // syscall errors if not page aligned
+                        let address = registers[0] as usize;
                         let bytes = parse_as_bytes_pages_ceil(registers[1] as usize);
                         let flags = parse_as_int(registers[2]);
                         // ==================================================================
                         write_general_text("flush all changes made on ");
                         write_text(bytes.custom_color(*OUR_YELLOW));
                         write_general_text(" of memory starting from ");
-                        write_text(address.custom_color(*OUR_YELLOW));
+                        write_page_aligned_address(address);
                         write_general_text(" back to the filesystem");
                         if (flags & MS_SYNC) == MS_SYNC {
                             write_general_text(" (");
@@ -1554,7 +1568,8 @@ impl SyscallObject {
             Sysno::mprotect => {
                 match self.state {
                     Entering => {
-                        let address = parse_as_address(registers[0] as usize);
+                        // syscall errors if not page aligned
+                        let address = registers[0] as usize;
                         let bytes = parse_as_bytes_pages_ceil(registers[1] as usize);
                         let prot_flags = parse_as_int(registers[2]);
                         // ==================================================================
@@ -1596,7 +1611,7 @@ impl SyscallObject {
                         //
                         //
                         write_general_text("starting from ");
-                        write_text(address.custom_color(*OUR_YELLOW));
+                        write_page_aligned_address(address);
                     }
                     Exiting => match &self.result {
                         &SyscallResult::Success(_syscall_return) => {
@@ -1736,7 +1751,8 @@ impl SyscallObject {
             }
 
             Sysno::mlock => {
-                let address = parse_as_address(registers[0] as usize);
+                // syscall errors if its not page aligned
+                let address = registers[0] as usize;
 
                 let bytes = parse_as_bytes_pages_ceil(registers[1] as usize);
                 match self.state {
@@ -1744,7 +1760,7 @@ impl SyscallObject {
                         write_general_text("prevent swapping of memory on ");
                         write_text(bytes.custom_color(*OUR_YELLOW));
                         write_general_text(" starting from: ");
-                        write_text(address.custom_color(*OUR_YELLOW));
+                        write_page_aligned_address(address);
                     }
                     Exiting => match &self.result {
                         &SyscallResult::Success(_syscall_return) => {
@@ -1760,7 +1776,8 @@ impl SyscallObject {
             }
 
             Sysno::mlock2 => {
-                let address = parse_as_address(registers[0] as usize);
+                // syscall errors if its not page aligned
+                let address = registers[0] as usize;
 
                 let bytes = parse_as_bytes_pages_ceil(registers[1] as usize);
                 let flags = registers[2];
@@ -1769,7 +1786,7 @@ impl SyscallObject {
                         write_general_text("prevent swapping of memory on ");
                         write_text(bytes.custom_color(*OUR_YELLOW));
                         write_general_text(" starting from: ");
-                        write_text(address.custom_color(*OUR_YELLOW));
+                        write_page_aligned_address(address);
 
                         // 1 = MLOCK_ONFAULT
                         if (flags & 1) == 1 {
@@ -1793,7 +1810,8 @@ impl SyscallObject {
             }
 
             Sysno::munlock => {
-                let address = parse_as_address(registers[0] as usize);
+                // syscall errors if its not page aligned
+                let address = registers[0] as usize;
 
                 let bytes = parse_as_bytes_pages_ceil(registers[1] as usize);
 
@@ -1802,7 +1820,7 @@ impl SyscallObject {
                         write_general_text("allow swapping of memory on ");
                         write_text(bytes.custom_color(*OUR_YELLOW));
                         write_general_text(" starting from: ");
-                        write_text(address.custom_color(*OUR_YELLOW));
+                        write_page_aligned_address(address);
                     }
                     Exiting => match &self.result {
                         &SyscallResult::Success(_syscall_return) => {
@@ -1841,14 +1859,14 @@ impl SyscallObject {
                 // TODO! current mremap logic is not good and needs rewriting
                 let old_address_num = registers[0];
 
-                let old_address = parse_as_address(registers[0] as usize);
+                let old_address = registers[0] as usize;
                 let old_len_num = registers[1];
                 let old_len = parse_as_bytes_pages_ceil(registers[1] as usize);
                 let new_len_num = registers[2];
                 let new_len = parse_as_bytes_pages_ceil(registers[2] as usize);
                 let flags = parse_as_int(registers[3]);
                 let new_address_num = registers[4];
-                let new_address = parse_as_address(registers[4] as usize);
+                let new_address = registers[4] as usize;
                 match self.state {
                     Entering => {
                         // TODO!
@@ -1857,12 +1875,12 @@ impl SyscallObject {
                             write_general_text("expand the memory region of ");
                             write_text(old_len.custom_color(*OUR_YELLOW));
                             write_text(" starting from: ".custom_color(*OUR_YELLOW));
-                            write_text(old_address.custom_color(*OUR_YELLOW));
+                            write_page_aligned_address(old_address);
                         } else if new_len_num < old_len_num {
                             write_general_text("shrink the memory region of ");
                             write_text(old_len.custom_color(*OUR_YELLOW));
                             write_text(" starting from: ".custom_color(*OUR_YELLOW));
-                            write_text(old_address.custom_color(*OUR_YELLOW));
+                            write_page_aligned_address(old_address);
                         } else if new_len_num == old_len_num {
                             if old_address_num == new_address_num {
                                 write_text("[intentrace Notice: syscall no-op]".blink());
@@ -1870,7 +1888,7 @@ impl SyscallObject {
                                 write_general_text("move the memory region of ");
                                 write_text(old_len.custom_color(*OUR_YELLOW));
                                 write_text(" starting from: ".custom_color(*OUR_YELLOW));
-                                write_text(old_address.custom_color(*OUR_YELLOW));
+                                write_page_aligned_address(old_address);
                             }
                         }
                         if (flags & MREMAP_FIXED) == MREMAP_FIXED
@@ -1878,7 +1896,7 @@ impl SyscallObject {
                         {
                             write_general_text(" (");
                             write_text("move the mapping to ".custom_color(*OUR_YELLOW));
-                            write_text(new_address.custom_color(*OUR_YELLOW));
+                            write_page_aligned_address(new_address);
                             write_text(
                                 " and unmap any previous mapping if found"
                                     .custom_color(*OUR_YELLOW),
@@ -1913,8 +1931,7 @@ impl SyscallObject {
 
             Sysno::mincore => {
                 let address_num = registers[0];
-
-                let address = parse_as_address(registers[0] as usize);
+                let address = registers[0] as usize;
                 let length_num = registers[1];
                 let length = parse_as_bytes_pages_ceil(registers[1] as usize);
 
@@ -1925,7 +1942,7 @@ impl SyscallObject {
                         write_text(
                             " of the process's memory starting from: ".custom_color(*OUR_YELLOW),
                         );
-                        write_text(address.custom_color(*OUR_YELLOW));
+                        write_page_aligned_address(address);
                         write_general_text(
                             " indicating resident and non-resident pages in each byte",
                         );
@@ -2522,20 +2539,12 @@ impl SyscallObject {
                         let path = string_from_pointer(registers[0] as usize, self.tracee_pid);
                         // ==================================================================
                         if path.starts_with('/') {
-                            let (yellow, blue) = partition_by_final_dentry(path.graphemes(true));
+                            let (yellow, repetition_dependent) =
+                                partition_by_final_dentry(path.graphemes(true));
                             write_general_text("create a new directory ");
-                            write_text(
-                                blue.into_iter()
-                                    .collect::<String>()
-                                    .custom_color(*PAGES_COLOR),
-                            );
+                            write_partition_2_consider_repetition(&repetition_dependent);
                             write_general_text(" inside: ");
-                            write_text(
-                                yellow
-                                    .into_iter()
-                                    .collect::<String>()
-                                    .custom_color(*OUR_YELLOW),
-                            );
+                            write_text(yellow.custom_color(*OUR_YELLOW));
                         } else if path.starts_with("./") || path.starts_with("../") {
                             // TODO!
                             // design decision: path math or truthfulness?
@@ -2547,20 +2556,12 @@ impl SyscallObject {
                             //     .unwrap()
                             //     .cwd()
                             //     .unwrap();
-                            let (yellow, blue) = partition_by_final_dentry(path.graphemes(true));
+                            let (yellow, repetition_dependent) =
+                                partition_by_final_dentry(path.graphemes(true));
                             write_general_text("create a new directory ");
-                            write_text(
-                                blue.into_iter()
-                                    .collect::<String>()
-                                    .custom_color(*PAGES_COLOR),
-                            );
+                            write_partition_2_consider_repetition(&repetition_dependent);
                             write_general_text(" inside: ");
-                            write_text(
-                                yellow
-                                    .into_iter()
-                                    .collect::<String>()
-                                    .custom_color(*OUR_YELLOW),
-                            );
+                            write_text(yellow.custom_color(*OUR_YELLOW));
                         } else {
                             write_general_text("create a new directory ");
                             write_text(path.custom_color(*OUR_YELLOW));
@@ -2604,20 +2605,12 @@ impl SyscallObject {
 
                         // ==================================================================
                         if path.starts_with('/') {
-                            let (yellow, blue) = partition_by_final_dentry(path.graphemes(true));
+                            let (yellow, repetition_dependent) =
+                                partition_by_final_dentry(path.graphemes(true));
                             write_general_text("create a new directory ");
-                            write_text(
-                                blue.into_iter()
-                                    .collect::<String>()
-                                    .custom_color(*PAGES_COLOR),
-                            );
+                            write_partition_2_consider_repetition(&repetition_dependent);
                             write_general_text(" inside: ");
-                            write_text(
-                                yellow
-                                    .into_iter()
-                                    .collect::<String>()
-                                    .custom_color(*OUR_YELLOW),
-                            );
+                            write_text(yellow.custom_color(*OUR_YELLOW));
                         } else if path.starts_with("./") || path.starts_with("../") {
                             // TODO!
                             // design decision: path math or truthfulness?
@@ -2630,20 +2623,12 @@ impl SyscallObject {
                             //     .cwd()
                             //     .unwrap();
 
-                            let (yellow, blue) = partition_by_final_dentry(path.graphemes(true));
+                            let (yellow, repetition_dependent) =
+                                partition_by_final_dentry(path.graphemes(true));
                             write_general_text("create a new directory ");
-                            write_text(
-                                blue.into_iter()
-                                    .collect::<String>()
-                                    .custom_color(*PAGES_COLOR),
-                            );
+                            write_partition_2_consider_repetition(&repetition_dependent);
                             write_general_text(" inside: ");
-                            write_text(
-                                yellow
-                                    .into_iter()
-                                    .collect::<String>()
-                                    .custom_color(*OUR_YELLOW),
-                            );
+                            write_text(yellow.custom_color(*OUR_YELLOW));
                             if !dirfd == AT_FDCWD {
                                 write_general_text("(");
                                 write_text("relative to: ".custom_color(*OUR_YELLOW));
@@ -2832,7 +2817,7 @@ impl SyscallObject {
                         let path = string_from_pointer(registers[0] as usize, self.tracee_pid);
                         // ==================================================================
                         write_general_text("unlink and possibly delete the file: ");
-                        write_vanilla_path_file(path);
+                        write_vanilla_path_file(&path);
                     }
                     Exiting => {
                         match &self.result {
@@ -2891,7 +2876,7 @@ impl SyscallObject {
                         let directory = string_from_pointer(registers[0] as usize, self.tracee_pid);
                         // ==================================================================
                         write_general_text("delete the directory: ");
-                        write_vanilla_path_file(directory);
+                        write_vanilla_path_file(&directory);
                     }
                     Exiting => {
                         match &self.result {
@@ -2916,10 +2901,10 @@ impl SyscallObject {
                         // ==================================================================
 
                         write_general_text("create the symlink: ");
-                        write_vanilla_path_file(symlink);
+                        write_vanilla_path_file(&symlink);
 
                         write_general_text(" and link it with: ");
-                        write_vanilla_path_file(target);
+                        write_vanilla_path_file(&target);
                     }
                     Exiting => {
                         match &self.result {
@@ -2950,7 +2935,7 @@ impl SyscallObject {
                             });
 
                         write_general_text(" and link it with: ");
-                        write_vanilla_path_file(target);
+                        write_vanilla_path_file(&target);
                     }
                     Exiting => {
                         match &self.result {
@@ -2973,7 +2958,7 @@ impl SyscallObject {
                         let filename = string_from_pointer(registers[0] as usize, self.tracee_pid);
                         // ==================================================================
                         write_general_text("get the target path of the symbolic link: ");
-                        write_vanilla_path_file(filename);
+                        write_vanilla_path_file(&filename);
                     }
                     Exiting => {
                         match &self.result {
@@ -2985,7 +2970,7 @@ impl SyscallObject {
                                     self.tracee_pid,
                                     syscall_return as usize,
                                 ) {
-                                    Some(target) => write_vanilla_path_file(target),
+                                    Some(target) => write_vanilla_path_file(&target),
                                     None => {
                                         write_text(
                                             "[intentrace: could not get target]"
@@ -3048,7 +3033,7 @@ impl SyscallObject {
                                     self.tracee_pid,
                                     syscall_return as usize,
                                 ) {
-                                    Some(target) => write_vanilla_path_file(target),
+                                    Some(target) => write_vanilla_path_file(&target),
                                     None => todo!(),
                                 };
                             }
@@ -3069,7 +3054,7 @@ impl SyscallObject {
                         // ==================================================================
                         if access_mode == F_OK {
                             write_general_text("check if the file: ");
-                            write_vanilla_path_file(filename);
+                            write_vanilla_path_file(&filename);
                             write_text(" exists".custom_color(*OUR_YELLOW));
                         } else {
                             let mut checks = vec![];
@@ -3087,7 +3072,7 @@ impl SyscallObject {
                                 write_general_text("check if the process is allowed to ");
                                 write_commas(checks);
                                 write_general_text(" the file: ");
-                                write_vanilla_path_file(filename);
+                                write_vanilla_path_file(&filename);
                             }
                         }
                     }
@@ -3116,7 +3101,7 @@ impl SyscallObject {
                         // ==================================================================
                         if access_mode == F_OK {
                             write_general_text("check if the file: ");
-                            write_vanilla_path_file(filename);
+                            write_vanilla_path_file(&filename);
                             write_text(" exists".custom_color(*OUR_YELLOW));
                         } else {
                             let mut checks = vec![];
@@ -3134,7 +3119,7 @@ impl SyscallObject {
                                 write_general_text("check if the process is allowed to ");
                                 write_commas(checks);
                                 write_general_text(" the file: ");
-                                write_vanilla_path_file(filename);
+                                write_vanilla_path_file(&filename);
                             }
                         }
                         let mut flag_directive = vec![];
@@ -3335,25 +3320,68 @@ impl SyscallObject {
                     }
                 }
             }
-            // TODO! granular
-            // check if the file was moved only or renamed only or moved and renamed at the same time
             Sysno::rename => {
                 match self.state {
                     Entering => {
                         let old_path = string_from_pointer(registers[0] as usize, self.tracee_pid);
                         let new_path = string_from_pointer(registers[1] as usize, self.tracee_pid);
+                        // TODO!
+                        // works for now, rewrite later
+                        let (old_directory, old_path_last_dentry) =
+                            partition_by_final_dentry(old_path.graphemes(true));
+                        let (new_directory, new_path_last_dentry) =
+                            partition_by_final_dentry(new_path.graphemes(true));
+                        let leading_directory_similar = old_directory == new_directory;
+                        let final_dentry_similar = old_path_last_dentry == new_path_last_dentry;
                         // ==================================================================
-                        write_general_text("move the file: ");
-                        write_vanilla_path_file(old_path);
-                        write_general_text(" to: ");
-                        write_vanilla_path_file(new_path);
+                        match (leading_directory_similar, final_dentry_similar) {
+                            (true, false) => {
+                                write_general_text("rename the file: ");
+                                write_partition_2_consider_repetition(
+                                    old_path_last_dentry.as_ref(),
+                                );
+                                write_general_text(" inside the directory: ");
+                                write_partition_1_consider_repetition(old_directory.as_ref());
+                                write_general_text(" to: ");
+                                write_partition_2_consider_repetition(
+                                    new_path_last_dentry.as_ref(),
+                                );
+                            }
+                            (false, true) => {
+                                write_general_text("move the file: ");
+                                write_partition_2_consider_repetition(
+                                    old_path_last_dentry.as_ref(),
+                                );
+                                write_general_text(" from: ");
+                                write_partition_1_consider_repetition(old_directory.as_ref());
+                                write_general_text(" to: ");
+                                write_partition_1_consider_repetition(new_directory.as_ref());
+                            }
+                            (false, false) => {
+                                write_general_text("rename and move the file: ");
+                                write_path_consider_repetition(
+                                    old_directory.as_ref(),
+                                    old_path_last_dentry.as_ref(),
+                                );
+                                write_general_text(" to: ");
+                                write_path_consider_repetition(
+                                    new_directory.as_ref(),
+                                    new_path_last_dentry.as_ref(),
+                                );
+                            }
+                            (true, true) => {
+                                // TODO!
+                                // rephrase
+                                // syscall didnt do anything to the file
+                            }
+                        }
                     }
                     Exiting => {
                         match &self.result {
                             &SyscallResult::Success(_syscall_return) => {
                                 write_general_text(" |=> ");
                                 // TODO! granular
-                                write_text("file moved".bold().green());
+                                write_text("operation moved".bold().green());
                             }
                             // TODO! granular
                             SyscallResult::Fail(_errno_variant) => {
@@ -3374,17 +3402,67 @@ impl SyscallObject {
                         let new_filename =
                             string_from_pointer(registers[3] as usize, self.tracee_pid);
                         // ==================================================================
-                        write_general_text("move the file: ");
-                        write_possible_dirfd_anchor(old_dirfd, old_filename, self.tracee_pid)
-                            .unwrap_or_else(|_| {
-                                write_text("[intentrace: could not get file name]".white());
-                            });
+                        if_chain! {
+                            if let Ok((old_first_partition, old_second_partition))= get_strings_from_dirfd_anchored_file(old_dirfd, old_filename.as_ref(), self.tracee_pid);
+                            if let Ok((new_first_partition, new_second_partition))= get_strings_from_dirfd_anchored_file(new_dirfd, new_filename.as_ref(), self.tracee_pid);
+                            then {
+                                let (old_directory, old_last_dentry): (String, String) = match old_first_partition {
+                                    Cow::Borrowed(_empty) => {
+                                        partition_by_final_dentry(old_second_partition.graphemes(true))
 
-                        write_general_text(" to: ");
-                        write_possible_dirfd_anchor(new_dirfd, new_filename, self.tracee_pid)
-                            .unwrap_or_else(|_| {
+                                    },
+                                    Cow::Owned(old_directory) => (old_directory, old_second_partition.to_owned())
+                                };
+                                let (new_directory, new_last_dentry): (String, String) = match new_first_partition {
+                                    Cow::Borrowed(_empty) => {
+                                        partition_by_final_dentry(new_second_partition.graphemes(true))
+
+                                    },
+                                    Cow::Owned(new_directory) => (new_directory, new_second_partition.to_owned())
+                                };
+
+                                let leading_directory_similar = old_directory == new_directory;
+                                let final_dentry_similar = old_last_dentry == new_last_dentry;
+                                // ==================================================================
+                                match (leading_directory_similar, final_dentry_similar) {
+                                    (true, false) => {
+                                        write_general_text("rename the file: ");
+                                        write_partition_2_consider_repetition(
+                                            old_last_dentry.as_ref(),
+                                        );
+                                        write_general_text(" inside the directory: ");
+                                        write_partition_1_consider_repetition(old_directory.as_ref());
+                                        write_general_text(" to: ");
+                                        write_partition_2_consider_repetition(
+                                            new_last_dentry.as_ref(),
+                                        );
+                                    }
+                                    (false, true) => {
+                                        write_general_text("move the file: ");
+                                        write_partition_2_consider_repetition(
+                                            old_last_dentry.as_ref(),
+                                        );
+                                        write_general_text(" from: ");
+                                        write_partition_1_consider_repetition(old_directory.as_ref());
+                                        write_general_text(" to: ");
+                                        write_partition_1_consider_repetition(new_directory.as_ref());
+                                    }
+                                    (false, false) => {
+                                        write_general_text("rename and move the file: ");
+                                        write_path_consider_repetition(old_directory.as_ref(), old_last_dentry.as_ref());
+                                        write_general_text(" to: ");
+                                        write_path_consider_repetition(new_directory.as_ref(), new_last_dentry.as_ref());
+                                    }
+                                    (true, true) => {
+                                        // TODO!
+                                        // rephrase
+                                        // syscall didnt do anything to the file
+                                    }
+                                }
+                            } else {
                                 write_text("[intentrace: could not get file name]".white());
-                            });
+                            }
+                        }
                     }
                     Exiting => {
                         match &self.result {
@@ -3413,18 +3491,67 @@ impl SyscallObject {
                             string_from_pointer(registers[3] as usize, self.tracee_pid);
                         let flags = lower_32_bits(registers[4]);
                         // ==================================================================
-                        write_general_text("move the file: ");
-                        write_possible_dirfd_anchor(old_dirfd, old_filename, self.tracee_pid)
-                            .unwrap_or_else(|_| {
-                                write_text("[intentrace: could not get file name]".white());
-                            });
+                        if_chain! {
+                            if let Ok((old_first_partition, old_second_partition)) = get_strings_from_dirfd_anchored_file(old_dirfd, old_filename.as_ref(), self.tracee_pid);
+                            if let Ok((new_first_partition, new_second_partition)) = get_strings_from_dirfd_anchored_file(new_dirfd, new_filename.as_ref(), self.tracee_pid);
+                            then {
+                                let (old_directory, old_last_dentry): (String, String) = match old_first_partition {
+                                    Cow::Borrowed(_empty) => {
+                                        partition_by_final_dentry(old_second_partition.graphemes(true))
 
-                        write_general_text(" to: ");
-                        write_possible_dirfd_anchor(new_dirfd, new_filename, self.tracee_pid)
-                            .unwrap_or_else(|_| {
-                                write_text("[intentrace: could not get file name]".white());
-                            });
+                                    },
+                                    Cow::Owned(old_directory) => (old_directory, old_second_partition.to_owned())
+                                };
+                                let (new_directory, new_last_dentry): (String, String) = match new_first_partition {
+                                    Cow::Borrowed(_empty) => {
+                                        partition_by_final_dentry(new_second_partition.graphemes(true))
 
+                                    },
+                                    Cow::Owned(new_directory) => (new_directory, new_second_partition.to_owned())
+                                };
+
+                                let leading_directory_similar = old_directory == new_directory;
+                                let final_dentry_similar = old_last_dentry == new_last_dentry;
+                                // ==================================================================
+                                match (leading_directory_similar, final_dentry_similar) {
+                                    (true, false) => {
+                                        write_general_text("rename the file: ");
+                                        write_partition_2_consider_repetition(
+                                            old_last_dentry.as_ref(),
+                                        );
+                                        write_general_text(" inside the directory: ");
+                                        write_partition_1_consider_repetition(old_directory.as_ref());
+                                        write_general_text(" to: ");
+                                        write_partition_2_consider_repetition(
+                                            new_last_dentry.as_ref(),
+                                        );
+                                    }
+                                    (false, true) => {
+                                        write_general_text("move the file: ");
+                                        write_partition_2_consider_repetition(
+                                            old_last_dentry.as_ref(),
+                                        );
+                                        write_general_text(" from: ");
+                                        write_partition_1_consider_repetition(old_directory.as_ref());
+                                        write_general_text(" to: ");
+                                        write_partition_1_consider_repetition(new_directory.as_ref());
+                                    }
+                                    (false, false) => {
+                                        write_general_text("rename and move the file: ");
+                                        write_path_consider_repetition(old_directory.as_ref(), old_last_dentry.as_ref());
+                                        write_general_text(" to: ");
+                                        write_path_consider_repetition(new_directory.as_ref(), new_last_dentry.as_ref());
+                                    }
+                                    (true, true) => {
+                                        // TODO!
+                                        // rephrase
+                                        // syscall didnt do anything to the file
+                                    }
+                                }
+                            } else {
+                                write_text("[intentrace: could not get file name]".white());
+                            }
+                        }
                         let mut directives = vec![];
                         if (flags & RENAME_EXCHANGE) == RENAME_EXCHANGE {
                             directives
@@ -3462,7 +3589,7 @@ impl SyscallObject {
                         let file = string_from_pointer(registers[0] as usize, self.tracee_pid);
                         // ==================================================================
                         write_general_text("create a new file: ");
-                        write_vanilla_path_file(file);
+                        write_vanilla_path_file(&file);
                         write_general_text(", or rewrite it if it exists");
                         // TODO!
                         // mode granularity
@@ -3511,7 +3638,7 @@ impl SyscallObject {
                         let directory = string_from_pointer(registers[0] as usize, self.tracee_pid);
                         // ==================================================================
                         write_general_text("changes the current working directory to: ");
-                        write_vanilla_path_file(directory);
+                        write_vanilla_path_file(&directory);
                     }
                     Exiting => {
                         match &self.result {
@@ -3559,7 +3686,7 @@ impl SyscallObject {
                         let mode = registers[1] as u32;
                         // ==================================================================
                         write_general_text("change the mode of the file: ");
-                        write_vanilla_path_file(filename);
+                        write_vanilla_path_file(&filename);
                         self.mode_matcher(mode);
                     }
                     Exiting => {
@@ -3746,7 +3873,7 @@ impl SyscallObject {
                         let length = parse_as_signed_bytes(registers[1]);
                         // ==================================================================
                         write_general_text("change the size of the file: ");
-                        write_vanilla_path_file(filename);
+                        write_vanilla_path_file(&filename);
                         write_general_text(" to precisely ");
                         write_text(length.custom_color(*OUR_YELLOW));
                     }
@@ -4387,11 +4514,11 @@ impl SyscallObject {
 
             Sysno::arch_prctl => {
                 let operation = parse_as_int(registers[0]);
-                let addr = registers[1];
+                let address = registers[1];
                 match self.state {
                     Entering => {
                         if (operation & ARCH_SET_CPUID) == ARCH_SET_CPUID {
-                            if addr == 0 {
+                            if address == 0 {
                                 write_general_text(
                                     "disable the `cpuid` instruction for the calling thread",
                                 );
@@ -4405,19 +4532,17 @@ impl SyscallObject {
                                 "check whether the `cpuid` instruction is enabled or disabled",
                             );
                         } else if (operation & ARCH_SET_FS) == ARCH_SET_FS {
-                            write_general_text("Set the 64-bit base for the FS register to ");
-                            write_text(addr.to_string().custom_color(*PAGES_COLOR));
+                            // TODO!
+                            // communicate that this is usually the TLS address
+                            write_general_text("Set the base address on the FS register to ");
+                            write_address(address as usize);
                         } else if (operation & ARCH_GET_FS) == ARCH_GET_FS {
-                            write_general_text(
-                                "retrieve the calling thread's 64-bit FS register value",
-                            );
+                            write_general_text("retrieve the calling thread's FS register value");
                         } else if (operation & ARCH_SET_GS) == ARCH_SET_GS {
-                            write_general_text("Set the 64-bit base for the GS register to ");
-                            write_text(addr.to_string().custom_color(*PAGES_COLOR));
+                            write_general_text("Set the base address on the GS register to ");
+                            write_address(address as usize);
                         } else if (operation & ARCH_GET_GS) == ARCH_GET_GS {
-                            write_general_text(
-                                "retrieve the calling thread's 64-bit GS register value",
-                            );
+                            write_general_text("retrieve the calling thread's GS register value");
                         }
                     }
                     Exiting => {
@@ -4426,7 +4551,7 @@ impl SyscallObject {
                                 write_general_text(" |=> ");
 
                                 if (operation & ARCH_SET_CPUID) == ARCH_SET_CPUID {
-                                    if addr == 0 {
+                                    if address == 0 {
                                         write_text(
                                             "successfully disabled the `cpuid` instruction"
                                                 .bold()
@@ -4440,7 +4565,7 @@ impl SyscallObject {
                                         );
                                     }
                                 } else if (operation & ARCH_GET_CPUID) == ARCH_GET_CPUID {
-                                    if addr == 0 {
+                                    if address == 0 {
                                         write_text(
                                             "the `cpuid` instruction is disabled".bold().green(),
                                         );
@@ -4455,7 +4580,7 @@ impl SyscallObject {
                                     || (operation & ARCH_GET_GS) == ARCH_GET_GS
                                 {
                                     let parsed_register =
-                                        match read_one_word(addr as usize, self.tracee_pid) {
+                                        match read_one_word(address as usize, self.tracee_pid) {
                                             Some(word) => lower_64_bits(word)
                                                 .to_string()
                                                 .custom_color(*PAGES_COLOR),
@@ -5030,7 +5155,7 @@ impl SyscallObject {
                                 );
                             } else if pid < -1 {
                                 write_general_text(" to process group: ");
-                                write_text((pid * -1).to_string().custom_color(*PAGES_COLOR));
+                                write_text(pid.abs().to_string().custom_color(*PAGES_COLOR));
                             }
                         }
                     }
@@ -7310,93 +7435,105 @@ impl SyscallObject {
                     Entering => {
                         match operation {
                             PTRACE_TRACEME => write_general_text(
-                                "allow this process to be trace by its parent process",
+                                "allow this process to be traced by its parent process",
                             ),
                             PTRACE_PEEKTEXT => {
                                 //
                                 // Read a word at the address addr in the tracee's memory,
                                 //
-                                let addr = parse_as_address(registers[2] as usize);
+                                let addr = registers[2] as usize;
                                 let pid = parse_as_int(registers[1]);
 
                                 write_general_text("read one word at address: ");
-                                write_text(addr.custom_color(*OUR_YELLOW));
-                                write_general_text(" from the TEXT area of the tracee with pid: ");
+                                write_address(addr);
+                                write_general_text(" from the ");
+                                write_text("TEXT".custom_color(*PAGES_COLOR));
+                                write_general_text(" area of the tracee with pid: ");
                                 write_text(pid.to_string().custom_color(*PAGES_COLOR));
                             }
                             PTRACE_PEEKDATA => {
                                 //
                                 // Read a word at the address addr in the tracee's memory,
                                 //
-                                let addr = parse_as_address(registers[2] as usize);
+                                let addr = registers[2] as usize;
                                 let pid = parse_as_int(registers[1]);
 
                                 write_general_text("read one word at address: ");
 
-                                write_text(addr.custom_color(*OUR_YELLOW));
-                                write_general_text(" from the DATA area of the tracee with pid: ");
+                                write_address(addr);
+                                write_general_text(" from the ");
+                                write_text("DATA".custom_color(*PAGES_COLOR));
+                                write_general_text(" area of the tracee with pid: ");
                                 write_text(pid.to_string().custom_color(*PAGES_COLOR));
                             }
                             PTRACE_PEEKUSER => {
                                 //
                                 // Read a word at the address addr in the tracee's memory,
                                 //
-                                let addr = parse_as_address(registers[2] as usize);
+                                let addr = registers[2] as usize;
                                 let pid = parse_as_int(registers[1]);
 
                                 write_general_text("read one word at address: ");
-                                write_text(addr.custom_color(*OUR_YELLOW));
-                                write_general_text(" from the USER area of the tracee with pid: ");
+                                write_address(addr);
+                                write_general_text(" from the ");
+                                write_text("USER".custom_color(*PAGES_COLOR));
+                                write_general_text(" area of the tracee with pid: ");
                                 write_text(pid.to_string().custom_color(*PAGES_COLOR));
                             }
                             PTRACE_POKETEXT => {
-                                let addr = parse_as_address(registers[2] as usize);
+                                let addr = registers[2] as usize;
                                 let pid = parse_as_int(registers[1]);
-                                let data = parse_as_address(registers[3] as usize);
+                                let data = registers[3] as usize;
 
                                 write_general_text("copy the word: ");
-                                write_text(data.custom_color(*OUR_YELLOW));
-                                write_general_text(" to the TEXT area of the tracee with pid: ");
+                                write_text(data.to_string().custom_color(*OUR_YELLOW));
+                                write_general_text(" to the ");
+                                write_text("TEXT".custom_color(*PAGES_COLOR));
+                                write_general_text(" area of the tracee with pid: ");
                                 write_text(pid.to_string().custom_color(*PAGES_COLOR));
                                 write_general_text(" at the address: ");
-                                write_text(addr.custom_color(*OUR_YELLOW));
+                                write_address(addr);
                             }
                             PTRACE_POKEDATA => {
-                                let addr = parse_as_address(registers[2] as usize);
+                                let addr = registers[2] as usize;
                                 let pid = parse_as_int(registers[1]);
-                                let data = parse_as_address(registers[3] as usize);
+                                let data = registers[3] as usize;
 
                                 write_general_text("copy the word: ");
-                                write_text(data.custom_color(*OUR_YELLOW));
-                                write_general_text(" to the DATA area of the tracee with pid: ");
+                                write_text(data.to_string().custom_color(*OUR_YELLOW));
+                                write_general_text(" to the ");
+                                write_text("DATA".custom_color(*PAGES_COLOR));
+                                write_general_text(" area of the tracee with pid: ");
                                 write_text(pid.to_string().custom_color(*PAGES_COLOR));
                                 write_general_text(" at the address: ");
-                                write_text(addr.custom_color(*OUR_YELLOW));
+                                write_address(addr);
                             }
                             PTRACE_POKEUSER => {
-                                let addr = parse_as_address(registers[2] as usize);
+                                let addr = registers[2] as usize;
                                 let pid = parse_as_int(registers[1]);
-                                let data = parse_as_address(registers[3] as usize);
+                                let data = registers[3] as usize;
 
                                 write_general_text("copy the word: ");
-                                write_text(data.custom_color(*OUR_YELLOW));
-                                write_general_text(" to the USER area of the tracee with pid: ");
+                                write_text(data.to_string().custom_color(*OUR_YELLOW));
+                                write_general_text(" to the ");
+                                write_text("USER".custom_color(*PAGES_COLOR));
+                                write_general_text(" area of the tracee with pid: ");
                                 write_text(pid.to_string().custom_color(*PAGES_COLOR));
                                 write_general_text(" at the address: ");
-                                write_text(addr.custom_color(*OUR_YELLOW));
+                                write_address(addr);
                             }
                             PTRACE_GETREGS => {
-                                let data = parse_as_address(registers[3] as usize);
+                                let data = registers[3] as usize;
                                 let pid = parse_as_int(registers[1]);
                                 // Copy  the  tracee's  general-purpose  or floating-point registers, respectively, to the address data in the tracer.
                                 write_general_text("copy the registers of the tracee with pid: ");
                                 write_text(pid.to_string().custom_color(*PAGES_COLOR));
                                 write_general_text(" into address: ");
-                                write_text(data.custom_color(*OUR_YELLOW));
+                                write_text(data.to_string().custom_color(*OUR_YELLOW));
                                 write_general_text(" of this process's memory");
                             }
                             PTRACE_GETFPREGS => {
-                                let data = parse_as_address(registers[3] as usize);
+                                let data = registers[3] as usize;
                                 let pid = parse_as_int(registers[1]);
                                 // Copy  the  tracee's  general-purpose  or floating-point registers, respectively, to the address data in the tracer.
                                 write_general_text(
@@ -7404,12 +7541,12 @@ impl SyscallObject {
                                 );
                                 write_text(pid.to_string().custom_color(*PAGES_COLOR));
                                 write_general_text(" into address: ");
-                                write_text(data.custom_color(*OUR_YELLOW));
+                                write_text(data.to_string().custom_color(*OUR_YELLOW));
                                 write_general_text(" of this process's memory");
                             }
                             PTRACE_SETREGS => {
                                 // Modify the tracee's general-purpose registers, from the address data in the tracer.
-                                let data = parse_as_address(registers[3] as usize);
+                                let data = registers[3] as usize;
                                 let pid = parse_as_int(registers[1]);
                                 // Copy  the  tracee's  general-purpose  or floating-point registers, respectively, to the address data in the tracer.
                                 write_general_text(
@@ -7417,11 +7554,11 @@ impl SyscallObject {
                                 );
                                 write_text(pid.to_string().custom_color(*PAGES_COLOR));
                                 write_general_text(" with the registers at: ");
-                                write_text(data.custom_color(*OUR_YELLOW));
+                                write_text(data.to_string().custom_color(*OUR_YELLOW));
                             }
                             PTRACE_SETFPREGS => {
                                 // Modify the tracee's floating-point registers, from the address data in the tracer.
-                                let data = parse_as_address(registers[3] as usize);
+                                let data = registers[3] as usize;
                                 let pid = parse_as_int(registers[1]);
                                 // Copy  the  tracee's  general-purpose  or floating-point registers, respectively, to the address data in the tracer.
                                 write_general_text(
@@ -7429,7 +7566,7 @@ impl SyscallObject {
                                 );
                                 write_text(pid.to_string().custom_color(*PAGES_COLOR));
                                 write_general_text(" with the registers at: ");
-                                write_text(data.custom_color(*OUR_YELLOW));
+                                write_text(data.to_string().custom_color(*OUR_YELLOW));
                             }
                             PTRACE_ATTACH => {
                                 let pid = parse_as_int(registers[1]);
@@ -7966,7 +8103,7 @@ impl SyscallObject {
                                 }
                                 n => {
                                     write_general_text("wake a maximum of ");
-                                    write_text(val.to_string().custom_color(*PAGES_COLOR));
+                                    write_unsigned_numeric(val);
                                     write_general_text(" waiters waiting on futex: ");
                                     write_futex(uaddr_address);
                                 }
@@ -7989,31 +8126,60 @@ impl SyscallObject {
                                     }
                                     n => {
                                         write_general_text(", then wake a maximum of ");
-                                        write_text(val.to_string().custom_color(*PAGES_COLOR));
+                                        write_unsigned_numeric(val);
                                         write_general_text(" waiters on it");
                                     }
                                 };
-                                write_general_text(", and requeue a maximum of ");
-                                write_text(
-                                    lower_32_bits(timespec_or_val2)
-                                        .to_string()
-                                        .custom_color(*PAGES_COLOR),
-                                );
-                                write_general_text(" from the remaining waiters to the futex at: ");
+                                match timespec_or_val2 {
+                                    1 => {
+                                        write_general_text(",  and requeue ");
+                                        write_text("1".custom_color(*PAGES_COLOR));
+                                        // TODO
+                                        // bad phrasing
+                                        // should be (1 waiter if any remains) but too long
+                                        write_general_text(" remaining waiter");
+                                    }
+                                    n => {
+                                        write_general_text(", and requeue a maximum of ");
+                                        write_unsigned_numeric(val);
+                                        write_general_text(" remaining waiters");
+                                    }
+                                };
+                                write_general_text(" to the futex at ");
                                 write_futex(uaddr2_address);
                             }
                             FUTEX_REQUEUE => {
-                                write_general_text("without comparing wake a maximum of ");
-                                write_text(val.to_string().custom_color(*PAGES_COLOR));
-                                write_general_text(" waiters waiting on futex: ");
+                                write_general_text("without comparing ");
+                                match val {
+                                    1 => {
+                                        write_general_text("wake ");
+                                        write_text("1".custom_color(*PAGES_COLOR));
+                                        write_general_text(" waiter ");
+                                    }
+                                    n => {
+                                        write_general_text("wake a maximum of ");
+                                        write_unsigned_numeric(val);
+                                        write_general_text(" waiters waiting ");
+                                    }
+                                };
+                                write_general_text("on futex: ");
                                 write_futex(uaddr_address);
-                                write_general_text(" and requeue a maximum of ");
-                                write_text(
-                                    lower_32_bits(timespec_or_val2)
-                                        .to_string()
-                                        .custom_color(*PAGES_COLOR),
-                                );
-                                write_general_text(" from the remaining waiters to the futex at ");
+                                match timespec_or_val2 {
+                                    1 => {
+                                        write_general_text(" and requeue ");
+                                        write_text("1".custom_color(*PAGES_COLOR));
+                                        // TODO
+                                        // bad phrasing
+                                        // should be (1 waiter if any remains) but too long
+                                        write_general_text(" remaining waiter");
+                                    }
+                                    n => {
+                                        write_general_text(" and requeue a maximum of ");
+                                        write_unsigned_numeric(val);
+                                        write_general_text(" remaining waiters");
+                                    }
+                                };
+                                write_general_text(" to the futex at ");
                                 write_futex(uaddr2_address);
                             }
                             FUTEX_WAKE_OP => {
@@ -8025,9 +8191,19 @@ impl SyscallObject {
                                 write_general_text(" and register a bitmask for selective waiting");
                             }
                             FUTEX_WAKE_BITSET => {
-                                write_general_text("wake a maximum of ");
-                                write_text(val.to_string().custom_color(*PAGES_COLOR));
-                                write_general_text(" waiters waiting on futex: ");
+                                match val {
+                                    1 => {
+                                        write_general_text("wake ");
+                                        write_text("1".custom_color(*PAGES_COLOR));
+                                        write_general_text(" waiter");
+                                    }
+                                    n => {
+                                        write_general_text("wake a maximum of ");
+                                        write_unsigned_numeric(val);
+                                        write_general_text(" waiters");
+                                    }
+                                };
+                                write_general_text(" on futex: ");
                                 write_futex(uaddr_address);
                                 write_text(
                                     " from the provided waiters bitmask".custom_color(*OUR_YELLOW),
@@ -8093,21 +8269,18 @@ impl SyscallObject {
                             }
                             SyscallResult::Fail(errno_variant) => {
                                 // TODO! granular
-                                match futex_op & operations_only_mask {
-                                    FUTEX_WAIT | FUTEX_CMP_REQUEUE => {
-                                        if let ErrnoVariant::Userland(nix::errno::Errno::EAGAIN) =
-                                            errno_variant
-                                        {
-                                            write_general_text(" |=> ");
-                                            write_text(
-                                                "futex didn't contain the value".bold().red(),
-                                            );
-                                        } else {
-                                            self.one_line_error();
-                                        }
+                                if_chain! {
+                                    if futex_op & operations_only_mask == FUTEX_WAIT | FUTEX_CMP_REQUEUE;
+                                    if let ErrnoVariant::Userland(nix::errno::Errno::EAGAIN) = errno_variant;
+                                    then {
+                                        write_general_text(" |=> ");
+                                        write_text(
+                                            "futex didn't contain the value".bold().red(),
+                                        );
+                                    } else {
+                                        self.one_line_error();
                                     }
-                                    _ => self.one_line_error(),
-                                };
+                                }
                             }
                         }
                     }
@@ -8156,13 +8329,13 @@ impl SyscallObject {
             Sysno::set_robust_list => {
                 match self.state {
                     Entering => {
-                        let address = parse_as_address(registers[0] as usize);
+                        let address = registers[0] as usize;
                         let length_of_list = registers[1];
                         // ==================================================================
                         write_general_text(
-                            "set the calling thread's robust futexes list to the list at ",
+                            "set the calling thread's robust futex list to the list at ",
                         );
-                        write_text(address.custom_color(*OUR_YELLOW));
+                        write_address(address);
                         write_general_text(" with length ");
                         write_text(length_of_list.to_string().custom_color(*PAGES_COLOR));
                     }
@@ -8425,7 +8598,7 @@ impl SyscallObject {
                                 write_general_text(
                                     "wait for state change in any child with process group ID ",
                                 );
-                                write_text(pid.to_string().custom_color(*PAGES_COLOR));
+                                write_text(pid.abs().to_string().custom_color(*PAGES_COLOR));
                             } else if pid == -1 {
                                 write_general_text("wait for state change in any child");
                             } else if pid == 0 {
@@ -8439,7 +8612,7 @@ impl SyscallObject {
                         } else {
                             if pid < -1 {
                                 write_general_text("wait until any child with process group ID ");
-                                write_text(pid.to_string().custom_color(*PAGES_COLOR));
+                                write_text(pid.abs().to_string().custom_color(*PAGES_COLOR));
                             } else if pid == -1 {
                                 write_general_text("wait until any child");
                             } else if pid == 0 {
@@ -8615,7 +8788,14 @@ impl SyscallObject {
                     }
                 }
             }
-
+            // The child termination signal
+            // When the child process terminates, a signal may be sent to the parent.
+            //     The termination signal is specified
+            //         1- in the case of clone():
+            //              in the low byte of flags
+            //         2- in the case of clone3():
+            //              in cl_args.exit_signal
+            //
             Sysno::clone3 => {
                 // TODO!
                 // sometimes register[0] isn't a pointer, investigate later
@@ -8627,6 +8807,7 @@ impl SyscallObject {
                         ) {
                             Some(cl_args) => {
                                 let flags = parse_as_int(cl_args.flags);
+                                let exit_signal = cl_args.exit_signal;
                                 if (flags & CLONE_VM) == CLONE_VM {
                                     write_general_text("spawn a new thread with a ");
 
@@ -8762,6 +8943,12 @@ impl SyscallObject {
                                     );
                                 }
                                 if (flags & CLONE_SETTLS) == CLONE_SETTLS {
+                                    // The TLS (Thread Local Storage) descriptor is set to tls.
+                                    // tls is interpreted as:
+                                    // On x86: a pointer to a `user_desc` struct (see set_thread_area(2))
+                                    // On x86-64: the new value to be set for the %fs base register
+                                    // On architectures with a dedicated TLS register: it is the new value of that register.
+
                                     directives.push(
                                         "modify the thread local storage descriptor"
                                             .custom_color(*OUR_YELLOW),
@@ -8805,6 +8992,19 @@ impl SyscallObject {
                                     );
                                 }
 
+                                // TODO!
+                                // separate the signal parsing from the to_str() result
+                                match parse_as_signal(exit_signal as i32) {
+                                    "SIGCHLD" => {}
+                                    anything_else => directives.push(
+                                        format!(
+                                            "{}{}",
+                                            "set the exit signal as: ".custom_color(*OUR_YELLOW),
+                                            anything_else.custom_color(*PAGES_COLOR)
+                                        )
+                                        .normal(),
+                                    ),
+                                };
                                 write_directives(directives);
                             }
                             None => {
@@ -8852,6 +9052,14 @@ impl SyscallObject {
                 }
             }
 
+            // The child termination signal
+            // When the child process terminates, a signal may be sent to the parent.
+            //     The termination signal is specified
+            //         1- in the case of clone():
+            //              in the low byte of flags
+            //         2- in the case of clone3():
+            //              in cl_args.exit_signal
+            //
             Sysno::clone => {
                 // TODO!
                 // revise
@@ -8862,6 +9070,9 @@ impl SyscallObject {
                 let flags = parse_as_int(registers[0]);
                 match self.state {
                     Entering => {
+                        // TODO!
+                        // output this
+                        let exit_signal = flags & 0xFF;
                         let stack = registers[1];
                         // ==================================================================
                         if (flags & CLONE_VM) == CLONE_VM {
@@ -9027,7 +9238,20 @@ impl SyscallObject {
                                 "default all inherited signal handlers".custom_color(*OUR_YELLOW),
                             );
                         }
-                        write_directives(directives);
+                        // TODO!
+                        // separate the signal parsing from the to_str() result
+                        match parse_as_signal(exit_signal) {
+                            "SIGCHLD" => {}
+                            anything_else => directives.push(
+                                format!(
+                                    "{}{}",
+                                    "set the exit signal as: ".custom_color(*OUR_YELLOW),
+                                    anything_else.custom_color(*PAGES_COLOR)
+                                )
+                                .normal(),
+                            ),
+                        };
+                        write_directives(directives)
                     }
                     Exiting => {
                         match &self.result {
@@ -9112,7 +9336,7 @@ impl SyscallObject {
                         write_general_text(
                             "replace the current program with the following program and its arguments: ",
                         );
-                        write_vanilla_path_file(program_name);
+                        write_vanilla_path_file(&program_name);
                     }
                     Exiting => {
                         match &self.result {
@@ -9547,7 +9771,7 @@ impl SyscallObject {
                         write_general_text("retrieve the entries ");
                         write_general_text(" (");
                         write_general_text("maximum: ");
-                        write_text(count.to_string().custom_color(*PAGES_COLOR));
+                        write_unsigned_numeric(count);
                         write_general_text(")");
                         write_general_text(" inside the directory: ");
                         write_colored(directory);
@@ -9579,7 +9803,7 @@ impl SyscallObject {
                         write_colored(directory);
                         write_general_text(" (");
                         write_text("retrieve a maximum of ".custom_color(*OUR_YELLOW));
-                        write_text(count.to_string().custom_color(*PAGES_COLOR));
+                        write_unsigned_numeric(count);
                         write_text(" entries".custom_color(*OUR_YELLOW));
                         write_general_text(")");
                     }
