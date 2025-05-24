@@ -324,7 +324,7 @@ impl SyscallObject {
                         }
                         write_possible_dirfd_anchor(dirfd, filename, self.tracee_pid)
                             .unwrap_or_else(|_| {
-                                write_text("[intentrace: could not get file name]".white());
+                                write_text("[intentrace: could not read file name]".white());
                             });
                         write_general_text(" with ");
                         let read_write_mask = 0b11;
@@ -569,7 +569,7 @@ impl SyscallObject {
                         write_general_text("get the stats of the file: ");
                         write_possible_dirfd_anchor(dirfd, filename, self.tracee_pid)
                             .unwrap_or_else(|_| {
-                                write_text("[intentrace: could not get file name]".white());
+                                write_text("[intentrace: could not read file name]".white());
                             });
                         let mut flag_directive = vec![];
                         if (flags & AT_SYMLINK_NOFOLLOW) == AT_SYMLINK_NOFOLLOW {
@@ -633,7 +633,9 @@ impl SyscallObject {
                                 // A relative pathname, dirfd = CWD, or a normal directory
                                 write_possible_dirfd_anchor(dirfd, pathname, self.tracee_pid)
                                     .unwrap_or_else(|_| {
-                                        write_text("[intentrace: could not get file name]".white());
+                                        write_text(
+                                            "[intentrace: could not read file name]".white(),
+                                        );
                                     });
                             }
                         }
@@ -696,26 +698,28 @@ impl SyscallObject {
                         // https://github.com/torvalds/linux/blob/cfb2e2c57aef75a414c0f18445c7441df5bc13be/fs/open.c#L768C1-L768C2
                         if owner_given != u32::MAX {
                             let owner = get_username_from_uid(owner_given)
-                                .unwrap_or("[intentrace: could not get owner]");
+                                .unwrap_or("[intentrace: could not read owner]");
                             write_general_text("change the owner of ");
                             write_vanilla_path_file(&filename);
                             write_general_text(" to ");
                             write_text(owner.bold().green());
                             if group_given != u32::MAX {
                                 let group = get_groupname_from_uid(group_given)
-                                    .unwrap_or("[intentrace: could not get group]");
+                                    .unwrap_or("[intentrace: could not read group]");
                                 write_general_text(", and its group to ");
                                 write_text(group.bold().green());
                             }
                         } else {
                             if group_given != u32::MAX {
                                 let group = get_groupname_from_uid(group_given)
-                                    .unwrap_or("[intentrace: could not get group]");
+                                    .unwrap_or("[intentrace: could not read group]");
                                 write_general_text("change the group of the file: ");
                                 write_vanilla_path_file(&filename);
                                 write_general_text("to ");
                                 write_text(group.bold().green());
                             } else {
+                                // TODO!
+                                // change this
                                 write_general_text(
                                     "[intentrace: redundant syscall (won't do anything)]",
                                 );
@@ -760,26 +764,28 @@ impl SyscallObject {
                         // https://github.com/torvalds/linux/blob/cfb2e2c57aef75a414c0f18445c7441df5bc13be/fs/open.c#L768C1-L768C2
                         if owner_given != u32::MAX {
                             let owner = get_username_from_uid(owner_given)
-                                .unwrap_or("[intentrace: could not get owner]");
+                                .unwrap_or("[intentrace: could not read owner]");
                             write_general_text("change the owner of ");
                             write_colored(filename);
                             write_general_text(" to ");
                             write_text(owner.bold().green());
                             if group_given != u32::MAX {
                                 let group = get_groupname_from_uid(group_given)
-                                    .unwrap_or("[intentrace: could not get group]");
+                                    .unwrap_or("[intentrace: could not read group]");
                                 write_general_text(", and its group to ");
                                 write_text(group.bold().green());
                             }
                         } else {
                             if group_given != u32::MAX {
                                 let group = get_groupname_from_uid(group_given)
-                                    .unwrap_or("[intentrace: could not get group]");
+                                    .unwrap_or("[intentrace: could not read group]");
                                 write_general_text("change the group of the file: ");
                                 write_colored(filename);
                                 write_general_text("to ");
                                 write_text(group.bold().green());
                             } else {
+                                // TODO!
+                                // change this
                                 write_general_text(
                                     "[intentrace: redundant syscall (won't do anything)]",
                                 );
@@ -823,14 +829,14 @@ impl SyscallObject {
                         // https://github.com/torvalds/linux/blob/cfb2e2c57aef75a414c0f18445c7441df5bc13be/fs/open.c#L768C1-L768C2
                         if owner_given != u32::MAX {
                             let owner = get_username_from_uid(owner_given)
-                                .unwrap_or("[intentrace: could not get owner]");
+                                .unwrap_or("[intentrace: could not read owner]");
                             write_general_text("change the owner of ");
                             write_vanilla_path_file(&filename);
                             write_general_text(" to ");
                             write_text(owner.bold().green());
                             if group_given != u32::MAX {
                                 let group = get_groupname_from_uid(group_given)
-                                    .unwrap_or("[intentrace: could not get group]");
+                                    .unwrap_or("[intentrace: could not read group]");
                                 write_general_text(", and its group to ");
                                 write_text(group.bold().green());
                             }
@@ -840,7 +846,7 @@ impl SyscallObject {
                         } else {
                             if group_given != u32::MAX {
                                 let group = get_groupname_from_uid(group_given)
-                                    .unwrap_or("[intentrace: could not get group]");
+                                    .unwrap_or("[intentrace: could not read group]");
                                 write_general_text("change the group of the file: ");
                                 write_vanilla_path_file(&filename);
                                 write_general_text("to ");
@@ -851,6 +857,8 @@ impl SyscallObject {
                                 );
                                 write_general_text(")");
                             } else {
+                                // TODO!
+                                // change this
                                 write_general_text(
                                     "[intentrace: redundant syscall (won't do anything)]",
                                 );
@@ -911,18 +919,18 @@ impl SyscallObject {
                         };
                         if owner_given != u32::MAX {
                             let owner = get_username_from_uid(owner_given)
-                                .unwrap_or("[intentrace: could not get owner]");
+                                .unwrap_or("[intentrace: could not read owner]");
                             write_general_text("change the owner of ");
                             write_possible_dirfd_anchor(dirfd, filename, self.tracee_pid)
                                 .unwrap_or_else(|_| {
-                                    write_text("[intentrace: could not get file name]".white());
+                                    write_text("[intentrace: could not read file name]".white());
                                 });
 
                             write_general_text(" to ");
                             write_text(owner.bold().green());
                             if group_given != u32::MAX {
                                 let group = get_groupname_from_uid(group_given)
-                                    .unwrap_or("[intentrace: could not get group]");
+                                    .unwrap_or("[intentrace: could not read group]");
                                 write_general_text(", and its group to ");
                                 write_text(group.bold().green());
                             }
@@ -930,13 +938,15 @@ impl SyscallObject {
                         } else {
                             if group_given == u32::MAX {
                                 let group = get_groupname_from_uid(group_given)
-                                    .unwrap_or("[intentrace: could not get group]");
+                                    .unwrap_or("[intentrace: could not read group]");
                                 write_general_text("change the group of the file: ");
                                 write_vanilla_path_file(&filename);
                                 write_general_text("to ");
                                 write_text(group.bold().green());
                                 flags_check();
                             } else {
+                                // TODO!
+                                // change this
                                 write_general_text(
                                     "[intentrace: redundant syscall (won't do anything)]",
                                 );
@@ -2844,7 +2854,7 @@ impl SyscallObject {
                         write_general_text("unlink and possibly delete the file: ");
                         write_possible_dirfd_anchor(dirfd, path, self.tracee_pid).unwrap_or_else(
                             |_| {
-                                write_text("[intentrace: could not get file name]".white());
+                                write_text("[intentrace: could not read file name]".white());
                             },
                         );
 
@@ -2931,7 +2941,7 @@ impl SyscallObject {
                         write_general_text("create the symlink: ");
                         write_possible_dirfd_anchor(dirfd, symlink, self.tracee_pid)
                             .unwrap_or_else(|_| {
-                                write_text("[intentrace: could not get file name]".white());
+                                write_text("[intentrace: could not read file name]".white());
                             });
 
                         write_general_text(" and link it with: ");
@@ -2973,7 +2983,7 @@ impl SyscallObject {
                                     Some(target) => write_vanilla_path_file(&target),
                                     None => {
                                         write_text(
-                                            "[intentrace: could not get target]"
+                                            "[intentrace: could not read target]"
                                                 .blink()
                                                 .bright_black(),
                                         );
@@ -3460,7 +3470,7 @@ impl SyscallObject {
                                     }
                                 }
                             } else {
-                                write_text("[intentrace: could not get file name]".white());
+                                write_text("[intentrace: could not read file name]".white());
                             }
                         }
                     }
@@ -3549,7 +3559,7 @@ impl SyscallObject {
                                     }
                                 }
                             } else {
-                                write_text("[intentrace: could not get file name]".white());
+                                write_text("[intentrace: could not read file name]".white());
                             }
                         }
                         let mut directives = vec![];
@@ -3742,7 +3752,7 @@ impl SyscallObject {
                         write_general_text("change the mode of the file: ");
                         write_possible_dirfd_anchor(dirfd, filename, self.tracee_pid)
                             .unwrap_or_else(|_| {
-                                write_text("[intentrace: could not get file name]".white());
+                                write_text("[intentrace: could not read file name]".white());
                             });
 
                         self.mode_matcher(mode);
@@ -4140,7 +4150,9 @@ impl SyscallObject {
                                 write_timespec(timespec.tv_sec, timespec.tv_nsec);
                             } else {
                                 write_text(
-                                    "[intentrace: could not get timeout]".blink().bright_black(),
+                                    "[intentrace: could not read timeout]"
+                                        .blink()
+                                        .bright_black(),
                                 );
                             }
                         } else {
@@ -4367,7 +4379,9 @@ impl SyscallObject {
                                 write_timespec(timespec.tv_sec, timespec.tv_nsec);
                             } else {
                                 write_text(
-                                    "[intentrace: could not get timeout]".blink().bright_black(),
+                                    "[intentrace: could not read timeout]"
+                                        .blink()
+                                        .bright_black(),
                                 );
                             }
                         } else {
@@ -4584,7 +4598,7 @@ impl SyscallObject {
                                             Some(word) => lower_64_bits(word)
                                                 .to_string()
                                                 .custom_color(*PAGES_COLOR),
-                                            None => "[intentrace: could not get pid]"
+                                            None => "[intentrace: could not read pid]"
                                                 .blink()
                                                 .bright_black(),
                                         };
@@ -4644,8 +4658,6 @@ impl SyscallObject {
                         // ==================================================================
                         // a rt_sigaction call must only use one of the first two arguments, never both
 
-                        // struct sigaction {
-
                         // either:
                         // 1- SIG_DFL flag: means use the default action.
                         // 2- SIG_IGN flag: means ignore this signal.
@@ -4688,27 +4700,32 @@ impl SyscallObject {
                                 registers[1] as usize,
                                 self.tracee_pid as _,
                             ) {
-                                Some(sigaction) => match sigaction.sa_sigaction {
-                                    SIG_DFL => {
-                                        write_general_text("change the process's handler for ");
-                                        write_text(signal_as_string.custom_color(*PAGES_COLOR));
-                                        write_general_text(" to the default handler");
+                                Some(sigaction) => {
+                                    let sa_flags = sigaction.sa_flags;
+                                    let sa_restorer = sigaction.sa_restorer;
+                                    match sigaction.sa_sigaction {
+                                        SIG_DFL => {
+                                            write_general_text("change the process's handler for ");
+                                            write_text(signal_as_string.custom_color(*PAGES_COLOR));
+                                            write_general_text(" to the default handler");
+                                        }
+                                        SIG_IGN => {
+                                            write_general_text(
+                                                "set the process to ignore the signal: ",
+                                            );
+                                            write_text(signal_as_string.custom_color(*PAGES_COLOR));
+                                        }
+                                        _ => {
+                                            write_general_text("change the process's handler for ");
+                                            write_text(signal_as_string.custom_color(*PAGES_COLOR));
+                                            write_general_text(" to the provided handler");
+                                        }
                                     }
-                                    SIG_IGN => {
-                                        write_general_text("ignore the signal: ");
-                                        write_text(signal_as_string.custom_color(*PAGES_COLOR));
-                                        write_general_text(" for the process");
-                                    }
-                                    _ => {
-                                        write_general_text("change the process's handler for ");
-                                        write_text(signal_as_string.custom_color(*PAGES_COLOR));
-                                        write_general_text(" to the provided handler");
-                                    }
-                                },
+                                }
                                 None => {
-                                    write_general_text("change the process's handler for ");
-                                    write_text(signal_as_string.custom_color(*PAGES_COLOR));
-                                    write_general_text(" to the provided action");
+                                    write_text(
+                                        "[intentrace: could not read sigaction]".bright_black(),
+                                    );
                                 }
                             };
                             if !old_signal_action.is_null() {
@@ -4756,6 +4773,8 @@ impl SyscallObject {
                                     "retrieve the proccess's current list of blocked signals",
                                 );
                             } else {
+                                // TODO!
+                                // change this
                                 write_text(
                                     "[intentrace: redundant syscall (won't do anything)]".blink(),
                                 );
@@ -4789,6 +4808,8 @@ impl SyscallObject {
                                     if !old_set != 0 {
                                         write_text("retrieved blocked signals".bold().green());
                                     } else {
+                                        // TODO!
+                                        // change this
                                         write_text(
                                             "[intentrace: redundant syscall (won't do anything)]"
                                                 .blink(),
@@ -4852,6 +4873,8 @@ impl SyscallObject {
                 match self.state {
                     Entering => match (new_stack_null, old_stack_null) {
                         (true, true) => {
+                            // TODO!
+                            // change this
                             write_text(
                                 "[intentrace: redundant syscall (won't do anything)]".blink(),
                             );
@@ -6560,7 +6583,7 @@ impl SyscallObject {
                         }
                         (false, false) => {
                             // TODO!
-                            // investigate
+                            // change this
                             write_general_text("do not retrieve or set any soft/hard limits ");
                             write_general_text(
                                 "[intentrace: redundant syscall (won't do anything)]",
@@ -8311,7 +8334,7 @@ impl SyscallObject {
                                         Some(word) => lower_64_bits(word)
                                             .to_string()
                                             .custom_color(*PAGES_COLOR),
-                                        None => "[intentrace: could not get robust list length]"
+                                        None => "[intentrace: could not read robust list length]"
                                             .blink()
                                             .bright_black(),
                                     };
@@ -8773,7 +8796,7 @@ impl SyscallObject {
                                             // }
                                         }
                                         None => write_text(
-                                            "[intentrace: could not get wstatus]"
+                                            "[intentrace: could not read wstatus]"
                                                 .blink()
                                                 .bright_black(),
                                         ),
@@ -9017,7 +9040,9 @@ impl SyscallObject {
                             }
                             None => {
                                 write_text(
-                                    "[intentrace: could not get cl_args]".blink().bright_black(),
+                                    "[intentrace: could not read cl_args]"
+                                        .blink()
+                                        .bright_black(),
                                 );
                             }
                         }
@@ -9044,7 +9069,7 @@ impl SyscallObject {
                                     }
                                     None => {
                                         write_text(
-                                            "[intentrace: could not get cl_args]"
+                                            "[intentrace: could not read cl_args]"
                                                 .blink()
                                                 .bright_black(),
                                         );

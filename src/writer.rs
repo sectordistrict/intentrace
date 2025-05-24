@@ -370,37 +370,37 @@ pub fn write_page_aligned_address(register_value: usize) {
         match *PAGE_SIZE {
             4096 => {
                 let len = pointer_formatted.len();
-                write_text(pointer_formatted[..(len - 4)].custom_color(*OUR_YELLOW));
+                write_text(pointer_formatted[..(len - 3)].custom_color(*OUR_YELLOW));
                 if register_value % 4096 == 0 {
+                    write_text("|".custom_color(*PAGES_COLOR));
+                } else {
+                    write_text("|".red());
+                }
+                write_text(pointer_formatted[(len - 3)..].custom_color(*OUR_YELLOW));
+            }
+            65536 => {
+                let len = pointer_formatted.len();
+                write_text(pointer_formatted[..(len - 4)].custom_color(*OUR_YELLOW));
+                if register_value % 65536 == 0 {
                     write_text("|".custom_color(*PAGES_COLOR));
                 } else {
                     write_text("|".red());
                 }
                 write_text(pointer_formatted[(len - 4)..].custom_color(*OUR_YELLOW));
             }
-            65536 => {
-                let len = pointer_formatted.len();
-                write_text(pointer_formatted[..(len - 5)].custom_color(*OUR_YELLOW));
-                if register_value % 65536 == 0 {
-                    write_text("|".custom_color(*PAGES_COLOR));
-                } else {
-                    write_text("|".red());
-                }
-                write_text(pointer_formatted[(len - 5)..].custom_color(*OUR_YELLOW));
-            }
             16384 => {
                 let len = pointer_formatted.len();
-                write_text(pointer_formatted[..(len - 6)].custom_color(*OUR_YELLOW));
+                write_text(pointer_formatted[..(len - 5)].custom_color(*OUR_YELLOW));
                 if register_value % 16384 == 0 {
                     write_text(
-                        pointer_formatted[(len - 6)..(len - 5)]
+                        pointer_formatted[(len - 5)..(len - 4)]
                             .custom_color(*PAGES_COLOR)
                             .underline(),
                     );
                 } else {
-                    write_text(pointer_formatted[(len - 6)..(len - 5)].red().underline());
+                    write_text(pointer_formatted[(len - 5)..(len - 4)].red().underline());
                 }
-                write_text(pointer_formatted[(len - 5)..].custom_color(*OUR_YELLOW));
+                write_text(pointer_formatted[(len - 4)..].custom_color(*OUR_YELLOW));
             }
             _ => write_text(pointer_formatted.custom_color(*OUR_YELLOW)),
         }
