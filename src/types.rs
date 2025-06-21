@@ -117,13 +117,13 @@ impl Display for Bytes {
                 write!(f, "{:.1} Bytes", bytes)
             }
             Bytes::kilo(bytes) => {
-                write!(f, "{:.1} Kib", bytes)
+                write!(f, "{:.1} KiB", bytes)
             }
             Bytes::mega(bytes) => {
-                write!(f, "{:.1} Mib", bytes)
+                write!(f, "{:.1} MiB", bytes)
             }
             Bytes::giga(bytes) => {
-                write!(f, "{:.1} Gib", bytes)
+                write!(f, "{:.1} GiB", bytes)
             }
         }
     }

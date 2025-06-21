@@ -281,8 +281,8 @@ pub fn partition_by_final_dentry(graphemes: Graphemes) -> (String, String) {
         .by_ref()
         .take_while(|chara| *chara != "/")
         .collect::<Vec<&str>>();
-    let mut first_partition = graphemes_revved.rev().collect::<String>();
-    first_partition.push('/');
+    let first_partition = graphemes_revved.rev().collect::<String>();
+    // first_partition.push('/');
     (
         first_partition,
         second_partition.into_iter().rev().collect::<String>(),
@@ -366,6 +366,7 @@ pub fn parse_as_file_descriptor(file_descriptor: i32, tracee_pid: Pid) -> String
                     let partition_2_color =
                         get_final_dentry_color_consider_repetition(&repetition_dependent);
                     colored_strings.push(yellow.custom_color(*PARTITION_1_COLOR));
+                    colored_strings.push("/".custom_color(*PARTITION_1_COLOR));
                     colored_strings.push(repetition_dependent.custom_color(partition_2_color));
                 }
                 FDTarget::Socket(socket_number) => {

@@ -2009,6 +2009,9 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
         // //     Sysno::shmat,
         // // ),
         // // (
+        // //     Sysno::shmdt,
+        // // )
+        // // (
         // //     Sysno::shmctl,
         // // ),
         // // (
@@ -2063,10 +2066,6 @@ pub fn initialize_skeletons_map() -> HashMap<Sysno, Syscall_Shape> {
 
         // // (
         // //     Sysno::semctl,
-        // // )
-
-        // // (
-        // //     Sysno::shmdt,
         // // )
 
         // // (

@@ -104,21 +104,9 @@ pub fn write_syscall_not_covered(sysno: Sysno, tracee_pid: Pid) {
     flush_buffer();
 }
 
-pub fn write_vanilla_path_file(filename: &str) {
-    use unicode_segmentation::UnicodeSegmentation;
-    let graphemes = filename.graphemes(true);
-    let (yellow, repetition_dependent) = partition_by_final_dentry(graphemes);
-
-    write_path_consider_repetition(&yellow, &repetition_dependent);
-}
 
 pub fn write_colored(filename: String) {
     buffered_write(filename.normal())
-}
-
-pub fn write_path_consider_repetition(yellow: &str, repetition_dependent: &str) {
-    write_partition_1_consider_repetition(yellow);
-    write_partition_2_consider_repetition(repetition_dependent);
 }
 
 // repetition isnt relevant for the first partition of the path
@@ -147,14 +135,28 @@ pub fn write_possible_dirfd_anchor(
     let (first_partition, second_partition) =
         get_strings_from_dirfd_anchored_file(dirfd, filename.as_ref(), tracee_pid)?;
     match first_partition {
-        Cow::Owned(string) => {
-            write_path_consider_repetition(string.as_ref(), second_partition);
+        Cow::Owned(leading_path) => {
+            write_path_consider_repetition(leading_path.as_ref(), second_partition);
         }
-        Cow::Borrowed(_empty) => {
+        Cow::Borrowed(_path_is_absolute) => {
             write_vanilla_path_file(second_partition);
         }
     }
     Ok(())
+}
+
+pub fn write_vanilla_path_file(filename: &str) {
+    use unicode_segmentation::UnicodeSegmentation;
+    let graphemes = filename.graphemes(true);
+    let (yellow, repetition_dependent) = partition_by_final_dentry(graphemes);
+
+    write_path_consider_repetition(&yellow, &repetition_dependent);
+}
+
+pub fn write_path_consider_repetition(yellow: &str, repetition_dependent: &str) {
+    write_partition_1_consider_repetition(yellow);
+    buffered_write("/".custom_color(*OUR_YELLOW));
+    write_partition_2_consider_repetition(repetition_dependent);
 }
 
 pub fn write_directives(mut vector: Vec<ColoredString>) {
